@@ -1,0 +1,378 @@
+/* ===== Blacklist Drivers (Design System Redesign) ===== */
+
+.bl-page {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: 'DM Sans', sans-serif;
+  color: #1C1B18;
+}
+
+.bl-header {
+  margin-bottom: 20px;
+}
+
+.bl-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1C1B18;
+  letter-spacing: -0.02em;
+}
+
+/* Search Bar */
+.bl-search-wrap {
+  margin-bottom: 20px;
+}
+
+.bl-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #EDEDED;
+  border-radius: 8px;
+  background: #FFFFFF;
+  max-width: 380px;
+  color: #9CA3AF;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.bl-search:focus-within {
+  border-color: #FFA500;
+  box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.12);
+}
+
+.bl-search input {
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  background: transparent;
+  color: #1C1B18;
+  font-family: inherit;
+}
+
+.bl-search input::placeholder {
+  color: #9CA3AF;
+}
+
+/* Table Card */
+.bl-table-card {
+  background: #FFFFFF;
+  border: 1px solid #EDEDED;
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-sizing: border-box;
+}
+
+.bl-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.bl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  text-align: left;
+}
+
+.bl-table th {
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B7280;
+  border-bottom: 1px solid #EDEDED;
+  background: #FFFFFF;
+  white-space: nowrap;
+}
+
+.bl-table td {
+  padding: 16px 16px;
+  color: #1C1B18;
+  border-bottom: 1px solid #F3F4F6;
+  vertical-align: middle;
+}
+
+.bl-table tr:last-child td {
+  border-bottom: none;
+}
+
+.bl-id {
+  font-weight: 700;
+  color: #1C1B18;
+}
+
+/* Status Badge */
+.bl-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #EF4444;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* View Action Button */
+.bl-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #FFA500;
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #FFA500;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.bl-view:hover {
+  background: #FFA500;
+  color: #FFFFFF;
+}
+
+/* Pagination */
+.bl-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.bl-pagination-info {
+  font-size: 13px;
+  color: #6B7280;
+}
+
+.bl-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bl-page-btn {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #EDEDED;
+  background: #FFFFFF;
+  color: #1C1B18;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0 8px;
+  font-family: inherit;
+  transition: all 0.12s ease;
+}
+
+.bl-page-btn:hover:not(:disabled) {
+  border-color: #D1D5DB;
+  background: #FAFAFA;
+}
+
+.bl-page-btn.active {
+  background: #FFA500;
+  border-color: #FFA500;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.bl-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Drawer / Modal */
+.bl-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1000;
+}
+
+.bl-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(420px, 94vw);
+  height: 100svh;
+  background: #FFFFFF;
+  z-index: 1001;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.12);
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  animation: blSlideLeft 0.2s ease;
+}
+
+@keyframes blSlideLeft {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.bl-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #EDEDED;
+}
+
+.bl-drawer-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1C1B18;
+}
+
+.bl-modal-close-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #EDEDED;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bl-modal-close-circle:hover {
+  background: #F3F4F6;
+  color: #1C1B18;
+}
+
+.bl-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  background: #F9FAFB;
+  border: 1px solid #EDEDED;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.bl-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #FEE2E2;
+  color: #EF4444;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+}
+
+.bl-profile strong {
+  font-size: 16px;
+  color: #1C1B18;
+}
+
+.bl-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.bl-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #FAFAFA;
+  border: 1px solid #EDEDED;
+  border-radius: 8px;
+}
+
+.bl-field span {
+  font-size: 11px;
+  color: #6B7280;
+  display: block;
+}
+
+.bl-field strong {
+  font-size: 13px;
+  color: #1C1B18;
+}
+
+.bl-drawer h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4B5563;
+  text-transform: uppercase;
+}
+
+.bl-notes-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bl-notes-box textarea {
+  width: 100%;
+  border: 1px solid #EDEDED;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1C1B18;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.bl-notes-box textarea:focus {
+  border-color: #FFA500;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.12);
+}
+
+.bl-save-btn {
+  align-self: flex-end;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: #FFA500;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  font-family: inherit;
+}
+
+.bl-save-btn:hover {
+  background: #E69500;
+}

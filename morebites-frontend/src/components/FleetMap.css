@@ -1,0 +1,36 @@
+.fm-map {
+  width: 100%;
+  height: 280px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #ececec;
+  z-index: 0;
+}
+
+.fm-map.fm-fullscreen,
+.dp-map-fullscreen .fm-map,
+.dp-map-modal-body .fm-map {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+}
+
+.fm-marker {
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.12);
+}
+
+.fm-marker-customer {
+  background: #e53935;
+}
+
+.fm-marker-rider {
+  background: #2563eb;
+}
+
+.fm-marker-store {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.25);
+}

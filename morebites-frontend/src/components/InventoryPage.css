@@ -1,0 +1,35 @@
+.inv-page-wrap {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inv-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.inv-tab {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid #EDEDED;
+  background: #FFFFFF;
+  color: #4B5563;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.inv-tab:hover {
+  border-color: #D1D5DB;
+  color: #1C1B18;
+}
+
+.inv-tab.active {
+  background: #FFA500;
+  border-color: #FFA500;
+  color: #FFFFFF;
+}

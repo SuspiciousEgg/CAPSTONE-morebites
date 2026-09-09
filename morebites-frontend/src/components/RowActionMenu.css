@@ -1,0 +1,63 @@
+.ram-more {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #ebebeb;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--sa-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.ram-more:hover {
+  background: #f7f7f7;
+  color: var(--sa-text);
+}
+
+.ram-menu {
+  min-width: 170px;
+  background: #fff;
+  border: 1px solid #ececec;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  animation: ram-pop 0.15s ease;
+}
+
+.ram-menu-popup {
+  position: fixed;
+  z-index: 300;
+}
+
+@keyframes ram-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ram-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--sa-text);
+}
+
+.ram-menu button:hover {
+  background: #f7f7f7;
+}
+
+.ram-menu button.danger {
+  color: #e53935;
+}

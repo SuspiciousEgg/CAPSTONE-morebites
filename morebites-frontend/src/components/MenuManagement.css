@@ -1,0 +1,1028 @@
+/* ===== Full Page Layout ===== */
+.menu-page {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: 'DM Sans', sans-serif;
+  color: #1C1B18;
+}
+
+/* Page Title: Menu Management */
+.menu-title {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 32px;
+  color: #1C1B18;
+  margin: 0 0 24px 0;
+  letter-spacing: -0.02em;
+}
+
+/* Top Controls Row */
+.menu-top-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+/* Search Bar on the Left */
+.menu-search-wrapper {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+}
+
+.menu-search-icon {
+  position: absolute;
+  left: 14px;
+  color: #999999;
+  pointer-events: none;
+}
+
+.menu-search-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 16px 0 42px;
+  background: #FFFFFF;
+  border: 1px solid #EBEBEB;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #1C1B18;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.menu-search-input:focus {
+  border-color: #FFA500;
+  box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.15);
+}
+
+.menu-search-input::placeholder {
+  color: #999999;
+}
+
+/* Category Filter Dropdown in the Middle */
+.menu-category-wrapper {
+  position: relative;
+  width: 180px;
+}
+
+.menu-category-select {
+  width: 100%;
+  height: 44px;
+  padding: 0 36px 0 16px;
+  background: #FFFFFF;
+  border: 1px solid #EBEBEB;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  color: #1C1B18;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+}
+
+.menu-category-select:focus {
+  border-color: #FFA500;
+}
+
+.menu-select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #666666;
+  pointer-events: none;
+}
+
+/* + Add New Item Button on the Right */
+.menu-add-btn {
+  height: 44px;
+  padding: 0 20px;
+  background: #FFA500;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.menu-add-btn:hover {
+  background: #E6522A;
+}
+
+.menu-add-btn:active {
+  transform: scale(0.98);
+}
+
+/* Tabs Row */
+.menu-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  border-bottom: 1px solid #EBEBEB;
+  margin-bottom: 24px;
+  padding-left: 4px;
+}
+
+.menu-tab {
+  background: none;
+  border: none;
+  padding: 10px 4px 14px 4px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  transition: color 0.15s ease;
+}
+
+.menu-tab:hover {
+  color: #1C1B18;
+}
+
+.menu-tab.active {
+  color: #FFA500;
+  font-weight: 700;
+}
+
+.menu-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #FFA500;
+  border-radius: 3px 3px 0 0;
+}
+
+/* Count Badge Next to Tab Label */
+.menu-tab-badge {
+  background: #EAEAEA;
+  color: #555555;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.menu-tab.active .menu-tab-badge {
+  background: #FCECE8;
+  color: #FFA500;
+}
+
+/* Data Table Card Container */
+.menu-table-card {
+  background: #FFFFFF;
+  border: 1px solid #EFEFEF;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+/* Initial / Empty State View */
+.menu-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+
+.menu-empty-icon-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #FEF3C7;
+  color: #F59E0B;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.menu-empty-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1C1B18;
+  margin: 0 0 6px 0;
+}
+
+.menu-empty-subtext {
+  font-size: 14px;
+  color: #777777;
+  margin: 0;
+}
+
+/* Table Layout */
+.menu-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.menu-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.menu-table th {
+  padding: 16px 20px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #222222;
+  border-bottom: 1px solid #EFEFEF;
+  background: #FFFFFF;
+  white-space: nowrap;
+}
+
+.menu-table td {
+  padding: 16px 20px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #1C1B18;
+  border-bottom: 1px solid #F5F5F5;
+  vertical-align: middle;
+}
+
+.menu-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Archived Menu Items - Greyed Out State */
+.menu-table tr.menu-row-archived {
+  background-color: #F8F9FA;
+  opacity: 0.55;
+}
+
+.menu-table tr.menu-row-archived:hover {
+  background-color: #F3F4F6;
+}
+
+.menu-table tr.menu-row-archived .menu-img-container {
+  filter: grayscale(100%);
+  opacity: 0.7;
+}
+
+.menu-table tr.menu-row-archived .menu-item-name,
+.menu-table tr.menu-row-archived .menu-item-desc,
+.menu-table tr.menu-row-archived .menu-price-text {
+  color: #9CA3AF !important;
+}
+
+.menu-table tr.menu-row-archived .menu-category-badge {
+  background-color: #F3F4F6 !important;
+  color: #9CA3AF !important;
+  border-color: #E5E7EB !important;
+}
+
+.menu-table tr.menu-row-archived .menu-size-pill {
+  background-color: #F3F4F6 !important;
+  color: #9CA3AF !important;
+  border-color: #E5E7EB !important;
+}
+
+/* Image Thumbnail Column */
+.menu-img-container {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #F7F7F7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.menu-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.menu-img-fallback {
+  color: #AAAAAA;
+}
+
+/* Item Name & Description Column */
+.menu-item-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item-name {
+  font-weight: 700;
+  font-size: 16px;
+  color: #1C1B18;
+  line-height: 1.3;
+}
+
+.menu-item-desc {
+  font-size: 12px;
+  color: #777777;
+  margin-top: 3px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Category Pill Badge */
+.menu-category-badge {
+  display: inline-block;
+  background: #000000;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 16px;
+  border-radius: 20px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Price Display (Orange #FFA500) */
+.menu-price-text {
+  font-weight: 700;
+  font-size: 16px;
+  color: #FFA500;
+  white-space: nowrap;
+}
+
+/* Size Options Pills */
+.menu-sizes-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.menu-size-pill {
+  background: #EAEAEA;
+  color: #555555;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.menu-no-sizes {
+  color: #CCCCCC;
+}
+
+/* Availability Toggle Switch */
+.menu-toggle-switch {
+  width: 48px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.2s ease;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.menu-toggle-switch.on {
+  background-color: #FFA500;
+  justify-content: flex-end;
+}
+
+.menu-toggle-switch.off {
+  background-color: #DCE5F2;
+  justify-content: flex-start;
+}
+
+.menu-toggle-switch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.menu-toggle-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+/* Action Icon Buttons */
+.menu-actions-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.menu-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #E0E0E0;
+  background: #FFFFFF;
+  color: #444444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.menu-action-btn:hover {
+  background: #F7F7F7;
+  color: #1C1B18;
+  border-color: #CCCCCC;
+}
+
+.menu-action-btn.archive:hover {
+  color: #E6522A;
+  border-color: #E6522A;
+}
+
+.menu-action-btn.restore:hover {
+  color: #2E7D32;
+  border-color: #2E7D32;
+}
+
+/* Bottom Pagination Bar */
+.menu-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: #FBFBFB;
+  border-top: 1px solid #EFEFEF;
+}
+
+.menu-pagination-info {
+  font-size: 14px;
+  color: #666666;
+  font-weight: 400;
+}
+
+.menu-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.menu-page-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #E0E0E0;
+  background: #FFFFFF;
+  color: #333333;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.menu-page-btn:hover:not(:disabled) {
+  border-color: #FFA500;
+  color: #FFA500;
+}
+
+.menu-page-btn.active {
+  background: #FFA500;
+  border-color: #FFA500;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.menu-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #E0E0E0;
+}
+
+/* Modal Overlay & Base Styling */
+.menu-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* Modal 1: Add / Edit Item Card */
+.menu-modal-content {
+  background: #FFFFFF;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  padding: 28px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.menu-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.menu-modal-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1C1B18;
+  margin: 0;
+}
+
+.menu-modal-close {
+  background: none;
+  border: none;
+  color: #888888;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.menu-modal-close:hover {
+  color: #1C1B18;
+  background: #F0F0F0;
+}
+
+/* Form Fields inside Modal */
+.menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.menu-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu-form-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+}
+
+.menu-form-group input[type='text'],
+.menu-form-group input[type='number'],
+.menu-form-group textarea,
+.menu-form-group select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #D0D0D0;
+  border-radius: 8px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #1C1B18;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.menu-form-group input:focus,
+.menu-form-group textarea:focus,
+.menu-form-group select:focus {
+  border-color: #FFA500;
+}
+
+/* Image Upload Dropzone */
+.menu-image-upload-box {
+  width: 100%;
+  height: 120px;
+  border: 2px dashed #D0D0D0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #FAFAFA;
+}
+
+.menu-image-dropzone {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #888888;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.menu-image-dropzone:hover {
+  background: #F5F5F5;
+  color: #FFA500;
+}
+
+.menu-image-preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F7F7F7;
+}
+
+.menu-image-preview {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.menu-image-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.menu-image-remove:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+/* Size Options Toggle Row */
+.menu-form-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #F7F7F7;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin: 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1C1B18;
+}
+
+.menu-form-switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  outline: none;
+  transition: background-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+.menu-form-switch.on {
+  background-color: #FFA500;
+  justify-content: flex-end;
+}
+
+.menu-form-switch.off {
+  background-color: #CCCCCC;
+  justify-content: flex-start;
+}
+
+.menu-form-switch-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Size Options List Section */
+.menu-sizes-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-sizes-section label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+}
+
+.menu-sizes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-size-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-size-input-row input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #D0D0D0;
+  border-radius: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.menu-remove-size-btn {
+  background: none;
+  border: none;
+  color: #FFA500;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.menu-remove-size-btn:hover {
+  background: #FFF0EB;
+}
+
+.menu-add-size-row-btn {
+  background: none;
+  border: 1px dashed #FFA500;
+  color: #FFA500;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.menu-add-size-row-btn:hover {
+  background: #FFF0EB;
+}
+
+/* Recipe / Linked Ingredients Section inside Modal */
+.menu-recipe-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.menu-recipe-hint {
+  font-size: 12px;
+  color: #777777;
+  margin: -2px 0 6px 0;
+  line-height: 1.35;
+}
+
+.menu-recipe-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-recipe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-recipe-row select {
+  flex: 2;
+  padding: 8px 12px;
+  border: 1px solid #D0D0D0;
+  border-radius: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #1C1B18;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.menu-recipe-row select:focus {
+  border-color: #FFA500;
+}
+
+.menu-recipe-qty-input {
+  flex: 1;
+  max-width: 120px;
+  padding: 8px 12px;
+  border: 1px solid #D0D0D0;
+  border-radius: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #1C1B18;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.menu-recipe-qty-input:focus {
+  border-color: #FFA500;
+}
+
+/* Modal Footer Buttons */
+.menu-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #EFEFEF;
+}
+
+.menu-modal-btn {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 8px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.menu-modal-btn.cancel {
+  background: #FFFFFF;
+  border: 1px solid #D0D0D0;
+  color: #555555;
+}
+
+.menu-modal-btn.cancel:hover {
+  background: #F5F5F5;
+}
+
+.menu-modal-btn.save {
+  background: #FFA500;
+  border: none;
+  color: #FFFFFF;
+}
+
+.menu-modal-btn.save:hover {
+  background: #E6522A;
+}
+
+/* Confirmation Modals (Archive & Restore) */
+.menu-modal-confirm-card {
+  background: #FFFFFF;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 440px;
+  padding: 32px 28px 28px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.menu-confirm-icon-wrap {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.menu-confirm-icon-wrap.archive {
+  background: #FFF0EB;
+  color: #FFA500;
+}
+
+.menu-confirm-icon-wrap.restore {
+  background: #E8F5E9;
+  color: #2E7D32;
+}
+
+.menu-confirm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1C1B18;
+  margin: 0 0 8px 0;
+  line-height: 1.3;
+}
+
+.menu-confirm-subtext {
+  font-size: 14px;
+  color: #666666;
+  margin: 0 0 24px 0;
+  line-height: 1.4;
+}
+
+.menu-confirm-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.menu-confirm-actions .menu-modal-btn {
+  flex: 1;
+}
+
+.menu-modal-btn.confirm-archive {
+  background: #FFA500;
+  border: none;
+  color: #FFFFFF;
+}
+
+.menu-modal-btn.confirm-archive:hover {
+  background: #E6522A;
+}
+
+.menu-modal-btn.confirm-restore {
+  background: #2E7D32;
+  border: none;
+  color: #FFFFFF;
+}
+
+.menu-modal-btn.confirm-restore:hover {
+  background: #236327;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .menu-page {
+    padding: 20px 16px;
+  }
+
+  .menu-top-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .menu-search-wrapper,
+  .menu-category-wrapper {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .menu-add-btn {
+    margin-left: 0;
+    justify-content: center;
+  }
+
+  .menu-tabs-row {
+    gap: 16px;
+    overflow-x: auto;
+  }
+}
