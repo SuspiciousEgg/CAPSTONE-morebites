@@ -140,6 +140,13 @@ export default function CheckoutScreen() {
       Alert.alert("Cart is empty", "Add items before placing an order.");
       return;
     }
+    if (feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) {
+      Alert.alert(
+        "Outside Delivery Range",
+        feeQuote?.error || "Delivery not available beyond 10km. Please select an address within 10km."
+      );
+      return;
+    }
     if (submitting) return;
 
     const deliveryAddress = [street.trim(), barangay.trim(), city.trim(), landmark.trim()]
@@ -312,34 +319,43 @@ export default function CheckoutScreen() {
           {quoting ? (
             <Text style={styles.feeHint}>Measuring distance from the store…</Text>
           ) : street.trim() && barangay.trim() && city.trim() ? (
-            <>
-              {feeQuote?.distanceKm != null ? (
-                <Text style={styles.feeFormula}>{feeQuote.formula}</Text>
-              ) : null}
-              {(feeQuote?.calculation || []).map((line) => (
-                <Text key={line} style={styles.feeStep}>
-                  {line}
+            feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10) ? (
+              <View style={styles.feeErrorBanner}>
+                <Ionicons name="warning-outline" size={18} color="#991B1B" />
+                <Text style={styles.feeErrorText}>
+                  {feeQuote?.error || "Delivery not available beyond 10km"}
                 </Text>
-              ))}
-              <View style={styles.feeTotals}>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Subtotal</Text>
-                  <Text style={styles.feeValue}>₱{Number(cartTotal).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Delivery fee</Text>
-                  <Text style={styles.feeValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Service fee</Text>
-                  <Text style={styles.feeValue}>₱{Number(serviceFee).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeTotalLabel}>Total</Text>
-                  <Text style={styles.feeTotalValue}>₱{Number(total).toFixed(2)}</Text>
-                </View>
               </View>
-            </>
+            ) : (
+              <>
+                {feeQuote?.distanceKm != null ? (
+                  <Text style={styles.feeFormula}>{feeQuote.formula}</Text>
+                ) : null}
+                {(feeQuote?.calculation || []).map((line) => (
+                  <Text key={line} style={styles.feeStep}>
+                    {line}
+                  </Text>
+                ))}
+                <View style={styles.feeTotals}>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Subtotal</Text>
+                    <Text style={styles.feeValue}>₱{Number(cartTotal).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Delivery fee</Text>
+                    <Text style={styles.feeValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Service fee</Text>
+                    <Text style={styles.feeValue}>₱{Number(serviceFee).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeTotalLabel}>Total</Text>
+                    <Text style={styles.feeTotalValue}>₱{Number(total).toFixed(2)}</Text>
+                  </View>
+                </View>
+              </>
+            )
           ) : (
             <Text style={styles.feeHint}>
               Enter street, barangay, and city to calculate the distance-based delivery fee.
@@ -352,9 +368,12 @@ export default function CheckoutScreen() {
         </Pressable>
 
         <Pressable
-          style={[styles.confirmButton, submitting && { opacity: 0.7 }]}
+          style={[
+            styles.confirmButton,
+            (submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) && { opacity: 0.6 }
+          ]}
           onPress={confirmOrder}
-          disabled={submitting}
+          disabled={submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)}
         >
           {submitting ? (
             <ActivityIndicator color="#FFFFFF" />
@@ -562,6 +581,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     marginBottom: 8,
+  },
+  feeErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FCA5A5",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    gap: 8,
+  },
+  feeErrorText: {
+    color: "#991B1B",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "700",
+    flex: 1,
   },
   feeHint: {
     color: "#6B7280",

@@ -8,6 +8,7 @@ import {
   LuUser,
   LuTriangleAlert,
   LuPencil,
+  LuArchive,
 } from 'react-icons/lu'
 import {
   IconClose,
@@ -106,6 +107,70 @@ function emptyCashier() {
   }
 }
 
+function AccountConfirmModal({ target, saving, onClose, onConfirm }) {
+  const [step, setStep] = useState(1)
+  const roleLabel =
+    target?.type === 'admin'
+      ? 'Admin'
+      : target?.type === 'driver'
+        ? 'Driver'
+        : 'Cashier'
+  const name = target?.item
+    ? `${target.item.firstName || ''} ${target.item.lastName || ''}`.trim() || 'this account'
+    : 'this account'
+
+  return (
+    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="menu-modal-confirm-card"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`menu-confirm-icon-wrap ${step === 2 ? 'warn' : 'archive'}`}>
+          {step === 2 ? (
+            <LuTriangleAlert size={28} />
+          ) : (
+            <LuArchive size={26} />
+          )}
+        </div>
+        <h2 className="menu-confirm-title">
+          {step === 2 ? 'Are you sure?' : `Archive ${roleLabel}`}
+        </h2>
+        <p className="menu-confirm-subtext">
+          {step === 1
+            ? `Archive "${name}"? This action can be undone by restoring it from the Archived tab later.`
+            : `Are you sure you really want to archive "${name}"?`}
+        </p>
+        <div className="menu-confirm-actions">
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          {step === 1 ? (
+            <button
+              type="button"
+              className="menu-modal-btn confirm-archive"
+              onClick={() => setStep(2)}
+              disabled={saving}
+            >
+              Confirm Archive
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="menu-modal-btn confirm-archive"
+              onClick={onConfirm}
+              disabled={saving}
+            >
+              {saving ? 'Archiving…' : 'Confirm Archive'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AccountManagement() {
   const [section, setSection] = useState('accounts')
   const [admins, setAdmins] = useState([])
@@ -118,6 +183,7 @@ export default function AccountManagement() {
   const [editing, setEditing] = useState(false)
   const [blockTarget, setBlockTarget] = useState(null)
   const [blockReason, setBlockReason] = useState(BLOCK_REASONS[0])
+  const [archiveTarget, setArchiveTarget] = useState(null)
   const [adminForm, setAdminForm] = useState(emptyAdmin())
   const [driverForm, setDriverForm] = useState(emptyDriver())
   const [cashierForm, setCashierForm] = useState(emptyCashier())
@@ -262,6 +328,22 @@ export default function AccountManagement() {
       setProfile(null)
     } catch (err) {
       console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmArchiveAccount() {
+    if (!archiveTarget?.item?.db_id) return
+    setSaving(true)
+    try {
+      await accountsApi.block(archiveTarget.item.db_id, 'Archived')
+      await loadAccounts()
+      setArchiveTarget(null)
+      setProfile(null)
+    } catch (err) {
+      console.error(err)
+      alert(err.response?.data?.message || 'Failed to archive account.')
     } finally {
       setSaving(false)
     }
@@ -547,6 +629,20 @@ export default function AccountManagement() {
               Edit Admin
             </button>
           ) : null}
+          <button
+            type="button"
+            className="danger"
+            onClick={() => {
+              setArchiveTarget({ type: menu.type, item: menu.item })
+              closeMenu()
+            }}
+          >
+            {menu.type === 'driver'
+              ? 'Archive Driver'
+              : menu.type === 'cashier'
+                ? 'Archive Cashier'
+                : 'Archive Admin'}
+          </button>
           <button
             type="button"
             className="danger"
@@ -878,6 +974,15 @@ export default function AccountManagement() {
             </div>
           </div>
         </div>
+      )}
+
+      {archiveTarget && (
+        <AccountConfirmModal
+          target={archiveTarget}
+          saving={saving}
+          onClose={() => setArchiveTarget(null)}
+          onConfirm={confirmArchiveAccount}
+        />
       )}
     </div>
   )

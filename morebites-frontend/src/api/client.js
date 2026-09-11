@@ -117,6 +117,8 @@ export const inventoryApi = {
   create: (payload) => api.post('/inventory', payload),
   update: (id, payload) => api.put(`/inventory/${id}`, payload),
   restock: (id, quantity) => api.post(`/inventory/${id}/restock`, { quantity }),
+  archive: (id) => api.patch(`/inventory/${id}/archive`),
+  restore: (id) => api.patch(`/inventory/${id}/restore`),
   remove: (id) => api.delete(`/inventory/${id}`),
   logs: (params) => api.get('/inventory/logs', { params }),
 }
@@ -184,6 +186,11 @@ export const blacklistApi = {
   list: (params) => api.get('/blacklist', { params }),
   show: (id) => api.get(`/blacklist/${id}`),
   updateNotes: (id, notes) => api.patch(`/blacklist/${id}/notes`, { notes }),
+}
+
+export const notificationsApi = {
+  markAsRead: (id) => Promise.resolve({ data: { success: true, id } }),
+  markAllAsRead: (ids) => Promise.resolve({ data: { success: true, ids } }),
 }
 
 export default api

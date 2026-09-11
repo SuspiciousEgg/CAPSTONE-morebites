@@ -8,18 +8,22 @@ import { InventoryProvider } from './context/InventoryContext'
 import { DriverProvider } from './context/DriverContext'
 import { OrdersProvider } from './context/OrdersContext'
 
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider>
-      <MenuProvider>
-        <InventoryProvider>
-          <DriverProvider>
-            <OrdersProvider>
-              <App />
-            </OrdersProvider>
-          </DriverProvider>
-        </InventoryProvider>
-      </MenuProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <MenuProvider>
+          <InventoryProvider>
+            <DriverProvider>
+              <OrdersProvider>
+                <App />
+              </OrdersProvider>
+            </DriverProvider>
+          </InventoryProvider>
+        </MenuProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

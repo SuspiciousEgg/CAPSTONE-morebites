@@ -12,6 +12,7 @@ import {
   LuX,
   LuImage,
   LuTrash2,
+  LuTriangleAlert,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import './MenuManagement.css'
@@ -458,7 +459,10 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 }
 
-function ConfirmModal({ type, title, message, confirmLabel, onClose, onConfirm }) {
+function ConfirmModal({ type, item, onClose, onConfirm }) {
+  const [step, setStep] = useState(1)
+  const name = item?.name || 'this item'
+
   return (
     <div className="menu-modal-overlay" onClick={onClose} role="presentation">
       <div
@@ -467,22 +471,52 @@ function ConfirmModal({ type, title, message, confirmLabel, onClose, onConfirm }
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={`menu-confirm-icon-wrap ${type}`}>
-          {type === 'restore' ? <LuRotateCcw size={26} /> : <LuArchive size={26} />}
+        <div className={`menu-confirm-icon-wrap ${step === 2 && type === 'archive' ? 'warn' : type}`}>
+          {step === 2 && type === 'archive' ? (
+            <LuTriangleAlert size={28} />
+          ) : type === 'restore' ? (
+            <LuRotateCcw size={26} />
+          ) : (
+            <LuArchive size={26} />
+          )}
         </div>
-        <h2 className="menu-confirm-title">{title}</h2>
-        <p className="menu-confirm-subtext">{message}</p>
+        <h2 className="menu-confirm-title">
+          {step === 2
+            ? 'Are you sure?'
+            : type === 'archive'
+              ? 'Archive Item'
+              : 'Restore Menu Item'}
+        </h2>
+        <p className="menu-confirm-subtext">
+          {step === 1
+            ? type === 'archive'
+              ? `Archive "${name}"? This action can be undone by restoring it from the Archived tab later.`
+              : `Restore "${name}"? This item will be moved back to Active Menu and visible to customers again.`
+            : type === 'archive'
+              ? `Are you sure you really want to archive "${name}"? This action can be undone by restoring it from the Archived tab later.`
+              : `Are you sure you really want to restore "${name}" back to the active menu?`}
+        </p>
         <div className="menu-confirm-actions">
           <button type="button" className="menu-modal-btn cancel" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="button"
-            className={`menu-modal-btn confirm-${type}`}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </button>
+          {step === 1 ? (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={() => setStep(2)}
+            >
+              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={onConfirm}
+            >
+              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -886,8 +920,8 @@ export default function MenuManagement() {
                                   type: 'archive',
                                   item,
                                   title: 'Archive Item',
-                                  message: `Are you sure you want to archive "${item.name}"? It will be removed from the active menu and moved to Archived.`,
-                                  confirmLabel: 'Archive',
+                                  message: `Archive "${item.name}"? This action can be undone by restoring it from the Archived tab later.`,
+                                  confirmLabel: 'Confirm Archive',
                                 })
                               }
                               aria-label={`Archive ${item.name}`}
@@ -960,6 +994,7 @@ export default function MenuManagement() {
       {confirm && (
         <ConfirmModal
           type={confirm.type}
+          item={confirm.item}
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}

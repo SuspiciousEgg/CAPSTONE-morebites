@@ -6,6 +6,7 @@ import './InventoryPage.css'
 const TABS = [
   { id: 'stock', label: 'Stock List' },
   { id: 'expiring', label: 'Expiring Stock' },
+  { id: 'archived', label: 'Archived' },
 ]
 
 export default function InventoryPage({ initialTab = 'stock' }) {
@@ -25,7 +26,11 @@ export default function InventoryPage({ initialTab = 'stock' }) {
           </button>
         ))}
       </nav>
-      {tab === 'expiring' ? <ExpiringStock /> : <InventoryStock onOpenExpiring={() => setTab('expiring')} />}
+      {tab === 'expiring' ? (
+        <ExpiringStock />
+      ) : (
+        <InventoryStock currentTab={tab} onOpenExpiring={() => setTab('expiring')} />
+      )}
     </div>
   )
 }

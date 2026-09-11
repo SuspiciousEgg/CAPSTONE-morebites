@@ -70,12 +70,10 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
   }
 
   if (!response.ok) {
+    const firstValidationError = data?.errors ? Object.values(data.errors).flat()[0] : null;
     const message =
+      firstValidationError ||
       data?.message ||
-      data?.errors?.phone?.[0] ||
-      data?.errors?.password?.[0] ||
-      data?.errors?.full_name?.[0] ||
-      data?.errors?.email?.[0] ||
       `Request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;

@@ -28,8 +28,8 @@ class InventoryDeductionService
 
         foreach ($item->ingredients as $ingredient) {
             $inventory = $ingredient->inventoryItem;
-            // Soft-deleted or missing inventory counts as unavailable.
-            if (! $inventory || $inventory->trashed()) {
+            // Soft-deleted, archived, or missing inventory counts as unavailable.
+            if (! $inventory || $inventory->trashed() || $inventory->status === 'Archived') {
                 return 'missing';
             }
 
@@ -60,8 +60,9 @@ class InventoryDeductionService
                 continue;
             }
 
-            $canServe = $this->canServe($item);
-            $item->update(['available' => $canServe]);
+            if (! $this->canServe($item)) {
+                $item->update(['available' => false]);
+            }
         }
     }
 

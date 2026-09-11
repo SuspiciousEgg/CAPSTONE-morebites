@@ -10,7 +10,11 @@ class CustomerController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Customer::query()->withCount('orders')->withSum('orders', 'total')->latest('registered_at');
+        $query = Customer::query()
+            ->whereNotNull('user_id')
+            ->withCount('orders')
+            ->withSum('orders', 'total')
+            ->latest('registered_at');
 
         if ($status = $request->query('status')) {
             if ($status !== 'All Status') {
@@ -27,14 +31,16 @@ class CustomerController extends Controller
 
         $customers = $query->get()->map(fn (Customer $c) => $this->transform($c));
 
+        $base = Customer::query()->whereNotNull('user_id');
+
         return response()->json([
             'data' => $customers,
             'meta' => [
                 'stats' => [
-                    'total' => Customer::query()->count(),
-                    'active' => Customer::query()->where('status', 'ACTIVE')->count(),
-                    'new_month' => Customer::query()->where('registered_at', '>=', now()->copy()->startOfMonth())->count(),
-                    'frequent' => Customer::query()->withCount('orders')->get()->filter(fn ($c) => $c->orders_count >= 15)->count(),
+                    'total' => (clone $base)->count(),
+                    'active' => (clone $base)->where('status', 'ACTIVE')->count(),
+                    'new_month' => (clone $base)->where('registered_at', '>=', now()->copy()->startOfMonth())->count(),
+                    'frequent' => (clone $base)->withCount('orders')->get()->filter(fn ($c) => $c->orders_count >= 15)->count(),
                 ],
             ],
         ]);
@@ -42,6 +48,8 @@ class CustomerController extends Controller
 
     public function show(Customer $customer)
     {
+        abort_unless($customer->user_id !== null, 404);
+
         $customer->load(['orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
         $customer->loadCount('orders');
         $customer->loadSum('orders', 'total');

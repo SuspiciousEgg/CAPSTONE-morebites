@@ -100,6 +100,19 @@ export default function CustomerManagement() {
   const statusRef = useRef(null)
 
   useEffect(() => {
+    if (!selected?.db_id) {
+      setOrderHistory([])
+      return
+    }
+    customersApi
+      .show(selected.db_id)
+      .then((r) => {
+        setOrderHistory(r.data?.data?.order_history || [])
+      })
+      .catch(() => setOrderHistory([]))
+  }, [selected?.db_id])
+
+  useEffect(() => {
     function onDoc(e) {
       const refs = [sortRef, dateRef, statusRef]
       if (refs.every((r) => r.current && !r.current.contains(e.target))) setOpenFilter(null)
@@ -117,15 +130,16 @@ export default function CustomerManagement() {
     if (q) {
       list = list.filter(
         (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q) ||
-          c.id.toLowerCase().includes(q),
+          (c.name && c.name.toLowerCase().includes(q)) ||
+          (c.email && c.email.toLowerCase().includes(q)) ||
+          (c.phone && c.phone.toLowerCase().includes(q)) ||
+          (c.id && c.id.toLowerCase().includes(q)),
       )
     }
     if (sort === 'Highest Order') list.sort((a, b) => b.orders - a.orders)
     if (sort === 'Lowest Order') list.sort((a, b) => a.orders - b.orders)
-    if (dateSort.includes('Oldest')) list.sort((a, b) => a.registered.localeCompare(b.registered))
-    if (dateSort.includes('Newest')) list.sort((a, b) => b.registered.localeCompare(a.registered))
+    if (dateSort.includes('Oldest')) list.sort((a, b) => (a.registered || '').localeCompare(b.registered || ''))
+    if (dateSort.includes('Newest')) list.sort((a, b) => (b.registered || '').localeCompare(a.registered || ''))
     return list
   }, [customers, search, sort, dateSort, status])
 
@@ -251,10 +265,10 @@ export default function CustomerManagement() {
                 <tr key={c.id}>
                   <td className="cm-id">{c.id}</td>
                   <td>{c.name}</td>
-                  <td>{c.phone}</td>
-                  <td>{c.email}</td>
-                  <td>{c.address}</td>
-                  <td>{c.registered}</td>
+                  <td>{c.phone ? c.phone : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.email ? c.email : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.address ? c.address : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.registered || <span className="cm-empty">—</span>}</td>
                   <td>{c.orders}</td>
                   <td>
                     <span className={`cm-badge ${c.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
@@ -361,14 +375,31 @@ export default function CustomerManagement() {
               <div>
                 <h3>Customer Information</h3>
                 <dl className="cm-info">
-                  <div><dt>Full Name</dt><dd>{selected.name}</dd></div>
-                  <div><dt>Contact Number</dt><dd>{selected.phone}</dd></div>
-                  <div><dt>Email Address</dt><dd>{selected.email}</dd></div>
-                  <div><dt>Delivery Address</dt><dd>{selected.address}</dd></div>
-                  <div><dt>Date Registered</dt><dd>{selected.registered}</dd></div>
+                  <div><dt>Full Name</dt><dd>{selected.name || '—'}</dd></div>
+                  <div>
+                    <dt>Contact Number</dt>
+                    <dd className={!selected.phone ? 'cm-empty' : ''}>
+                      {selected.phone || 'Not provided yet'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Email Address</dt>
+                    <dd className={!selected.email ? 'cm-empty' : ''}>
+                      {selected.email || 'Not provided yet'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Delivery Address</dt>
+                    <dd className={!selected.address ? 'cm-empty' : ''}>
+                      {selected.address || 'Not provided yet'}
+                    </dd>
+                  </div>
+                  <div><dt>Date Registered</dt><dd>{selected.registered || '—'}</dd></div>
                   <div>
                     <dt>Account Status</dt>
-                    <dd className={selected.status === 'ACTIVE' ? 'ok' : ''}>{selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}</dd>
+                    <dd className={selected.status === 'ACTIVE' ? 'ok' : ''}>
+                      {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                    </dd>
                   </div>
                 </dl>
               </div>
@@ -385,15 +416,23 @@ export default function CustomerManagement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {orderHistory.map((o) => (
-                      <tr key={o.id}>
-                        <td className="cm-id">{o.id}</td>
-                        <td>{o.datetime}</td>
-                        <td>{o.items}</td>
-                        <td>{peso(o.total)}</td>
-                        <td><span className="cm-badge active">{o.status}</span></td>
+                    {orderHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', padding: '16px' }}>
+                          No orders recorded yet
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      orderHistory.map((o) => (
+                        <tr key={o.id}>
+                          <td className="cm-id">{o.id}</td>
+                          <td>{o.datetime}</td>
+                          <td>{o.items}</td>
+                          <td>{peso(o.total)}</td>
+                          <td><span className="cm-badge active">{o.status}</span></td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

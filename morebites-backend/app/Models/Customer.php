@@ -21,4 +21,34 @@ class Customer extends Model
     {
         return $this->hasMany(Order::class);
     }
+
+    public static function generateCustomerCode(): string
+    {
+        $max = 0;
+        foreach (static::query()->pluck('customer_code') as $code) {
+            if (preg_match('/(\d+)$/', (string) $code, $m)) {
+                $num = (int) $m[1];
+                if ($num > $max) {
+                    $max = $num;
+                }
+            }
+        }
+        $next = $max + 1;
+
+        do {
+            $candidate = sprintf('C-%04d', $next);
+            $next++;
+        } while (static::query()->where('customer_code', $candidate)->exists());
+
+        return $candidate;
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Customer $customer) {
+            if (empty($customer->customer_code)) {
+                $customer->customer_code = static::generateCustomerCode();
+            }
+        });
+    }
 }

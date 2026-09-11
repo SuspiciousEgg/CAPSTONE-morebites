@@ -578,3 +578,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+.cm-empty {
+  color: #9CA3AF;
+  font-style: italic;
+}

@@ -243,6 +243,20 @@
   color: #1C1B18;
 }
 
+.dr-quote-error {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 10px;
+  color: #991B1B;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Modals */
 .dr-backdrop {
   position: fixed;

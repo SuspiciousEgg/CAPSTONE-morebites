@@ -74,7 +74,7 @@ class CustomerAppController extends Controller
 
             Customer::query()->create([
                 'user_id' => $user->id,
-                'customer_code' => 'C'.str_pad((string) (Customer::query()->count() + 1), 5, '0', STR_PAD_LEFT),
+                'customer_code' => Customer::generateCustomerCode(),
                 'full_name' => $data['full_name'],
                 'phone' => $phone,
                 'email' => $data['email'] ?? null,
@@ -342,6 +342,11 @@ class CustomerAppController extends Controller
             $rates = app(DeliveryRateService::class);
             $dest = $tracking->geocode($data['delivery_address']);
             $distanceKm = $tracking->distanceKm($tracking->storePoint(), $dest);
+            if ($distanceKm !== null && $distanceKm > DeliveryRateService::MAX_DELIVERY_KM) {
+                throw ValidationException::withMessages([
+                    'delivery_address' => ['Delivery not available beyond 10km.'],
+                ]);
+            }
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
             $total = $subtotal + $deliveryFee + $serviceFee;
@@ -407,7 +412,7 @@ class CustomerAppController extends Controller
 
         return Customer::query()->create([
             'user_id' => $user->id,
-            'customer_code' => 'C'.str_pad((string) (Customer::query()->count() + 1), 5, '0', STR_PAD_LEFT),
+            'customer_code' => Customer::generateCustomerCode(),
             'full_name' => $user->name,
             'phone' => $user->phone,
             'email' => $user->email && ! str_ends_with($user->email, '@customer.morebites.local') ? $user->email : null,

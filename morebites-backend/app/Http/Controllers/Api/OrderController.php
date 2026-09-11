@@ -86,18 +86,9 @@ class OrderController extends Controller
             $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $code = 'ORD-'.str_pad((string) (Order::query()->count() + 21), 5, '0', STR_PAD_LEFT);
 
-            $customer = Customer::query()->firstOrCreate(
-                ['full_name' => $data['customer_name']],
-                [
-                    'customer_code' => 'C001-'.str_pad((string) (Customer::query()->count() + 1), 5, '0', STR_PAD_LEFT),
-                    'status' => 'ACTIVE',
-                    'registered_at' => now(),
-                ]
-            );
-
             $order = Order::query()->create([
                 'order_code' => '#'.$code,
-                'customer_id' => $customer->id,
+                'customer_id' => null,
                 'customer_name' => $data['customer_name'],
                 'order_type' => $data['order_type'],
                 'total' => $total,

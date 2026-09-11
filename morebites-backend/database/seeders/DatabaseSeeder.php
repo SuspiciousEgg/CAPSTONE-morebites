@@ -83,7 +83,7 @@ class DatabaseSeeder extends Seeder
 
         $customer = Customer::query()->create([
             'user_id' => $customerUser->id,
-            'customer_code' => 'C00001',
+            'customer_code' => 'C-0001',
             'full_name' => 'Ana Customer',
             'phone' => '09190001111',
             'status' => 'ACTIVE',

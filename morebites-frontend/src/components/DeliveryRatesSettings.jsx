@@ -76,7 +76,9 @@ export default function DeliveryRatesSettings() {
       <header className="dr-header">
         <div>
           <h1>Settings</h1>
-          <p className="dr-sub">Delivery rate table — distance-based pricing tiers</p>
+          <p className="dr-sub">
+            Delivery rate table — distance-based pricing tiers (capped at 10 km maximum delivery radius)
+          </p>
         </div>
       </header>
 
@@ -84,7 +86,7 @@ export default function DeliveryRatesSettings() {
         <div className="dr-card-head">
           <h2>Delivery Rate Table</h2>
           <p>
-            Five fixed distance ranges from the store. You can update the delivery fee and active status for each tier.
+            Four fixed distance ranges from the store (up to 10 km). Delivery radius is capped at a maximum of 10 km (orders beyond 10 km are restricted during customer checkout). You can update the delivery fee and active status for each tier.
           </p>
         </div>
 
@@ -112,7 +114,7 @@ export default function DeliveryRatesSettings() {
                   <tr key={rate.id}>
                     <td className="dr-label">{rate.label}</td>
                     <td>{rate.min_km}</td>
-                    <td>{rate.max_km == null ? '∞' : rate.max_km}</td>
+                    <td>{rate.max_km}</td>
                     <td className="dr-fee">{rate.fee_label}</td>
                     <td>
                       <span className={`dr-badge ${rate.active ? 'on' : 'off'}`}>
@@ -155,24 +157,31 @@ export default function DeliveryRatesSettings() {
                 <li key={step}>{step}</li>
               ))}
             </ol>
-            <div className="dr-quote">
-              <div>
-                <span>Tier</span>
-                <strong>{quote.tier_label || 'Default'}</strong>
+            {quote.deliverable === false ? (
+              <div className="dr-quote-error">
+                <span>⚠️</span>
+                <span>{quote.error || 'Delivery not available beyond 10km'}</span>
               </div>
-              <div>
-                <span>Delivery fee</span>
-                <strong>₱{Number(quote.delivery_fee).toFixed(2)}</strong>
+            ) : (
+              <div className="dr-quote">
+                <div>
+                  <span>Tier</span>
+                  <strong>{quote.tier_label || 'Default'}</strong>
+                </div>
+                <div>
+                  <span>Delivery fee</span>
+                  <strong>₱{Number(quote.delivery_fee).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Service fee</span>
+                  <strong>₱{Number(quote.service_fee).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Total fees</span>
+                  <strong>₱{Number(quote.fees_total).toFixed(2)}</strong>
+                </div>
               </div>
-              <div>
-                <span>Service fee</span>
-                <strong>₱{Number(quote.service_fee).toFixed(2)}</strong>
-              </div>
-              <div>
-                <span>Total fees</span>
-                <strong>₱{Number(quote.fees_total).toFixed(2)}</strong>
-              </div>
-            </div>
+            )}
           </div>
         ) : null}
       </section>

@@ -77,6 +77,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventory', [InventoryController::class, 'store']);
     Route::put('/inventory/{inventory}', [InventoryController::class, 'update']);
     Route::post('/inventory/{inventory}/restock', [InventoryController::class, 'restock']);
+    Route::patch('/inventory/{inventory}/archive', [InventoryController::class, 'archive']);
+    Route::patch('/inventory/{inventory}/restore', [InventoryController::class, 'restore']);
     Route::delete('/inventory/{inventory}', [InventoryController::class, 'destroy']);
 
     Route::get('/dispatch', [DispatchController::class, 'index']);

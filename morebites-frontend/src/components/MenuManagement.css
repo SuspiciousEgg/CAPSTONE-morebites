@@ -954,6 +954,11 @@
   color: #2E7D32;
 }
 
+.menu-confirm-icon-wrap.warn {
+  background: #FFF0EB;
+  color: #E6522A;
+}
+
 .menu-confirm-title {
   font-size: 18px;
   font-weight: 700;
@@ -980,13 +985,13 @@
 }
 
 .menu-modal-btn.confirm-archive {
-  background: #FFA500;
+  background: #E6522A;
   border: none;
   color: #FFFFFF;
 }
 
 .menu-modal-btn.confirm-archive:hover {
-  background: #E6522A;
+  background: #CC3F18;
 }
 
 .menu-modal-btn.confirm-restore {

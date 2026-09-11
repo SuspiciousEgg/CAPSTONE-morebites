@@ -16,6 +16,7 @@ class ExpiringStockController extends Controller
     public function index(Request $request)
     {
         $items = InventoryItem::query()
+            ->where('status', '!=', 'Archived')
             ->whereNotNull('expiry_date')
             ->where(function ($q) {
                 $q->whereIn('status', ['Expiring Soon', 'Expires Today', 'Expired'])
@@ -207,6 +208,10 @@ class ExpiringStockController extends Controller
 
     private function syncComputedStatus(InventoryItem $item): void
     {
+        if ($item->status === 'Archived') {
+            return;
+        }
+
         $next = InventoryItem::deriveStatus(
             (float) $item->stock,
             (float) $item->reorder_level,
