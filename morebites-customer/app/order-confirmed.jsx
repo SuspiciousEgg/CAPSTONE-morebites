@@ -93,8 +93,8 @@ export default function OrderConfirmedScreen() {
 
         <View style={styles.summaryCard}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
-          {items.map((item) => (
-            <View key={`${item.id}-${item.size}`} style={styles.itemRow}>
+          {items.map((item, index) => (
+            <View key={`${item.id || item.name}-${item.size || "reg"}-${index}`} style={styles.itemRow}>
               <Text style={styles.itemText}>
                 {item.quantity}x {item.name}{item.size ? ` (${item.size})` : ""}
               </Text>

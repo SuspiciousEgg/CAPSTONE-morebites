@@ -46,8 +46,8 @@ function FoodCard({ item, horizontal = false }) {
 function FoodGrid({ items }) {
   return (
     <View style={styles.grid}>
-      {items.map((item) => (
-        <FoodCard item={item} key={item.id} />
+      {items.map((item, index) => (
+        <FoodCard item={item} key={`${item.id}-${index}`} />
       ))}
     </View>
   );
@@ -61,8 +61,8 @@ function FoodShelf({ items }) {
       contentContainerStyle={styles.shelfContent}
       style={styles.shelfScroll}
     >
-      {items.map((item) => (
-        <FoodCard item={item} key={item.id} horizontal />
+      {items.map((item, index) => (
+        <FoodCard item={item} key={`${item.id}-${index}`} horizontal />
       ))}
     </ScrollView>
   );

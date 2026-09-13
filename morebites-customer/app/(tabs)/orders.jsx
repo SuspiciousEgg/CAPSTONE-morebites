@@ -189,8 +189,8 @@ function OrderDetailsModal({ visible, order, onClose }) {
 
             <Text style={styles.sectionTitle}>Items</Text>
             <View style={styles.sectionCard}>
-              {(order.items || []).map((item) => (
-                <View key={item.id} style={styles.detailItemRow}>
+              {(order.items || []).map((item, index) => (
+                <View key={`${item.id || item.name}-${index}`} style={styles.detailItemRow}>
                   <View style={styles.foodPlaceholder}>
                     <Ionicons name="fast-food-outline" size={25} color="#8A8A8A" />
                   </View>
@@ -304,11 +304,11 @@ function NotificationsModal({
               contentContainerStyle={styles.notificationsListContent}
               showsVerticalScrollIndicator={false}
             >
-              {notifications.map((item) => {
+              {notifications.map((item, index) => {
                 const isUnread = Boolean(item.unread || (!item.is_read && item.is_read !== undefined));
                 return (
                   <Pressable
-                    key={item.id}
+                    key={`${item.id}-${index}`}
                     style={[styles.notificationItem, isUnread && styles.notificationItemUnread]}
                     onPress={() => onNotificationPress(item)}
                   >

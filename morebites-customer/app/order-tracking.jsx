@@ -284,8 +284,8 @@ export default function OrderTrackingScreen() {
           {detailsExpanded ? (
             <View style={styles.expandedDetails}>
               {items.length ? (
-                items.map((item) => (
-                  <View key={`${item.id}-${item.size}`} style={styles.itemRow}>
+                items.map((item, index) => (
+                  <View key={`${item.id || item.name}-${item.size || "reg"}-${index}`} style={styles.itemRow}>
                     <Text style={styles.itemName}>
                       {item.quantity}x {item.name}
                       {item.size ? ` (${item.size})` : ""}
