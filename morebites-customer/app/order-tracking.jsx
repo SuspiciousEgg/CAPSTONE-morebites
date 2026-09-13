@@ -78,10 +78,16 @@ function TimelineStep({ icon, title, description, timestamp, state, last }) {
 export default function OrderTrackingScreen() {
   const params = useLocalSearchParams();
   const orderParam = parseOrder(params.order);
-  const dbId = Array.isArray(params.dbId) ? params.dbId[0] : params.dbId;
+  const rawDbId =
+    (Array.isArray(params.dbId) ? params.dbId[0] : params.dbId) ||
+    orderParam.db_id ||
+    orderParam.id ||
+    orderParam.dbId;
+  const dbId = rawDbId ? String(rawDbId) : "";
   const orderIdLabel =
     (Array.isArray(params.orderId) ? params.orderId[0] : params.orderId) ||
     orderParam.orderId ||
+    orderParam.id ||
     "Order";
 
   const [tracking, setTracking] = useState(null);

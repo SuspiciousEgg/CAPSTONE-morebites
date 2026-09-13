@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -170,56 +170,99 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     return NOTIF_CONFIG[n?.type] || NOTIF_CONFIG.system
   }
 
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => Boolean(n.unread)).length,
-    [notifications],
-  )
+  /**
+   * PROMPT 4 INVESTIGATION REPORT & PERSISTENCE ARCHITECTURE:
+   *
+   * 1. Notification Count Source Investigation:
+   *    Previously, the notification count was derived purely from local component state
+   *    (`notifications.filter(n => n.unread).length`) and an in-browser `localStorage` array of read IDs
+   *    (`morebites_read_notifs_${userId || 'admin'}`). In `src/api/client.js`, `notificationsApi.markAsRead` and
+   *    `markAllAsRead` were client mocks returning dummy resolved promises with no backend persistence.
+   *    On the backend, `DashboardController.php` dynamically synthesized notifications on every request
+   *    with hardcoded `'unread' => true`. Consequently, upon page refresh, re-login, or clearing local storage,
+   *    all notifications reverted to `unread = true`, resetting the unread count incorrectly.
+   *
+   * 2. Backend Persistence (Source of Truth):
+   *    A dedicated Laravel `notifications` database table and REST API endpoints are now the source of truth:
+   *    - GET /api/notifications/unread-count: returns persistent unread integer count.
+   *    - GET /api/notifications: returns notifications list with accurate `is_read` status.
+   *    - PATCH /api/notifications/:id/read: persists single notification read state to DB.
+   *    - POST /api/notifications/mark-all-read: persists batch read state to DB.
+   *
+   * 3. Real-Time Broadcasting Prerequisites (Laravel Reverb & Echo):
+   *    Neither Laravel Reverb nor Laravel Echo / pusher-js is currently installed or configured in this project.
+   *    Rather than attempting a partial implementation or silent fallback to polling, the system uses the
+   *    persistent backend API as the single source of truth. When the team is ready to add real-time websockets:
+   *    - Backend: composer require laravel/reverb, run `php artisan reverb:install`, set BROADCAST_CONNECTION=reverb in .env.
+   *    - Frontend: npm install laravel-echo pusher-js, initialize Echo in `src/api/echo.js`, and subscribe to
+   *      `Echo.private('admin-notifications').listen('NotificationCreated', (e) => { ... })`.
+   */
+  const [unreadCount, setUnreadCount] = useState(0)
 
-  const getReadNotifIds = (userId) => {
+  // Load per-user notifications and unread count from backend
+  const loadNotifications = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(`morebites_read_notifs_${userId || 'admin'}`)
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  }
-
-  const addReadNotifId = (userId, id) => {
-    try {
-      const ids = getReadNotifIds(userId)
-      if (!ids.includes(id)) {
-        ids.push(id)
-        localStorage.setItem(`morebites_read_notifs_${userId || 'admin'}`, JSON.stringify(ids))
+      const [countRes, listRes] = await Promise.all([
+        notificationsApi.unreadCount(),
+        notificationsApi.list(),
+      ])
+      const count = countRes.data?.count ?? countRes.data?.data?.count ?? 0
+      const list = listRes.data?.data || []
+      if (Array.isArray(list)) {
+        setNotifications(list)
+        // Strictly derive badge count and list unread status from identical backend data
+        setUnreadCount(list.filter((n) => Boolean(n.unread)).length)
+      } else {
+        setUnreadCount(Number(count) || 0)
       }
     } catch (err) {
-      console.error(err)
+      console.error('Failed to load notifications:', err)
     }
+  }, [])
+
+  // Fetch persistent unread count and notifications on Dashboard mount
+  useEffect(() => {
+    loadNotifications()
+  }, [loadNotifications])
+
+  const handleToggleNotifPanel = () => {
+    setNotifOpen((prev) => {
+      const next = !prev
+      if (next) {
+        // Refetch on opening panel so display always reflects fresh per-user backend state
+        loadNotifications()
+      }
+      return next
+    })
   }
 
-  const addAllReadNotifIds = (userId, allIds) => {
+  const handleMarkAllAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false, is_read: true })))
+    setUnreadCount(0)
     try {
-      const current = getReadNotifIds(userId)
-      const merged = Array.from(new Set([...current, ...allIds]))
-      localStorage.setItem(`morebites_read_notifs_${userId || 'admin'}`, JSON.stringify(merged))
+      await notificationsApi.markAllAsRead()
+      await loadNotifications()
     } catch (err) {
-      console.error(err)
+      console.error('Failed to mark all notifications as read:', err)
+      loadNotifications()
     }
   }
 
-  const handleMarkAllAsRead = () => {
-    const ids = notifications.map((n) => n.id)
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
-    addAllReadNotifIds(user?.id, ids)
-    notificationsApi.markAllAsRead(ids).catch(console.error)
-  }
-
-  const handleNotificationClick = (n) => {
+  const handleNotificationClick = async (n) => {
     if (n.unread) {
       setNotifications((prev) =>
-        prev.map((item) => (item.id === n.id ? { ...item, unread: false } : item))
+        prev.map((item) => (item.id === n.id ? { ...item, unread: false, is_read: true } : item))
       )
-      addReadNotifId(user?.id, n.id)
-      notificationsApi.markAsRead(n.id).catch(console.error)
+      setUnreadCount((prev) => Math.max(0, prev - 1))
+      try {
+        await notificationsApi.markAsRead(n.id)
+        const res = await notificationsApi.unreadCount()
+        const count = res.data?.count ?? res.data?.data?.count ?? 0
+        setUnreadCount(Number(count) || 0)
+      } catch (err) {
+        console.error('Failed to mark notification as read:', err)
+        loadNotifications()
+      }
     }
     if (n.nav) {
       setActiveNav(n.nav)
@@ -290,12 +333,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         setActivityLog(d.activity_log || [])
         setLowStocks(d.low_stocks || [])
         if (d.notifications && Array.isArray(d.notifications)) {
-          const localReadIds = new Set(getReadNotifIds(user?.id))
-          const merged = d.notifications.map((n) => ({
-            ...n,
-            unread: localReadIds.has(n.id) ? false : Boolean(n.unread),
-          }))
-          setNotifications(merged)
+          setNotifications(d.notifications)
+          setUnreadCount(d.notifications.filter((n) => Boolean(n.unread)).length)
         }
       })
       .catch(console.error)
@@ -581,7 +620,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             type="button"
             className="sa-bell-btn"
             aria-label="Notifications"
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={handleToggleNotifPanel}
           >
             <IconBell />
             {unreadCount > 0 ? (
@@ -659,6 +698,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     setNotifOpen(false)
                     setModalNotifTab(notifTab)
                     setShowAllNotifsModal(true)
+                    loadNotifications()
                   }}
                 >
                   <span>View All Notifications</span>

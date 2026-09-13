@@ -24,7 +24,7 @@ export default function ForgotPasswordScreen() {
     const message = !clean
       ? "Phone number is required"
       : !PHONE_PATTERN.test(clean)
-        ? "Invalid phone number format"
+        ? "Enter a valid 11-digit Philippine mobile number starting with 09"
         : "";
 
     setError(message);
@@ -48,11 +48,12 @@ export default function ForgotPasswordScreen() {
         <View style={[styles.inputWrap, focused && styles.focusedInput, error && styles.errorInput]}>
           <TextInput
             style={styles.input}
-            placeholder="09XX XXXX XXX"
+            placeholder="09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
             keyboardType="phone-pad"
+            maxLength={11}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
           />

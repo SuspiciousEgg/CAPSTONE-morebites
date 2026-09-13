@@ -11,22 +11,23 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, customerApi } from "../../src/api/client";
+import { authStorage, customerApi, mediaUrl } from "../../src/api/client";
 import { useCart } from "../../src/context/CartContext";
 
 const ORANGE = "#F97000";
 const CATEGORIES = ["All", "Pizza", "Snacks", "Desserts", "Beverages", "Rice Meals"];
 
-function FoodCard({ item }) {
+function FoodCard({ item, horizontal = false }) {
+  const imageUrl = mediaUrl(item.image);
   return (
     <Pressable
-      style={styles.card}
+      style={[styles.card, horizontal && styles.horizontalCard]}
       onPress={() =>
         router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } })
       }
     >
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.cardImage} />
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.cardImage} />
       ) : (
         <View style={styles.placeholderImage}>
           <Ionicons name="fast-food-outline" size={42} color="#8A8A8A" />
@@ -49,6 +50,21 @@ function FoodGrid({ items }) {
         <FoodCard item={item} key={item.id} />
       ))}
     </View>
+  );
+}
+
+function FoodShelf({ items }) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.shelfContent}
+      style={styles.shelfScroll}
+    >
+      {items.map((item) => (
+        <FoodCard item={item} key={item.id} horizontal />
+      ))}
+    </ScrollView>
   );
 }
 
@@ -89,7 +105,7 @@ export default function HomeScreen() {
     return ["All", ...(fromMenu.length ? fromMenu : CATEGORIES.slice(1))];
   }, [menuItems]);
 
-  const popularItems = menuItems.slice(0, 4);
+  const popularItems = menuItems.slice(0, 6);
   const selectedItems = menuItems.filter((item) => item.category === activeCategory);
 
   const renderCategorySections = () => {
@@ -105,14 +121,14 @@ export default function HomeScreen() {
     return (
       <>
         <Text style={styles.sectionTitle}>Popular Items</Text>
-        <FoodGrid items={popularItems} />
+        <FoodShelf items={popularItems} />
         {categories.slice(1).map((category) => {
           const items = menuItems.filter((item) => item.category === category);
           if (!items.length) return null;
           return (
             <View key={category}>
               <Text style={styles.sectionTitle}>{category}</Text>
-              <FoodGrid items={items} />
+              <FoodShelf items={items} />
             </View>
           );
         })}
@@ -265,6 +281,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 8 },
+  shelfScroll: {
+    marginHorizontal: -16,
+    marginBottom: 12,
+  },
+  shelfContent: {
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    gap: 12,
+    paddingBottom: 4,
+  },
   card: {
     backgroundColor: "#FFFFFF",
     borderColor: "#F3F4F6",
@@ -272,6 +298,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
     width: "47%",
+  },
+  horizontalCard: {
+    width: 150,
   },
   placeholderImage: {
     alignItems: "center",

@@ -202,7 +202,7 @@ export default function HomeScreen() {
               <View key={order.db_id || order.id} style={styles.orderCard}>
                 <View style={styles.orderTopRow}>
                   <View style={styles.orderNumberRow}>
-                    <Text style={styles.orderNumber}>Order #{order.id}</Text>
+                    <Text style={styles.orderNumber}>Order {String(order.id || '').startsWith('#') ? order.id : `#${order.id}`}</Text>
                     <Feather name="package" size={22} color="#F97000" />
                   </View>
                   <Text style={styles.orderAmount}>

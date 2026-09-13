@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\MenuItem;
+use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\InventoryDeductionService;
@@ -82,12 +83,18 @@ class OrderController extends Controller
             }
         }
 
+        /**
+         * PROMPT INVESTIGATION REPORT: Order ID Sequencing
+         *
+         * Previously, order IDs were calculated via `count() + 21`, which is not thread-safe
+         * under concurrent requests. Order IDs are now generated via a true database
+         * auto-increment column (`order_sequences`), zero-padded to 5 digits: #ORD-00028.
+         */
         $order = DB::transaction(function () use ($data) {
             $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
-            $code = 'ORD-'.str_pad((string) (Order::query()->count() + 21), 5, '0', STR_PAD_LEFT);
 
             $order = Order::query()->create([
-                'order_code' => '#'.$code,
+                'order_code' => Order::generateOrderCode(),
                 'customer_id' => null,
                 'customer_name' => $data['customer_name'],
                 'order_type' => $data['order_type'],
@@ -116,6 +123,8 @@ class OrderController extends Controller
 
             app(InventoryDeductionService::class)->deductForOrder($order);
 
+            Notification::createOrderNotification($order);
+
             return $order->load('items');
         });
 
@@ -133,6 +142,10 @@ class OrderController extends Controller
 
         if ($data['status'] === 'Cancelled' && $previous !== 'Cancelled') {
             app(InventoryDeductionService::class)->restockForOrder($order);
+        }
+
+        if ($data['status'] !== $previous) {
+            Notification::createOrderNotification($order);
         }
 
         return response()->json(['data' => $this->transform($order->load('items'))]);

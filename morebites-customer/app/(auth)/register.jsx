@@ -41,7 +41,7 @@ export default function RegisterScreen() {
     const next = {};
     if (!fullName.trim()) next.fullName = "Full name is required";
     if (!phone.trim()) next.phone = "Phone number is required";
-    else if (!PHONE_PATTERN.test(phone.replace(/\s/g, ""))) next.phone = "Enter a valid Philippine phone number";
+    else if (!PHONE_PATTERN.test(phone.replace(/\s/g, ""))) next.phone = "Enter a valid 11-digit Philippine mobile number starting with 09";
     if (!password) next.password = "Password is required";
     else if (password.length < 6) next.password = "Password must be at least 6 characters";
     if (!confirmPassword) next.confirmPassword = "Please confirm your password";
@@ -92,6 +92,13 @@ export default function RegisterScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <TouchableOpacity
+          onPress={() => router.replace("/(auth)/login")}
+          hitSlop={12}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color="#121212" />
+        </TouchableOpacity>
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Fill in your details to get started</Text>
         <View style={styles.divider} />
@@ -124,8 +131,9 @@ export default function RegisterScreen() {
             placeholder="09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
             keyboardType="phone-pad"
+            maxLength={11}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
             onFocus={() => setFocusedField("phone")}
             onBlur={() => setFocusedField("")}
           />
@@ -213,8 +221,14 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 30,
     paddingBottom: 28,
+  },
+  backButton: {
+    marginBottom: 16,
+    width: 36,
+    height: 36,
+    justifyContent: "center",
   },
   title: {
     color: "#121212",

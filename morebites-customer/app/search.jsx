@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi } from "../src/api/client";
+import { customerApi, mediaUrl } from "../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -27,11 +28,17 @@ function FoodCard({ item, compact = false }) {
     router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
   };
 
+  const imageUrl = mediaUrl(item.image);
+
   return (
     <Pressable style={[styles.foodCard, compact && styles.compactFoodCard]} onPress={openDetails}>
-      <View style={styles.foodImage}>
-        <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
-      </View>
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.foodImageThumb} />
+      ) : (
+        <View style={styles.foodImage}>
+          <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
+        </View>
+      )}
       <View style={styles.foodCardContent}>
         <Text style={styles.foodName} numberOfLines={2}>{item.name}</Text>
         <View style={styles.foodCardFooter}>
@@ -359,6 +366,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#E5E7EB",
+  },
+  foodImageThumb: {
+    height: 110,
+    width: "100%",
+    resizeMode: "cover",
   },
   foodCardContent: {
     minHeight: 72,

@@ -189,8 +189,10 @@ export const blacklistApi = {
 }
 
 export const notificationsApi = {
-  markAsRead: (id) => Promise.resolve({ data: { success: true, id } }),
-  markAllAsRead: (ids) => Promise.resolve({ data: { success: true, ids } }),
+  unreadCount: () => api.get('/notifications/unread-count'),
+  list: (params) => api.get('/notifications', { params }),
+  markAsRead: (id) => api.patch(`/notifications/${id}/read`),
+  markAllAsRead: () => api.post('/notifications/mark-all-read'),
 }
 
 export default api

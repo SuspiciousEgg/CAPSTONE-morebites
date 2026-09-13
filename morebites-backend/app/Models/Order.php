@@ -46,4 +46,29 @@ class Order extends Model
     {
         return $this->belongsTo(User::class, 'driver_id');
     }
+
+    /**
+     * Generate next order code using genuine auto-increment integer column from order_sequences.
+     * Formatted with consistent 5-digit zero padding: #ORD-00028
+     */
+    public static function generateOrderCode(): string
+    {
+        $seq = \Illuminate\Support\Facades\DB::table('order_sequences')->insertGetId([]);
+
+        return '#ORD-'.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
+    }
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        if ($field) {
+            return parent::resolveRouteBinding($value, $field);
+        }
+
+        $code = str_starts_with((string) $value, '#') ? (string) $value : '#'.(string) $value;
+
+        return $this->where('id', $value)
+            ->orWhere('order_code', $value)
+            ->orWhere('order_code', $code)
+            ->first();
+    }
 }

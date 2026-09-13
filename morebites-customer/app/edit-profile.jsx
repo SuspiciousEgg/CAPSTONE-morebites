@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
+import { authStorage, customerApi } from "../src/api/client";
 import {
   Alert,
   Image,
@@ -58,15 +59,17 @@ export default function EditProfileScreen() {
 
   useEffect(() => {
     const loadProfile = async () => {
-      const [savedUser, savedAccounts] = await Promise.all([
+      const [authSessionUser, savedUser, savedAccounts] = await Promise.all([
+        authStorage.getUser(),
         AsyncStorage.getItem("current_user"),
         AsyncStorage.getItem("registered_accounts"),
       ]);
-      const currentUser = savedUser ? JSON.parse(savedUser) : {};
+      const localUser = savedUser ? JSON.parse(savedUser) : {};
+      const currentUser = { ...localUser, ...(authSessionUser || {}) };
       const accounts = savedAccounts ? JSON.parse(savedAccounts) : [];
       const account = accounts.find((item) => item.phone === currentUser.phone);
       setUser(currentUser);
-      setFullName(currentUser.fullName || "");
+      setFullName(currentUser.fullName || currentUser.name || "");
       setPhoto(currentUser.photo || null);
       setStoredPassword(account?.password || currentUser.password || "");
     };
@@ -108,7 +111,7 @@ export default function EditProfileScreen() {
       if (!currentPassword) next.currentPassword = "Current password is required";
       else if (currentPassword !== storedPassword) next.currentPassword = "Current password is incorrect";
       if (!newPassword) next.newPassword = "New password is required";
-      if (!confirmPassword) next.confirmPassword = "Please confirm your new password";
+      else if (!confirmPassword) next.confirmPassword = "Please confirm your new password";
       else if (newPassword !== confirmPassword) next.confirmPassword = "Passwords do not match";
     }
 
@@ -119,20 +122,40 @@ export default function EditProfileScreen() {
   const saveChanges = async () => {
     if (!validate()) return;
 
-    const updatedUser = { ...user, fullName: fullName.trim(), photo };
-    await AsyncStorage.setItem("current_user", JSON.stringify(updatedUser));
+    try {
+      const trimmedName = fullName.trim();
+      let apiUser = null;
+      try {
+        const res = await customerApi.updateProfile({ full_name: trimmedName });
+        if (res?.user) apiUser = res.user;
+      } catch (err) {
+        console.warn("Backend profile sync optional:", err);
+      }
 
-    const savedAccounts = await AsyncStorage.getItem("registered_accounts");
-    const accounts = savedAccounts ? JSON.parse(savedAccounts) : [];
-    const updatedAccounts = accounts.map((account) =>
-      account.phone === user.phone
-        ? { ...account, fullName: fullName.trim(), password: newPassword || account.password }
-        : account
-    );
-    await AsyncStorage.setItem("registered_accounts", JSON.stringify(updatedAccounts));
+      const updatedUser = {
+        ...user,
+        ...(apiUser || {}),
+        fullName: trimmedName,
+        photo,
+      };
 
-    setSuccessVisible(true);
-    navigationTimer.current = setTimeout(() => router.back(), 1500);
+      await authStorage.updateUser(updatedUser);
+      await AsyncStorage.setItem("current_user", JSON.stringify(updatedUser));
+
+      const savedAccounts = await AsyncStorage.getItem("registered_accounts");
+      const accounts = savedAccounts ? JSON.parse(savedAccounts) : [];
+      const updatedAccounts = accounts.map((account) =>
+        account.phone === user.phone
+          ? { ...account, fullName: trimmedName, password: newPassword || account.password }
+          : account
+      );
+      await AsyncStorage.setItem("registered_accounts", JSON.stringify(updatedAccounts));
+
+      setSuccessVisible(true);
+      navigationTimer.current = setTimeout(() => router.back(), 1500);
+    } catch (err) {
+      Alert.alert("Update failed", err.message || "Could not save profile changes.");
+    }
   };
 
   return (

@@ -8,6 +8,8 @@ use App\Models\InventoryItem;
 use App\Models\MenuItem;
 use App\Models\MenuItemIngredient;
 use App\Models\MenuItemSize;
+use App\Models\Notification;
+use App\Models\NotificationRead;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
@@ -52,6 +54,26 @@ class DatabaseSeeder extends Seeder
             'completed_orders' => 12,
             'years_experience' => 2,
             'success_rate' => 96,
+        ]);
+
+        $driver2 = User::query()->create([
+            'name' => 'Marco Rider',
+            'first_name' => 'Marco',
+            'last_name' => 'Rider',
+            'email' => 'driver2@morebites.com',
+            'username' => 'marcorider',
+            'phone' => '09123456780',
+            'password' => 'driver123',
+            'role' => 'driver',
+            'role_access' => ['driver'],
+            'status' => 'Active',
+            'vehicle_type' => 'Motorcycle',
+            'plate_no' => 'XYZ-5678',
+            'license_number' => 'N01-12-987654',
+            'rating' => 4.9,
+            'completed_orders' => 24,
+            'years_experience' => 3,
+            'success_rate' => 98,
         ]);
 
         $cashier = User::query()->create([
@@ -227,7 +249,7 @@ class DatabaseSeeder extends Seeder
         app(InventoryDeductionService::class)->syncMenuAvailability();
 
         $order = Order::query()->create([
-            'order_code' => '#ORD-00101',
+            'order_code' => '#ORD-00021',
             'customer_id' => $customer->id,
             'customer_name' => $customer->full_name,
             'order_type' => 'Online Order',
@@ -258,6 +280,29 @@ class DatabaseSeeder extends Seeder
             'qty' => 2,
             'unit_price' => 52.5,
             'line_total' => 105,
+        ]);
+
+        Notification::createOrderNotification($order);
+
+        $deliveredNotif = Notification::query()->create([
+            'user_id' => $customerUser->id,
+            'title' => 'Order #ORD-00020 delivered',
+            'message' => 'Order #ORD-00020 has been delivered. Enjoy your meal!',
+            'type' => 'customer_order_status',
+            'tab' => 'Orders',
+            'nav' => 'Orders',
+            'is_read' => true,
+            'data' => [
+                'order_code' => '#ORD-00020',
+                'status' => 'Delivered',
+            ],
+            'created_at' => now()->subDays(2),
+        ]);
+
+        NotificationRead::query()->create([
+            'notification_id' => $deliveredNotif->id,
+            'user_id' => $customerUser->id,
+            'read_at' => now()->subDays(2),
         ]);
     }
 

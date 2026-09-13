@@ -168,9 +168,11 @@ export default function OutForDeliveryScreen() {
   };
 
   const reportIssue = () => {
+    const issueOrderCode = order?.id || orderId;
+    const formattedOrderCode = String(issueOrderCode || '').startsWith('#') ? issueOrderCode : `#${issueOrderCode}`;
     Alert.alert(
       "Report Issue",
-      `Select the issue for Order #${order?.id || orderId}.`,
+      `Select the issue for Order ${formattedOrderCode}.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -211,7 +213,7 @@ export default function OutForDeliveryScreen() {
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Order #{orderId}</Text>
+          <Text style={styles.headerTitle}>Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`}</Text>
           <Text style={styles.headerSubtitle}>Out for Delivery</Text>
         </View>
         <View style={styles.headerButton} />

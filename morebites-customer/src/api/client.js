@@ -32,9 +32,14 @@ export const API_BASE = resolveApiBase();
 
 export function mediaUrl(path) {
   if (!path) return null;
-  if (/^(https?:|blob:|data:|file:)/i.test(path)) return path;
+  const lanHost = expoLanHost();
+  let resolved = String(path);
+  if (lanHost && /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?/i.test(resolved)) {
+    resolved = resolved.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)/i, `$1${lanHost}`);
+  }
+  if (/^(https?:|blob:|data:|file:)/i.test(resolved)) return resolved;
   const origin = API_BASE.replace(/\/api\/?$/, "");
-  return `${origin}/${String(path).replace(/^\//, "")}`;
+  return `${origin}/${resolved.replace(/^\//, "")}`;
 }
 
 async function request(path, { method = "GET", body, auth = true } = {}) {
@@ -134,6 +139,10 @@ export const customerApi = {
   tracking: (dbId) => request(`/customer/orders/${dbId}/tracking`),
   rateOrder: (dbId, payload) =>
     request(`/customer/orders/${dbId}/rate`, { method: "POST", body: payload }),
+  unreadNotificationsCount: () => request("/notifications/unread-count"),
+  notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
     try {
       await request("/logout", { method: "POST" });

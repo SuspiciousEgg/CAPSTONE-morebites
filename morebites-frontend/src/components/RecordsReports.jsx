@@ -987,37 +987,39 @@ export default function RecordsReports() {
           <span className="reports-pagination-info">
             Showing {activeItems.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, activeItems.length)} of {activeItems.length} {tab === 'all' ? 'transactions' : tab === 'delivery' ? 'deliveries' : 'customers'}
           </span>
-          <div className="reports-pagination-controls">
-            <button
-              type="button"
-              className="reports-page-btn"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              ‹
-            </button>
-            {Array.from({ length: totalPages }).map((_, idx) => {
-              const pageNum = idx + 1
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
-                  onClick={() => setPage(pageNum)}
-                >
-                  {pageNum}
-                </button>
-              )
-            })}
-            <button
-              type="button"
-              className="reports-page-btn"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              ›
-            </button>
-          </div>
+          {totalPages > 1 && (
+            <div className="reports-pagination-controls">
+              <button
+                type="button"
+                className="reports-page-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹
+              </button>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pageNum = idx + 1
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                className="reports-page-btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                ›
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

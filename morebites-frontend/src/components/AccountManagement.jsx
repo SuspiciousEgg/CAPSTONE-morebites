@@ -205,6 +205,10 @@ export default function AccountManagement() {
 
   async function saveAdmin() {
     if (!adminForm.firstName || !adminForm.lastName || !adminForm.email) return
+    if (adminForm.phone && !/^09\d{9}$/.test(adminForm.phone.trim())) {
+      setFormError('Enter a valid 11-digit Philippine mobile number starting with 09')
+      return
+    }
     if (!adminForm.password || adminForm.password.length < 6) {
       setFormError('Password must be at least 6 characters.')
       return
@@ -241,6 +245,10 @@ export default function AccountManagement() {
 
   async function saveDriver() {
     if (!driverForm.firstName || !driverForm.lastName || !driverForm.email) return
+    if (driverForm.phone && !/^09\d{9}$/.test(driverForm.phone.trim())) {
+      setFormError('Enter a valid 11-digit Philippine mobile number starting with 09')
+      return
+    }
     if (!driverForm.password || driverForm.password.length < 6) {
       setFormError('Password must be at least 6 characters.')
       return
@@ -284,6 +292,10 @@ export default function AccountManagement() {
 
   async function saveCashier() {
     if (!cashierForm.firstName || !cashierForm.lastName || !cashierForm.email) return
+    if (cashierForm.phone && !/^09\d{9}$/.test(cashierForm.phone.trim())) {
+      setFormError('Enter a valid 11-digit Philippine mobile number starting with 09')
+      return
+    }
     if (!cashierForm.password || cashierForm.password.length < 6) {
       setFormError('Password must be at least 6 characters.')
       return
@@ -356,6 +368,10 @@ export default function AccountManagement() {
   async function saveProfileEdits() {
     if (!profile?.item?.db_id) return
     const item = profile.item
+    if (item.phone && !/^09\d{9}$/.test(String(item.phone).trim())) {
+      alert('Enter a valid 11-digit Philippine mobile number starting with 09')
+      return
+    }
     setSaving(true)
     try {
       await accountsApi.update(item.db_id, {
@@ -692,7 +708,13 @@ export default function AccountManagement() {
               </label>
               <label>
                 Phone Number
-                <input value={adminForm.phone} onChange={(e) => setAdminForm((f) => ({ ...f, phone: e.target.value }))} />
+                <input
+                  type="tel"
+                  maxLength={11}
+                  placeholder="09XX XXX XXXX"
+                  value={adminForm.phone}
+                  onChange={(e) => setAdminForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                />
               </label>
               <label>
                 New Password
@@ -750,7 +772,13 @@ export default function AccountManagement() {
               </label>
               <label>
                 Phone Number
-                <input value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value }))} />
+                <input
+                  type="tel"
+                  maxLength={11}
+                  placeholder="09XX XXX XXXX"
+                  value={driverForm.phone}
+                  onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                />
               </label>
               <label>
                 New Password
@@ -828,7 +856,13 @@ export default function AccountManagement() {
               </label>
               <label>
                 Phone Number
-                <input value={cashierForm.phone} onChange={(e) => setCashierForm((f) => ({ ...f, phone: e.target.value }))} />
+                <input
+                  type="tel"
+                  maxLength={11}
+                  placeholder="09XX XXX XXXX"
+                  value={cashierForm.phone}
+                  onChange={(e) => setCashierForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                />
               </label>
               <label>
                 New Password
@@ -896,6 +930,9 @@ export default function AccountManagement() {
                   <dd>
                     {editing && key !== 'joinDate' ? (
                       <input
+                        type={key === 'phone' ? 'tel' : 'text'}
+                        maxLength={key === 'phone' ? 11 : undefined}
+                        placeholder={key === 'phone' ? '09XX XXX XXXX' : ''}
                         value={
                           key === 'name'
                             ? `${profile.item.firstName} ${profile.item.lastName}`
@@ -906,6 +943,8 @@ export default function AccountManagement() {
                             const [firstName, ...rest] = e.target.value.split(' ')
                             updateProfileField('firstName', firstName || '')
                             updateProfileField('lastName', rest.join(' '))
+                          } else if (key === 'phone') {
+                            updateProfileField(key, e.target.value.replace(/\D/g, '').slice(0, 11))
                           } else {
                             updateProfileField(key, e.target.value)
                           }

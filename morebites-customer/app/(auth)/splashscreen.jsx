@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { router } from "expo-router";
-import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, customerApi } from "../../src/api/client";
 
@@ -8,8 +8,6 @@ const FONT = "Plus Jakarta Sans";
 
 export default function SplashScreen() {
   const scale = useRef(new Animated.Value(1)).current;
-  const fade = useRef(new Animated.Value(0)).current;
-  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -33,29 +31,25 @@ export default function SplashScreen() {
     let cancelled = false;
     const boot = async () => {
       const minDelay = new Promise((resolve) => setTimeout(resolve, 1800));
+      let nextRoute = "/(auth)/login";
+
       try {
         const token = await authStorage.getToken();
         if (token) {
           const res = await customerApi.me();
           if (res?.user) {
             await authStorage.updateUser(res.user);
-            await minDelay;
-            if (!cancelled) router.replace("/(tabs)/home");
-            return;
+            nextRoute = "/(tabs)/home";
           }
         }
       } catch {
         await authStorage.clear();
+        nextRoute = "/(auth)/login";
       }
 
       await minDelay;
       if (!cancelled) {
-        setChecking(false);
-        Animated.timing(fade, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }).start();
+        router.replace(nextRoute);
       }
     };
     boot();
@@ -64,7 +58,7 @@ export default function SplashScreen() {
       cancelled = true;
       pulse.stop();
     };
-  }, [fade, scale]);
+  }, [scale]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -74,25 +68,6 @@ export default function SplashScreen() {
           style={[styles.logo, { transform: [{ scale }] }]}
         />
         <Text style={styles.tagline}>Good food for Good life</Text>
-
-        {!checking ? (
-          <Animated.View style={[styles.actions, { opacity: fade }]}>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              activeOpacity={0.85}
-              onPress={() => router.replace("/(auth)/register")}
-            >
-              <Text style={styles.primaryText}>Create Account</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              activeOpacity={0.85}
-              onPress={() => router.replace("/(auth)/login")}
-            >
-              <Text style={styles.secondaryText}>Login</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -118,38 +93,5 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     marginTop: 24,
     textAlign: "center",
-  },
-  actions: {
-    marginTop: 48,
-    width: "100%",
-    maxWidth: 320,
-    gap: 12,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    height: 52,
-    justifyContent: "center",
-  },
-  primaryText: {
-    color: "#F97000",
-    fontFamily: FONT,
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    alignItems: "center",
-    borderColor: "#FFFFFF",
-    borderRadius: 10,
-    borderWidth: 1.5,
-    height: 52,
-    justifyContent: "center",
-  },
-  secondaryText: {
-    color: "#FFFFFF",
-    fontFamily: FONT,
-    fontSize: 17,
-    fontWeight: "700",
   },
 });

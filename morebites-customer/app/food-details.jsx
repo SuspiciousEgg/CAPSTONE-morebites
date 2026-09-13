@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useCart } from "../src/context/CartContext";
+import { mediaUrl } from "../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -92,7 +93,7 @@ export default function FoodDetailsScreen() {
   return (
     <View style={styles.screen}>
       {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.foodImage} />
+        <Image source={{ uri: mediaUrl(item.image) }} style={styles.foodImage} />
       ) : (
         <View style={styles.imagePlaceholder}>
           <Ionicons name="fast-food-outline" size={64} color="#8A8A8A" />

@@ -126,7 +126,9 @@ export default function CheckoutScreen() {
   const validate = () => {
     const next = {};
     if (!fullName.trim()) next.fullName = "Full name is required";
-    if (!phone.trim()) next.phone = "Phone number is required";
+    const cleanPhone = phone.replace(/\s/g, "");
+    if (!cleanPhone) next.phone = "Phone number is required";
+    else if (!/^09\d{9}$/.test(cleanPhone)) next.phone = "Enter a valid 11-digit Philippine mobile number starting with 09";
     if (!street.trim()) next.street = "Street address is required";
     if (!barangay.trim()) next.barangay = "Barangay is required";
     if (!city.trim()) next.city = "City is required";
@@ -172,6 +174,8 @@ export default function CheckoutScreen() {
       const placed = res.data;
       const order = {
         orderId: placed?.id || `#ORD-${Date.now()}`,
+        id: placed?.id,
+        db_id: placed?.db_id,
         items: cartItems,
         total: placed?.total ?? total,
         delivery_fee: placed?.delivery_fee ?? deliveryFee,
@@ -186,7 +190,14 @@ export default function CheckoutScreen() {
       };
 
       clearCart();
-      router.push({ pathname: "/order-confirmed", params: { order: JSON.stringify(order) } });
+      router.push({
+        pathname: "/order-confirmed",
+        params: {
+          order: JSON.stringify(order),
+          orderId: order.orderId,
+          dbId: String(placed?.db_id || ""),
+        },
+      });
     } catch (err) {
       Alert.alert("Order failed", err.message || "Could not place order. Please try again.");
     } finally {
@@ -251,8 +262,9 @@ export default function CheckoutScreen() {
           label="Phone Number"
           placeholder="09XX XXX XXXX"
           keyboardType="phone-pad"
+          maxLength={11}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
           error={errors.phone}
           focused={focusedField === "phone"}
           onFocus={() => focusField("phone")}

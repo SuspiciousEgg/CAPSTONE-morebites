@@ -27,13 +27,29 @@ export default function LoginScreen() {
   const [saving, setSaving] = useState(false);
 
   const signIn = async () => {
-    const hasPhone = phoneValue.trim().length > 0;
+    const cleanPhone = phoneValue.replace(/\s/g, "");
+    const hasPhone = cleanPhone.length > 0;
     const hasPassword = passwordValue.trim().length > 0;
 
-    if (!hasPhone || !hasPassword) {
-      setLoginError("Incorrect phone number or password. Please try again.");
-      setPhoneError(!hasPhone ? "Phone number is required" : "");
-      setPasswordError(!hasPassword ? "Password is required" : "");
+    let hasError = false;
+    if (!hasPhone) {
+      setPhoneError("Phone number is required");
+      hasError = true;
+    } else if (!/^09\d{9}$/.test(cleanPhone)) {
+      setPhoneError("Enter a valid 11-digit Philippine mobile number starting with 09");
+      hasError = true;
+    } else {
+      setPhoneError("");
+    }
+
+    if (!hasPassword) {
+      setPasswordError("Password is required");
+      hasError = true;
+    } else {
+      setPasswordError("");
+    }
+
+    if (hasError) {
       return;
     }
 
@@ -91,10 +107,11 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             keyboardType="phone-pad"
-            placeholder="09XX XXX XXX"
+            maxLength={11}
+            placeholder="09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
             value={phoneValue}
-            onChangeText={setPhoneValue}
+            onChangeText={(val) => setPhoneValue(val.replace(/\D/g, "").slice(0, 11))}
             onFocus={() => setPhoneFocused(true)}
             onBlur={() => setPhoneFocused(false)}
             autoCapitalize="none"

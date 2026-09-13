@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\MenuItem;
+use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\TrustedDevice;
@@ -26,17 +27,14 @@ class CustomerAppController extends Controller
     {
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:120'],
-            'phone' => ['required', 'string', 'max:20'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6', 'confirmed'],
             'email' => ['nullable', 'email'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
-        $phone = $this->normalizePhone($data['phone']);
-        if (strlen($phone) < 10) {
-            throw ValidationException::withMessages([
-                'phone' => ['Enter a valid phone number.'],
-            ]);
-        }
+        $phone = $data['phone'];
 
         $exists = User::query()
             ->where('role', 'customer')
@@ -96,9 +94,11 @@ class CustomerAppController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->validate([
-            'phone' => ['required', 'string'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string'],
             'device_id' => ['required', 'string'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $phone = $this->normalizePhone($credentials['phone']);
@@ -165,8 +165,10 @@ class CustomerAppController extends Controller
         $data = $request->validate([
             'full_name' => ['sometimes', 'string', 'max:120'],
             'email' => ['nullable', 'email'],
-            'phone' => ['sometimes', 'string'],
+            'phone' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['nullable', 'string'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         if (isset($data['full_name'])) {
@@ -299,7 +301,7 @@ class CustomerAppController extends Controller
 
         $data = $request->validate([
             'full_name' => ['required', 'string'],
-            'phone' => ['required', 'string'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['required', 'string'],
             'payment_method' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
@@ -308,6 +310,8 @@ class CustomerAppController extends Controller
             'items.*.size' => ['nullable', 'string'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $customer->update([
@@ -389,6 +393,8 @@ class CustomerAppController extends Controller
 
             app(InventoryDeductionService::class)->deductForOrder($order);
 
+            Notification::createOrderNotification($order);
+
             return $order->load(['items', 'driver']);
         });
 
@@ -428,14 +434,7 @@ class CustomerAppController extends Controller
 
     private function nextOrderCode(): string
     {
-        $nextId = ((int) Order::query()->max('id')) + 100;
-
-        do {
-            $code = '#ORD-'.str_pad((string) $nextId, 5, '0', STR_PAD_LEFT);
-            $nextId++;
-        } while (Order::query()->where('order_code', $code)->exists());
-
-        return $code;
+        return Order::generateOrderCode();
     }
 
     private function userPayload(User $user): array

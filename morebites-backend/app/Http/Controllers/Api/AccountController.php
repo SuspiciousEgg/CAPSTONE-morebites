@@ -51,10 +51,12 @@ class AccountController extends Controller
             'last_name' => ['required', 'string'],
             'email' => ['required', 'email', 'unique:users,email'],
             'username' => ['nullable', 'string'],
-            'phone' => ['nullable', 'string'],
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $user = User::query()->create([
@@ -93,7 +95,7 @@ class AccountController extends Controller
             'last_name' => ['required', 'string'],
             'email' => ['required', 'email', 'unique:users,email'],
             'username' => ['nullable', 'string'],
-            'phone' => ['nullable', 'string'],
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
             'license_number' => ['nullable', 'string'],
             'license_expiry' => ['nullable', 'date'],
@@ -101,6 +103,8 @@ class AccountController extends Controller
             'plate_no' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $user = User::query()->create([
@@ -143,10 +147,12 @@ class AccountController extends Controller
             'last_name' => ['required', 'string'],
             'email' => ['required', 'email', 'unique:users,email'],
             'username' => ['nullable', 'string'],
-            'phone' => ['nullable', 'string'],
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $user = User::query()->create([
@@ -185,11 +191,13 @@ class AccountController extends Controller
             'last_name' => ['sometimes', 'string'],
             'email' => ['sometimes', 'email', Rule::unique('users', 'email')->ignore($user->id)],
             'username' => ['nullable', 'string'],
-            'phone' => ['nullable', 'string'],
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'gender' => ['nullable', 'string'],
             'birthday' => ['nullable', 'date'],
             'license_number' => ['nullable', 'string'],
             'license_expiry' => ['nullable', 'date'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         if (isset($data['first_name']) || isset($data['last_name'])) {

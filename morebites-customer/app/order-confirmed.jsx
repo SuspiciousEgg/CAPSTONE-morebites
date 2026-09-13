@@ -51,6 +51,8 @@ export default function OrderConfirmedScreen() {
     [order.street, order.barangay, order.city].filter(Boolean).join(", ") ||
     "Delivery address unavailable";
 
+  const dbId = order.db_id || params.dbId || "";
+
   useEffect(() => {
     clearCartOnMount.current();
   }, []);
@@ -58,7 +60,11 @@ export default function OrderConfirmedScreen() {
   const trackOrder = () => {
     router.push({
       pathname: "/order-tracking",
-      params: { orderId, order: JSON.stringify(order) },
+      params: {
+        orderId,
+        dbId: String(dbId || ""),
+        order: JSON.stringify(order),
+      },
     });
   };
 

@@ -202,36 +202,38 @@ export default function DispatchManagement() {
             Showing {(page - 1) * pageSize + (rows.length ? 1 : 0)} to{' '}
             {Math.min(page * pageSize, pending.length)} of {pending.length} pending deliveries
           </span>
-          <div className="dp-pagination-controls">
-            <button
-              type="button"
-              className="dp-page-btn arrow"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="dp-pagination-controls">
               <button
-                key={n}
                 type="button"
-                className={`dp-page-btn${n === page ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="dp-page-btn arrow"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="dp-page-btn arrow"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dp-page-btn${n === page ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dp-page-btn arrow"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

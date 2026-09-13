@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchDeliveryFees } from "../src/api/fees";
 import { useCart } from "../src/context/CartContext";
+import { mediaUrl } from "../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -30,10 +31,11 @@ function SummaryRow({ label, value, isTotal }) {
 
 // A single cart item with image, details, and quantity controls
 function CartItemCard({ item, onRemove, onIncrease }) {
+  const imageUrl = mediaUrl(item.image);
   return (
     <View style={styles.card}>
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.itemImage} />
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.itemImage} />
       ) : (
         <View style={styles.itemImagePlaceholder}>
           <Ionicons name="fast-food-outline" size={28} color="#8A8A8A" />

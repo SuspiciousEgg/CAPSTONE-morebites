@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\DriverAppController;
 use App\Http\Controllers\Api\DriverController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\MenuController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TrackingController;
@@ -53,6 +54,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
 
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+
     Route::get('/orders/menu-options', [OrderController::class, 'menuOptions']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders', [OrderController::class, 'store']);
@@ -89,6 +95,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/reports/generate', [ReportController::class, 'generate']);
     Route::delete('/reports/{report}', [ReportController::class, 'destroy']);
 
+    Route::get('/drivers', [DriverController::class, 'index']);
+    Route::get('/drivers/{user}', [DriverController::class, 'show']);
+    Route::post('/drivers/{user}/suspend', [DriverController::class, 'suspend']);
+
     Route::middleware('not.cashier')->group(function () {
         Route::post('/delivery-rates', [DeliveryRateController::class, 'store']);
         Route::put('/delivery-rates/{deliveryRate}', [DeliveryRateController::class, 'update']);
@@ -104,10 +114,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/accounts/{user}', [AccountController::class, 'update']);
         Route::patch('/accounts/{user}/role-access', [AccountController::class, 'updateRoleAccess']);
         Route::post('/accounts/{user}/block', [AccountController::class, 'block']);
-
-        Route::get('/drivers', [DriverController::class, 'index']);
-        Route::get('/drivers/{user}', [DriverController::class, 'show']);
-        Route::post('/drivers/{user}/suspend', [DriverController::class, 'suspend']);
 
         Route::get('/blacklist', [BlacklistController::class, 'index']);
         Route::get('/blacklist/{blacklist}', [BlacklistController::class, 'show']);
