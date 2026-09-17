@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import {
   Alert,
@@ -18,15 +19,28 @@ const FONT_MEDIUM = "Plus Jakarta Sans";
 const FONT_BOLD = "Plus Jakarta Sans";
 
 export default function LoginScreen() {
+  const params = useLocalSearchParams();
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [phoneValue, setPhoneValue] = useState("");
+  const [phoneValue, setPhoneValue] = useState(params?.phone ? String(params.phone) : "");
   const [passwordValue, setPasswordValue] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [successBanner, setSuccessBanner] = useState(
+    params?.registered === "1" ? "Account created successfully. Please log in." : ""
+  );
   const [phoneError, setPhoneError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (params?.phone) {
+      setPhoneValue(String(params.phone));
+    }
+    if (params?.registered === "1") {
+      setSuccessBanner("Account created successfully. Please log in.");
+    }
+  }, [params?.phone, params?.registered]);
 
   const signIn = async () => {
     const cleanPhone = phoneValue.replace(/\s/g, "");
@@ -57,13 +71,35 @@ export default function LoginScreen() {
 
     setSaving(true);
     setLoginError("");
+    setSuccessBanner("");
     setPhoneError("");
     setPasswordError("");
 
     try {
       const deviceId = await getDeviceId();
       const res = await customerApi.login(phoneValue.trim(), passwordValue, deviceId);
-      await authStorage.saveSession(res.token, res.user);
+
+      let userObj = res.user || {};
+      if (!userObj.photo && userObj.phone) {
+        const [cachedRaw, savedAccounts] = await Promise.all([
+          AsyncStorage.getItem("cached_user_photos"),
+          AsyncStorage.getItem("registered_accounts"),
+        ]);
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        const accounts = savedAccounts ? JSON.parse(savedAccounts) : [];
+        const matched = accounts.find((a) => a.phone === userObj.phone);
+        const fallbackPhoto = cachedMap[userObj.phone] || matched?.photo || null;
+        if (fallbackPhoto) {
+          userObj = { ...userObj, photo: fallbackPhoto };
+        }
+      } else if (userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        cachedMap[userObj.phone] = userObj.photo;
+        await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+      }
+
+      await authStorage.saveSession(res.token, userObj);
 
       if (res?.new_device === true) {
         Alert.alert(
@@ -112,6 +148,17 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.formArea}>
+        {successBanner ? (
+          <View style={styles.successBanner}>
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={18}
+              color="#16A34A"
+              style={styles.errorBannerIcon}
+            />
+            <Text style={styles.successBannerText}>{successBanner}</Text>
+          </View>
+        ) : null}
         {loginError ? (
           <View style={styles.errorBanner}>
             <Ionicons
@@ -247,6 +294,23 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontFamily: FONT_REGULAR, color: "#1F2937", fontSize: 14, paddingVertical: 10 },
   forgotRow: { alignSelf: "flex-end", marginTop: 12, marginBottom: 8 },
   forgotText: { color: "#E37925", fontFamily: FONT_MEDIUM, fontSize: 13 },
+  successBanner: {
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  successBannerText: {
+    flex: 1,
+    color: "#065F46",
+    fontFamily: FONT_MEDIUM,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   errorBanner: {
     marginBottom: 16,
     padding: 14,

@@ -24,26 +24,48 @@ function shuffleItems(items) {
 }
 
 function FoodCard({ item, compact = false }) {
+  const isAvailable = item.availability !== false && item.available !== false;
   const openDetails = () => {
+    if (!isAvailable) return;
     router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
   };
 
   const imageUrl = mediaUrl(item.image);
 
   return (
-    <Pressable style={[styles.foodCard, compact && styles.compactFoodCard]} onPress={openDetails}>
-      {imageUrl ? (
-        <Image source={{ uri: imageUrl }} style={styles.foodImageThumb} />
-      ) : (
-        <View style={styles.foodImage}>
-          <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
-        </View>
-      )}
+    <Pressable
+      style={[
+        styles.foodCard,
+        compact && styles.compactFoodCard,
+        !isAvailable && styles.cardDisabled,
+      ]}
+      disabled={!isAvailable}
+      onPress={openDetails}
+    >
+      <View style={styles.imageWrap}>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.foodImageThumb} />
+        ) : (
+          <View style={styles.foodImage}>
+            <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
+          </View>
+        )}
+        {!isAvailable && (
+          <View style={styles.unavailableBadge}>
+            <Text style={styles.unavailableBadgeText}>Unavailable</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.foodCardContent}>
         <Text style={styles.foodName} numberOfLines={2}>{item.name}</Text>
         <View style={styles.foodCardFooter}>
           <Text style={styles.foodPrice}>{item.priceLabel || `₱${item.price}`}</Text>
-          <Pressable style={styles.addButton} onPress={openDetails} hitSlop={6}>
+          <Pressable
+            style={[styles.addButton, !isAvailable && styles.addButtonDisabled]}
+            onPress={openDetails}
+            disabled={!isAvailable}
+            hitSlop={6}
+          >
             <Ionicons name="add" size={16} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -358,8 +380,31 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 2,
   },
+  cardDisabled: {
+    opacity: 0.5,
+  },
   compactFoodCard: {
     width: "100%",
+  },
+  imageWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  unavailableBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#4B5563",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+    zIndex: 10,
+  },
+  unavailableBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   foodImage: {
     height: 110,
@@ -402,6 +447,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 12,
     backgroundColor: PRIMARY,
+  },
+  addButtonDisabled: {
+    backgroundColor: "#9CA3AF",
   },
   emptyState: {
     minHeight: 420,

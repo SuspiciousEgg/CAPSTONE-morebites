@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import {
@@ -21,8 +21,6 @@ const FONT = "Plus Jakarta Sans";
 const STATUS_OPTIONS = ["All", "Assigned", "Picked Up", "Out for Delivery"];
 const SORT_OPTIONS = ["Newest", "Distance", "Amount"];
 
-const NOTIFICATIONS = [];
-
 export default function HomeScreen() {
   const [firstName, setFirstName] = useState("Driver");
   const [orders, setOrders] = useState([]);
@@ -32,6 +30,60 @@ export default function HomeScreen() {
   const [sort, setSort] = useState("Newest");
   const [openDropdown, setOpenDropdown] = useState("");
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const notificationsVisibleRef = useRef(notificationsVisible);
+  notificationsVisibleRef.current = notificationsVisible;
+
+  const loadUnreadCount = useCallback(async () => {
+    try {
+      const res = await driverApi.unreadNotificationsCount();
+      const count = Number(res?.count ?? res?.data?.count ?? 0);
+      setUnreadCount(count);
+    } catch {
+      // offline / fallback
+    }
+  }, []);
+
+  const openNotifications = async () => {
+    setNotificationsVisible(true);
+    setNotificationsLoading(true);
+    try {
+      const res = await driverApi.notifications();
+      setNotifications(res.data || []);
+      const countRes = await driverApi.unreadNotificationsCount();
+      setUnreadCount(Number(countRes?.count ?? countRes?.data?.count ?? 0));
+    } catch (err) {
+      console.warn("Failed to load notifications:", err);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const handleNotificationPress = async (item) => {
+    if (item.unread || !item.is_read) {
+      try {
+        await driverApi.markNotificationRead(item.id);
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === item.id ? { ...n, is_read: true, unread: false } : n))
+        );
+        setUnreadCount((c) => Math.max(0, c - 1));
+      } catch (err) {
+        console.warn("Failed to mark notification as read:", err);
+      }
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await driverApi.markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.warn("Failed to mark all notifications as read:", err);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -47,6 +99,7 @@ export default function HomeScreen() {
 
           const res = await driverApi.orders("All");
           if (active) setOrders(res.data || []);
+          await loadUnreadCount();
         } catch (err) {
           if (active) {
             setLoadError(err.message || "Failed to load orders");
@@ -58,10 +111,24 @@ export default function HomeScreen() {
       };
 
       load();
+
+      const interval = setInterval(async () => {
+        loadUnreadCount();
+        if (notificationsVisibleRef.current) {
+          try {
+            const res = await driverApi.notifications();
+            if (active) setNotifications(res.data || []);
+          } catch {
+            // offline / ignore
+          }
+        }
+      }, 3000);
+
       return () => {
         active = false;
+        clearInterval(interval);
       };
-    }, []),
+    }, [loadUnreadCount]),
   );
 
   const activeOrders = useMemo(
@@ -87,9 +154,7 @@ export default function HomeScreen() {
   }, [filter, sort, activeOrders]);
 
   const activeOrderCount = activeOrders.length;
-  const hasUnreadNotifications = NOTIFICATIONS.some(
-    (notification) => notification.unread,
-  );
+  const hasUnreadNotifications = unreadCount > 0;
 
   const chooseFilter = (value) => {
     setFilter(value);
@@ -108,7 +173,7 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.bellButton}
           activeOpacity={0.7}
-          onPress={() => setNotificationsVisible(true)}
+          onPress={openNotifications}
         >
           <Ionicons name="notifications-outline" size={24} color="#121212" />
           {hasUnreadNotifications ? <View style={styles.unreadBadge} /> : null}
@@ -277,41 +342,61 @@ export default function HomeScreen() {
           <Pressable style={styles.notificationsPanel} onPress={() => {}}>
             <View style={styles.notificationsHeader}>
               <Text style={styles.notificationsTitle}>Notifications</Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                activeOpacity={0.7}
-                onPress={() => setNotificationsVisible(false)}
-              >
-                <Ionicons name="close" size={22} color="#121212" />
-              </TouchableOpacity>
-            </View>
-            {NOTIFICATIONS.length > 0 ? (
-              NOTIFICATIONS.map((notification) => (
-              <View
-                key={notification.id}
-                style={[
-                  styles.notificationItem,
-                  notification.highlighted && styles.notificationItemHighlighted,
-                ]}
-              >
-                <View style={styles.notificationDot} />
-                <View style={styles.notificationContent}>
-                  <Text style={styles.notificationText}>
-                    {notification.title}
-                  </Text>
-                  {notification.detail ? (
-                    <Text style={styles.notificationDetail}>
-                      {notification.detail}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                {notifications.some((n) => n.unread || !n.is_read) ? (
+                  <TouchableOpacity activeOpacity={0.7} onPress={handleMarkAllAsRead}>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: "#F97000", fontFamily: FONT }}>
+                      Mark all as read
                     </Text>
-                  ) : null}
-                  <Text style={styles.notificationTime}>
-                    {notification.timestamp}
-                  </Text>
-                </View>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  activeOpacity={0.7}
+                  onPress={() => setNotificationsVisible(false)}
+                >
+                  <Ionicons name="close" size={22} color="#121212" />
+                </TouchableOpacity>
               </View>
-              ))
+            </View>
+            {notificationsLoading ? (
+              <View style={styles.notificationEmpty}>
+                <ActivityIndicator size="small" color="#F97000" />
+                <Text style={[styles.notificationEmptyText, { marginTop: 8 }]}>Loading notifications...</Text>
+              </View>
+            ) : notifications.length > 0 ? (
+              notifications.map((notification) => {
+                const isUnread = notification.unread || !notification.is_read;
+                return (
+                  <TouchableOpacity
+                    key={notification.id}
+                    activeOpacity={0.7}
+                    onPress={() => handleNotificationPress(notification)}
+                    style={[
+                      styles.notificationItem,
+                      isUnread && styles.notificationItemHighlighted,
+                    ]}
+                  >
+                    <View style={[styles.notificationDot, !isUnread && { backgroundColor: "#D1D5DB" }]} />
+                    <View style={styles.notificationContent}>
+                      <Text style={[styles.notificationText, isUnread && { fontWeight: "700" }]}>
+                        {notification.title}
+                      </Text>
+                      {notification.message || notification.detail ? (
+                        <Text style={styles.notificationDetail}>
+                          {notification.message || notification.detail}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.notificationTime}>
+                        {notification.time || notification.timestamp || "Just now"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
             ) : (
               <View style={styles.notificationEmpty}>
+                <Ionicons name="notifications-off-outline" size={32} color="#D1D5DB" style={{ marginBottom: 6 }} />
                 <Text style={styles.notificationEmptyText}>
                   No new notifications
                 </Text>

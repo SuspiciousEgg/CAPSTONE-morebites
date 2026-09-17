@@ -37,6 +37,7 @@ function FormField({ label, error, focused, onFocus, onBlur, ...inputProps }) {
       </View>
       {error ? (
         <View style={styles.fieldErrorRow}>
+          <Ionicons name="warning-outline" size={14} color="#D94343" />
           <Text style={styles.fieldErrorText}>{error}</Text>
         </View>
       ) : null}
@@ -234,12 +235,16 @@ export default function CheckoutScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.orderBar}>
+          <View style={styles.orderIconWrap}>
+            <Ionicons name="bag-handle-outline" size={20} color={PRIMARY} />
+          </View>
           <View style={styles.orderInfo}>
             <Text style={styles.orderLabel}>Your Order</Text>
             <Text style={styles.orderTotal}>₱ {Number(total).toFixed(2)}</Text>
           </View>
           <Pressable style={styles.viewPill} onPress={() => setShowOrderSheet(true)} hitSlop={8}>
             <Text style={styles.viewLink}>View</Text>
+            <Ionicons name="chevron-forward" size={14} color={PRIMARY} />
           </Pressable>
         </View>
 
@@ -308,6 +313,13 @@ export default function CheckoutScreen() {
         <Text style={styles.fieldLabel}>Payment Method</Text>
         <View style={styles.paymentCard}>
           <View style={styles.paymentLeft}>
+            <View style={styles.paymentIconWrap}>
+              <Ionicons name="cash-outline" size={20} color={PRIMARY} />
+            </View>
+            <View>
+              <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
+              <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
+            </View>
             <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
             <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
           </View>
@@ -327,6 +339,10 @@ export default function CheckoutScreen() {
         />
 
         <View style={styles.feeCard}>
+          <View style={styles.feeHeader}>
+            <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
+            <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
+          </View>
           <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
           {quoting ? (
             <View style={styles.feeHintWrap}>
@@ -336,6 +352,7 @@ export default function CheckoutScreen() {
           ) : street.trim() && barangay.trim() && city.trim() ? (
             feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10) ? (
               <View style={styles.feeErrorBanner}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
                 <Text style={styles.feeErrorText}>
                   {feeQuote?.error || "Delivery not available beyond 10km. Please select an address within 10km."}
                 </Text>
@@ -344,6 +361,7 @@ export default function CheckoutScreen() {
               <>
                 {feeQuote?.distanceKm != null ? (
                   <View style={styles.distanceBadge}>
+                    <Ionicons name="location-outline" size={14} color={PRIMARY} />
                     <Text style={styles.distanceBadgeText}>
                       {Number(feeQuote.distanceKm).toFixed(1)} km from store
                     </Text>
@@ -380,6 +398,7 @@ export default function CheckoutScreen() {
             )
           ) : (
             <View style={styles.feeHintWrap}>
+              <Ionicons name="information-circle-outline" size={18} color="#9CA3AF" />
               <Text style={styles.feeHint}>
                 Enter street, barangay, and city to calculate the distance-based delivery fee.
               </Text>
@@ -506,9 +525,24 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    padding: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     marginBottom: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  orderIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "#FFF4EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
   orderInfo: {
     flex: 1,
@@ -527,12 +561,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   viewPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#FFF4EB",
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 2,
   },
   viewLink: {
     color: PRIMARY,
@@ -558,6 +594,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     paddingHorizontal: 14,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
   },
   focusedInput: {
     borderColor: PRIMARY,
@@ -575,6 +616,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   fieldErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     marginTop: 4,
   },
   fieldErrorText: {
@@ -598,13 +642,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    padding: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     marginBottom: 14,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
   },
   paymentLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     flex: 1,
     marginRight: 10,
+  },
+  paymentIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#FFF4EB",
+    alignItems: "center",
+    justifyContent: "center",
   },
   paymentValue: {
     color: "#121212",
@@ -640,6 +701,17 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginTop: 6,
     padding: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  feeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
   },
   feeTitle: {
     color: "#121212",
@@ -649,6 +721,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   feeHintWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     paddingVertical: 4,
   },
   feeHint: {
@@ -656,23 +731,30 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 13,
     lineHeight: 18,
+    flex: 1,
   },
   feeErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#FEF2F2",
     borderColor: "#FECACA",
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
     marginTop: 4,
+    gap: 8,
   },
   feeErrorText: {
     color: "#DC2626",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "600",
+    flex: 1,
     lineHeight: 18,
   },
   distanceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "flex-start",
     backgroundColor: "#FFF4EB",
     borderColor: "#FED7AA",
@@ -680,6 +762,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    gap: 6,
     marginBottom: 10,
   },
   distanceBadgeText: {
@@ -754,6 +837,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   confirmText: {
     color: "#FFFFFF",

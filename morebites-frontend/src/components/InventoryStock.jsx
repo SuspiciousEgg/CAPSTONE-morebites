@@ -19,6 +19,7 @@ import {
   LuSlidersHorizontal,
   LuPackage,
   LuUpload,
+  LuTrash2,
 } from 'react-icons/lu'
 import {
   IconBox,

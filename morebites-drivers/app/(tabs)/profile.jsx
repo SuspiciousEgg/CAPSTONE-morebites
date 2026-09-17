@@ -12,7 +12,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, driverApi } from "../../src/api/client";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { authStorage, driverApi, mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const EMPTY_USER = {
@@ -30,7 +31,19 @@ export default function ProfileScreen() {
     useCallback(() => {
       const loadUser = async () => {
         const savedUser = await authStorage.getUser();
-        setUser(savedUser ? { ...EMPTY_USER, ...savedUser } : EMPTY_USER);
+        if (savedUser) {
+          let resolved = { ...savedUser };
+          if (!resolved.photo && resolved.phone) {
+            const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+            const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+            if (cachedMap[resolved.phone]) {
+              resolved.photo = cachedMap[resolved.phone];
+            }
+          }
+          setUser({ ...EMPTY_USER, ...resolved });
+        } else {
+          setUser(EMPTY_USER);
+        }
       };
 
       loadUser();
@@ -56,7 +69,7 @@ export default function ProfileScreen() {
         <View style={styles.avatarSection}>
           <View style={styles.avatarCircle}>
             {user.photo ? (
-              <Image source={{ uri: user.photo }} style={styles.avatarImage} />
+              <Image source={{ uri: mediaUrl(user.photo) || user.photo }} style={styles.avatarImage} />
             ) : (
               <Ionicons name="person" size={48} color="#9CA3AF" />
             )}

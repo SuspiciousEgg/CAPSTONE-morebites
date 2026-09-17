@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -157,6 +158,7 @@ class DriverAppController extends Controller
             'last_name' => ['sometimes', 'string'],
             'email' => ['sometimes', 'email'],
             'phone' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
+            'photo' => ['nullable'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -165,6 +167,32 @@ class DriverAppController extends Controller
             $first = $data['first_name'] ?? $user->first_name;
             $last = $data['last_name'] ?? $user->last_name;
             $data['name'] = trim($first.' '.$last);
+        }
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('avatars', 'public');
+            $data['photo'] = '/storage/'.$path;
+        } elseif ($request->has('photo')) {
+            $rawPhoto = $request->input('photo');
+            if (is_string($rawPhoto) && preg_match('/^data:image\/(\w+);base64,/', $rawPhoto, $type)) {
+                $raw = substr($rawPhoto, strpos($rawPhoto, ',') + 1);
+                $decoded = base64_decode($raw);
+                if ($decoded !== false) {
+                    $ext = strtolower($type[1]);
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'avatars/avatar_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $decoded);
+                    $data['photo'] = '/storage/'.$filename;
+                } else {
+                    $data['photo'] = $rawPhoto;
+                }
+            } elseif ($rawPhoto === null || $rawPhoto === '') {
+                $data['photo'] = null;
+            } elseif (is_string($rawPhoto)) {
+                $data['photo'] = $rawPhoto;
+            }
         }
 
         $user->update($data);
@@ -272,6 +300,7 @@ class DriverAppController extends Controller
             'last_name' => $user->last_name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
             'rating' => (float) $user->rating,

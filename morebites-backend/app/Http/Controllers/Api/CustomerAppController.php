@@ -18,6 +18,7 @@ use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -167,6 +168,7 @@ class CustomerAppController extends Controller
             'email' => ['nullable', 'email'],
             'phone' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['nullable', 'string'],
+            'photo' => ['nullable'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -181,6 +183,32 @@ class CustomerAppController extends Controller
 
         if (isset($data['phone'])) {
             $data['phone'] = $this->normalizePhone($data['phone']);
+        }
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('avatars', 'public');
+            $data['photo'] = '/storage/'.$path;
+        } elseif ($request->has('photo')) {
+            $rawPhoto = $request->input('photo');
+            if (is_string($rawPhoto) && preg_match('/^data:image\/(\w+);base64,/', $rawPhoto, $type)) {
+                $raw = substr($rawPhoto, strpos($rawPhoto, ',') + 1);
+                $decoded = base64_decode($raw);
+                if ($decoded !== false) {
+                    $ext = strtolower($type[1]);
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'avatars/avatar_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $decoded);
+                    $data['photo'] = '/storage/'.$filename;
+                } else {
+                    $data['photo'] = $rawPhoto;
+                }
+            } elseif ($rawPhoto === null || $rawPhoto === '') {
+                $data['photo'] = null;
+            } elseif (is_string($rawPhoto)) {
+                $data['photo'] = $rawPhoto;
+            }
         }
 
         $deliveryAddress = $data['delivery_address'] ?? null;
@@ -204,15 +232,29 @@ class CustomerAppController extends Controller
         $service = app(InventoryDeductionService::class);
         $service->syncMenuAvailability();
 
+        // Prompt 23: Aggregate real food rating data per menu item from customer orders.
+        // When customers rate their orders, food ratings are stored in orders.food_rating.
+        // Each order links to menu items via order_items.menu_item_id.
+        $ratingStats = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->whereNotNull('orders.food_rating')
+            ->whereNotNull('order_items.menu_item_id')
+            ->select(
+                'order_items.menu_item_id',
+                DB::raw('ROUND(AVG(orders.food_rating), 1) as avg_rating'),
+                DB::raw('COUNT(DISTINCT orders.id) as review_count')
+            )
+            ->groupBy('order_items.menu_item_id')
+            ->get()
+            ->keyBy('menu_item_id');
+
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
-            ->where('available', true)
             ->orderBy('category')
             ->orderBy('name')
             ->get()
-            ->filter(fn (MenuItem $m) => $service->canServe($m))
-            ->map(fn (MenuItem $m) => $this->menuPayload($m))
+            ->map(fn (MenuItem $m) => $this->menuPayload($m, $service, $ratingStats->get($m->id)))
             ->values();
 
         return response()->json(['data' => $items]);
@@ -448,6 +490,7 @@ class CustomerAppController extends Controller
             'last_name' => $user->last_name,
             'email' => $user->email && ! str_ends_with($user->email, '@customer.morebites.local') ? $user->email : '',
             'phone' => $user->phone,
+            'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
             'delivery_address' => $customer?->delivery_address,
@@ -455,8 +498,13 @@ class CustomerAppController extends Controller
         ];
     }
 
-    private function menuPayload(MenuItem $m): array
+    private function menuPayload(MenuItem $m, ?InventoryDeductionService $service = null, $ratingStat = null): array
     {
+        $service ??= app(InventoryDeductionService::class);
+        $stockOk = $service->canServe($m);
+        $stockReason = $service->unserviceableReason($m);
+        $isAvailable = (bool) ($m->available && $stockOk);
+
         $sizes = $m->sizes->map(fn ($s) => [
             'sizeName' => $s->name,
             'price' => (float) $s->price,
@@ -467,6 +515,9 @@ class CustomerAppController extends Controller
         $priceLabel = $m->has_sizes && $sizes->count()
             ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
             : '₱'.number_format((float) $m->price, 0);
+
+        $rating = $ratingStat ? (float) $ratingStat->avg_rating : null;
+        $reviewCount = $ratingStat ? (int) $ratingStat->review_count : 0;
 
         return [
             'id' => (string) $m->id,
@@ -479,6 +530,13 @@ class CustomerAppController extends Controller
             'hasSizes' => (bool) $m->has_sizes,
             'sizes' => $sizes,
             'image' => Media::url($m->image),
+            'available' => $isAvailable,
+            'availability' => $isAvailable,
+            'stockOk' => $stockOk,
+            'stockReason' => $stockReason,
+            'rating' => $rating,
+            'reviewCount' => $reviewCount,
+            'reviews' => $reviewCount,
             'promoActive' => (bool) $m->promo_active,
             'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
             'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,

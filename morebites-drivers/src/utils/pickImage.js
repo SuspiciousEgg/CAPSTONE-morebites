@@ -60,14 +60,19 @@ async function pickFromLibrary({ aspect, quality, allowsEditing }) {
     allowsEditing: Platform.OS === "ios" ? allowsEditing : false,
     aspect,
     quality,
+    base64: true,
   });
 
   if (result.canceled || !result.assets?.[0]?.uri) return null;
   const asset = result.assets[0];
+  const uri = asset.base64
+    ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
+    : asset.uri;
   return {
-    uri: asset.uri,
+    uri,
     mimeType: asset.mimeType || "image/jpeg",
     fileName: asset.fileName || "photo.jpg",
+    base64: asset.base64,
   };
 }
 
@@ -83,14 +88,19 @@ async function pickFromCamera({ aspect, quality, allowsEditing }) {
     allowsEditing: Platform.OS === "ios" ? allowsEditing : false,
     aspect,
     quality,
+    base64: true,
   });
 
   if (result.canceled || !result.assets?.[0]?.uri) return null;
   const asset = result.assets[0];
+  const uri = asset.base64
+    ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
+    : asset.uri;
   return {
-    uri: asset.uri,
+    uri,
     mimeType: asset.mimeType || "image/jpeg",
     fileName: asset.fileName || "photo.jpg",
+    base64: asset.base64,
   };
 }
 

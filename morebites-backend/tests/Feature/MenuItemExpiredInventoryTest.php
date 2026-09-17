@@ -76,7 +76,7 @@ class MenuItemExpiredInventoryTest extends TestCase
         $this->assertFalse($menu->fresh()->available);
     }
 
-    public function test_customer_menu_excludes_menu_item_with_expired_inventory(): void
+    public function test_customer_menu_marks_menu_item_with_expired_inventory_as_unavailable(): void
     {
         $inventory = InventoryItem::query()->create([
             'name' => 'Expired Syrup',
@@ -106,8 +106,10 @@ class MenuItemExpiredInventoryTest extends TestCase
         $response = $this->getJson('/api/customer/menu');
         $response->assertStatus(200);
 
-        $names = collect($response->json('data'))->pluck('name')->all();
-        $this->assertNotContains('Caramel Macchiato', $names);
+        $item = collect($response->json('data'))->firstWhere('name', 'Caramel Macchiato');
+        $this->assertNotNull($item);
+        $this->assertFalse($item['available']);
+        $this->assertFalse($item['availability']);
     }
 
     public function test_customer_order_rejects_expired_ingredient(): void

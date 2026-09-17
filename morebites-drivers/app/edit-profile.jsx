@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
@@ -42,7 +43,13 @@ export default function EditProfileScreen() {
         const res = await driverApi.me();
         if (res?.user) {
           const local = (await authStorage.getUser()) || {};
-          const merged = { ...res.user, photo: local.photo || "" };
+          let resolvedPhoto = res.user.photo || local.photo || "";
+          if (!resolvedPhoto && res.user.phone) {
+            const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+            const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+            resolvedPhoto = cachedMap[res.user.phone] || "";
+          }
+          const merged = { ...res.user, photo: resolvedPhoto };
           await authStorage.updateUser(merged);
           setFullName(merged.fullName || "");
           setPhone(merged.phone || "");
@@ -55,10 +62,16 @@ export default function EditProfileScreen() {
       }
 
       const user = (await authStorage.getUser()) || {};
+      let resolvedPhoto = user.photo || "";
+      if (!resolvedPhoto && user.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        resolvedPhoto = cachedMap[user.phone] || "";
+      }
       setFullName(user.fullName || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
-      setPhoto(user.photo || "");
+      setPhoto(resolvedPhoto);
     };
 
     loadUser();
@@ -70,6 +83,13 @@ export default function EditProfileScreen() {
 
     setPhoto(selected.uri);
     await authStorage.updateUser({ photo: selected.uri });
+
+    if (phone) {
+      const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+      const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+      cachedMap[phone] = selected.uri;
+      await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+    }
   };
 
   const saveChanges = async () => {
@@ -108,14 +128,23 @@ export default function EditProfileScreen() {
       const res = await driverApi.updateProfile({
         first_name: firstName || fullName.trim(),
         last_name: lastName || "",
+        photo,
       });
 
+      const finalPhoto = res?.user?.photo || photo;
       const updated = {
-        ...(res.user || {}),
-        fullName: res.user?.fullName || fullName,
-        photo,
+        ...(res?.user || {}),
+        fullName: res?.user?.fullName || fullName,
+        photo: finalPhoto,
       };
       await authStorage.updateUser(updated);
+
+      if (phone && finalPhoto) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        cachedMap[phone] = finalPhoto;
+        await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+      }
 
       setCurrentPassword("");
       setNewPassword("");

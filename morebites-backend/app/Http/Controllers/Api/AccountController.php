@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\DriverBlacklist;
 use App\Models\User;
+use App\Support\Media;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class AccountController extends Controller
@@ -53,6 +55,7 @@ class AccountController extends Controller
             'username' => ['nullable', 'string'],
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
+            'photo' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
         ], [
@@ -78,6 +81,8 @@ class AccountController extends Controller
         $user->syncRoleAccess($access);
         $user->save();
 
+        $this->processPhoto($request, $user);
+
         ActivityLog::query()->create([
             'actor' => 'Owner',
             'action' => 'Created admin '.$user->name,
@@ -101,6 +106,8 @@ class AccountController extends Controller
             'license_expiry' => ['nullable', 'date'],
             'vehicle_type' => ['nullable', 'string'],
             'plate_no' => ['nullable', 'string'],
+            'photo' => ['nullable', 'string'],
+            'license_document' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
         ], [
@@ -130,6 +137,9 @@ class AccountController extends Controller
         $user->syncRoleAccess($access);
         $user->save();
 
+        $this->processPhoto($request, $user);
+        $this->processLicenseDocument($request, $user);
+
         ActivityLog::query()->create([
             'actor' => 'Owner',
             'action' => 'Created driver '.$user->name,
@@ -149,6 +159,7 @@ class AccountController extends Controller
             'username' => ['nullable', 'string'],
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
+            'photo' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
         ], [
@@ -174,6 +185,8 @@ class AccountController extends Controller
         $user->syncRoleAccess($access);
         $user->save();
 
+        $this->processPhoto($request, $user);
+
         ActivityLog::query()->create([
             'actor' => 'Owner',
             'action' => 'Created cashier '.$user->name,
@@ -196,6 +209,8 @@ class AccountController extends Controller
             'birthday' => ['nullable', 'date'],
             'license_number' => ['nullable', 'string'],
             'license_expiry' => ['nullable', 'date'],
+            'photo' => ['nullable', 'string'],
+            'license_document' => ['nullable', 'string'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -206,7 +221,13 @@ class AccountController extends Controller
             $data['name'] = trim($first.' '.$last);
         }
 
+        unset($data['photo'], $data['license_document']);
         $user->update($data);
+
+        $this->processPhoto($request, $user);
+        if ($user->hasRoleAccess('driver') || $user->role === 'driver') {
+            $this->processLicenseDocument($request, $user);
+        }
 
         return response()->json([
             'data' => $this->payloadForUser($user->fresh()),
@@ -331,6 +352,7 @@ class AccountController extends Controller
             'email' => $u->email,
             'username' => $u->username,
             'phone' => $u->phone,
+            'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
             'joinDate' => $u->created_at?->format('M d, Y'),
@@ -349,11 +371,13 @@ class AccountController extends Controller
             'email' => $u->email,
             'username' => $u->username,
             'phone' => $u->phone,
+            'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
             'joinDate' => $u->created_at?->format('M d, Y'),
             'license' => $u->license_number,
             'expiry' => $u->license_expiry?->format('Y-m-d'),
+            'license_document' => $u->license_document ? Media::url($u->license_document) : null,
             'status' => $u->status,
             ...$this->roleAccessMeta($u),
         ];
@@ -369,11 +393,60 @@ class AccountController extends Controller
             'email' => $u->email,
             'username' => $u->username,
             'phone' => $u->phone,
+            'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
             'joinDate' => $u->created_at?->format('M d, Y'),
             'status' => $u->status,
             ...$this->roleAccessMeta($u),
         ];
+    }
+
+    private function processPhoto(Request $request, User $user): void
+    {
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('avatars', 'public');
+            $user->update(['photo' => '/storage/'.$path]);
+        } elseif ($request->filled('photo')) {
+            $raw = $request->input('photo');
+            if (is_string($raw) && preg_match('/^data:image\/(\w+);base64,/', $raw, $matches)) {
+                $content = base64_decode(substr($raw, strpos($raw, ',') + 1));
+                if ($content !== false) {
+                    $ext = strtolower($matches[1]);
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'avatars/avatar_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $content);
+                    $user->update(['photo' => '/storage/'.$filename]);
+                }
+            } elseif (is_string($raw) && (str_starts_with($raw, 'http') || str_starts_with($raw, '/storage'))) {
+                $user->update(['photo' => $raw]);
+            }
+        }
+    }
+
+    private function processLicenseDocument(Request $request, User $user): void
+    {
+        if ($request->hasFile('license_document')) {
+            $path = $request->file('license_document')->store('documents', 'public');
+            $user->update(['license_document' => '/storage/'.$path]);
+        } elseif ($request->filled('license_document')) {
+            $raw = $request->input('license_document');
+            if (is_string($raw) && preg_match('/^data:(image\/(\w+)|application\/pdf);base64,/', $raw, $matches)) {
+                $content = base64_decode(substr($raw, strpos($raw, ',') + 1));
+                if ($content !== false) {
+                    $ext = str_contains($matches[0], 'pdf') ? 'pdf' : strtolower($matches[2] ?? 'jpg');
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'documents/license_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $content);
+                    $user->update(['license_document' => '/storage/'.$filename]);
+                }
+            } elseif (is_string($raw) && (str_starts_with($raw, 'http') || str_starts_with($raw, '/storage'))) {
+                $user->update(['license_document' => $raw]);
+            }
+        }
     }
 }

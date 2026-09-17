@@ -879,12 +879,30 @@
   text-decoration: underline;
 }
 
-.sa-notif-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 0 20px 14px;
+.sa-notif-tabs-scroll-wrap {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sa-notif-tabs-scroll-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.sa-notif-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 0 20px 14px;
+  min-width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sa-notif-tabs::-webkit-scrollbar {
@@ -892,6 +910,7 @@
 }
 
 .sa-notif-tab {
+  flex-shrink: 0;
   border: none;
   background: #f3f3f3;
   color: var(--sa-muted);

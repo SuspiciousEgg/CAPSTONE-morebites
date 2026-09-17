@@ -31,7 +31,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -391,10 +391,29 @@ export default function OrdersScreen() {
     }
   }, [loadUnreadCount]);
 
+  const notificationsVisibleRef = useRef(notificationsVisible);
+  notificationsVisibleRef.current = notificationsVisible;
+
   useFocusEffect(
     useCallback(() => {
       loadOrders();
-    }, [loadOrders]),
+
+      const interval = setInterval(async () => {
+        loadUnreadCount();
+        if (notificationsVisibleRef.current) {
+          try {
+            const res = await customerApi.notifications();
+            setNotifications(res.data || []);
+          } catch {
+            // offline / ignore
+          }
+        }
+      }, 3000);
+
+      return () => {
+        clearInterval(interval);
+      };
+    }, [loadOrders, loadUnreadCount]),
   );
 
   const openNotifications = async () => {

@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, customerApi } from "../../src/api/client";
 
@@ -58,14 +67,42 @@ export default function RegisterScreen() {
     setGeneralError("");
     setSaving(true);
     try {
-      const res = await customerApi.register({
+      const cleanPhone = phone.replace(/\s/g, "");
+      await customerApi.register({
         full_name: fullName.trim(),
-        phone: phone.replace(/\s/g, ""),
+        phone: cleanPhone,
         password,
         password_confirmation: confirmPassword,
       });
-      await authStorage.saveSession(res.token, res.user);
-      router.replace("/(tabs)/home");
+
+      // Clear any prior session so user logs in afresh
+      await authStorage.clear();
+
+      const navigateToLogin = () => {
+        router.replace({
+          pathname: "/(auth)/login",
+          params: { phone: cleanPhone, registered: "1" },
+        });
+      };
+
+      if (Platform.OS === "web") {
+        navigateToLogin();
+      } else {
+        Alert.alert(
+          "Account Created",
+          "Your account has been created successfully. Please log in with your credentials.",
+          [
+            {
+              text: "OK",
+              onPress: navigateToLogin,
+            },
+          ],
+          {
+            cancelable: true,
+            onDismiss: navigateToLogin,
+          }
+        );
+      }
     } catch (err) {
       const msg = err.message || "Registration failed.";
       if (/phone/i.test(msg)) {

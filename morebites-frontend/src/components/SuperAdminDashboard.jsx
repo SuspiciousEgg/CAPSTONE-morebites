@@ -220,9 +220,14 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     }
   }, [])
 
-  // Fetch persistent unread count and notifications on Dashboard mount
+  // Fetch persistent unread count and notifications on Dashboard mount with 3-second polling
   useEffect(() => {
     loadNotifications()
+    const interval = setInterval(() => {
+      loadNotifications()
+    }, 3000)
+
+    return () => clearInterval(interval)
   }, [loadNotifications])
 
   const handleToggleNotifPanel = () => {
@@ -540,17 +545,19 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             </div>
 
             <div className="sa-all-notifs-filter-row">
-              <div className="sa-notif-tabs" style={{ padding: 0 }}>
-                {notifTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`sa-notif-tab${modalNotifTab === tab ? ' active' : ''}`}
-                    onClick={() => setModalNotifTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="sa-notif-tabs-scroll-wrap">
+                <div className="sa-notif-tabs" style={{ padding: 0 }}>
+                  {notifTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`sa-notif-tab${modalNotifTab === tab ? ' active' : ''}`}
+                      onClick={() => setModalNotifTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="sa-notif-search-wrap">
@@ -643,17 +650,19 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 </button>
               </div>
 
-              <div className="sa-notif-tabs">
-                {notifTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`sa-notif-tab${notifTab === tab ? ' active' : ''}`}
-                    onClick={() => setNotifTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="sa-notif-tabs-scroll-wrap">
+                <div className="sa-notif-tabs">
+                  {notifTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`sa-notif-tab${notifTab === tab ? ' active' : ''}`}
+                      onClick={() => setNotifTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="sa-notif-list">

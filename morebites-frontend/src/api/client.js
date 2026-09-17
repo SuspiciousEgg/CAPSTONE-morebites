@@ -180,6 +180,8 @@ export const driversApi = {
   list: (params) => api.get('/drivers', { params }),
   show: (id) => api.get(`/drivers/${id}`),
   suspend: (id) => api.post(`/drivers/${id}/suspend`),
+  reactivate: (id) => api.post(`/drivers/${id}/reactivate`),
+  blacklist: (id, reason) => api.post(`/drivers/${id}/blacklist`, { reason }),
 }
 
 export const blacklistApi = {

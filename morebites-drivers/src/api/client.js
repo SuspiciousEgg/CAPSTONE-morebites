@@ -259,6 +259,10 @@ export const driverApi = {
       body: { latitude, longitude },
     }),
   tracking: (dbId) => request(`/driver/orders/${dbId}/tracking`),
+  unreadNotificationsCount: () => request("/notifications/unread-count"),
+  notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
     try {
       await request("/logout", { method: "POST" });

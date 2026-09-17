@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LuPlus,
   LuX,
@@ -9,6 +9,10 @@ import {
   LuTriangleAlert,
   LuPencil,
   LuArchive,
+  LuCamera,
+  LuCloudUpload,
+  LuFileText,
+  LuTrash2,
 } from 'react-icons/lu'
 import {
   IconClose,
@@ -36,6 +40,214 @@ const ROLE_OPTIONS = [
   { id: 'driver', label: 'Driver' },
   { id: 'cashier', label: 'Cashier' },
 ]
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+}
+
+function PhotoUploader({ photo, onChange, disabled = false }) {
+  const fileInputRef = useRef(null)
+
+  function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, WEBP).')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo must be less than 5MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => onChange(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    if (disabled) return
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      alert('Please drop an image file.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo must be less than 5MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => onChange(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="ac-avatar-uploader-wrap">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFile}
+        accept="image/png,image/jpeg,image/webp,image/jpg"
+        style={{ display: 'none' }}
+        disabled={disabled}
+      />
+      <div
+        className={`ac-avatar-uploader${photo ? ' has-photo' : ''}`}
+        onClick={() => !disabled && fileInputRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+        role="button"
+        tabIndex={0}
+        aria-label="Upload photo"
+      >
+        {photo ? (
+          <div className="ac-avatar-preview">
+            <img src={photo} alt="Avatar Preview" className="ac-avatar-img" />
+            <div className="ac-avatar-overlay">
+              <LuCamera size={18} />
+              <span>Change</span>
+            </div>
+          </div>
+        ) : (
+          <div className="ac-avatar-placeholder">
+            <div className="ac-avatar-icon-circle">
+              <LuCamera size={20} />
+            </div>
+            <span className="ac-avatar-prompt">Upload Photo</span>
+            <span className="ac-avatar-subtext">JPG, PNG under 5MB</span>
+          </div>
+        )}
+      </div>
+      {photo && (
+        <button
+          type="button"
+          className="ac-avatar-remove-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            onChange(null)
+            if (fileInputRef.current) fileInputRef.current.value = ''
+          }}
+        >
+          Remove Photo
+        </button>
+      )}
+    </div>
+  )
+}
+
+function DocumentUploader({ document, meta, onChange, disabled = false }) {
+  const docInputRef = useRef(null)
+
+  function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Document size must be less than 10MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      onChange(reader.result, { name: file.name, size: file.size, type: file.type })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    if (disabled) return
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Document size must be less than 10MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      onChange(reader.result, { name: file.name, size: file.size, type: file.type })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="ac-doc-uploader-wrap">
+      <input
+        type="file"
+        ref={docInputRef}
+        onChange={handleFile}
+        accept="image/png,image/jpeg,image/webp,image/jpg,application/pdf"
+        style={{ display: 'none' }}
+        disabled={disabled}
+      />
+      {document ? (
+        <div className="ac-doc-card">
+          <div className="ac-doc-card-main">
+            <div className="ac-doc-thumb">
+              {meta?.type?.startsWith('image/') || (typeof document === 'string' && document.startsWith('data:image/')) ? (
+                <img src={document} alt="Document preview" className="ac-doc-thumb-img" />
+              ) : (
+                <LuFileText size={22} color="#FFA500" />
+              )}
+            </div>
+            <div className="ac-doc-details">
+              <span className="ac-doc-name" title={meta?.name || 'Driver License Document'}>
+                {meta?.name || 'Driver License Document'}
+              </span>
+              <span className="ac-doc-meta">
+                {meta?.size ? formatFileSize(meta.size) : 'Ready to upload'}
+              </span>
+            </div>
+          </div>
+          <div className="ac-doc-actions">
+            <button
+              type="button"
+              className="ac-doc-btn"
+              onClick={() => docInputRef.current?.click()}
+              title="Change file"
+            >
+              <LuPencil size={14} />
+              <span>Change</span>
+            </button>
+            <button
+              type="button"
+              className="ac-doc-btn danger"
+              onClick={() => {
+                onChange(null, null)
+                if (docInputRef.current) docInputRef.current.value = ''
+              }}
+              title="Remove file"
+            >
+              <LuTrash2 size={14} />
+              <span>Remove</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="ac-doc-dropzone"
+          onClick={() => !disabled && docInputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload Driver Documents or License"
+        >
+          <div className="ac-doc-dropzone-icon">
+            <LuCloudUpload size={24} />
+          </div>
+          <div className="ac-doc-dropzone-text">
+            <span className="ac-doc-dropzone-title">Upload Documents / License</span>
+            <span className="ac-doc-dropzone-sub">Click to browse or drag &amp; drop (PDF, PNG, JPG up to 10MB)</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function RoleAccessEditor({ value = [], onChange, disabled = false }) {
   function toggle(role) {
@@ -85,6 +297,7 @@ function emptyAdmin() {
     phone: '',
     password: '',
     confirm: '',
+    photo: null,
     roleAccess: ['admin'],
   }
 }
@@ -97,6 +310,9 @@ function emptyDriver() {
     expiryMonth: '',
     expiryDay: '',
     expiryYear: '',
+    photo: null,
+    licenseDoc: null,
+    licenseDocMeta: null,
   }
 }
 
@@ -104,6 +320,7 @@ function emptyCashier() {
   return {
     ...emptyAdmin(),
     roleAccess: ['cashier'],
+    photo: null,
   }
 }
 
@@ -228,6 +445,7 @@ export default function AccountManagement() {
         phone: adminForm.phone || null,
         password: adminForm.password,
         role_access: adminForm.roleAccess,
+        photo: adminForm.photo || null,
       })
       await loadAccounts()
       setAdminForm(emptyAdmin())
@@ -275,6 +493,8 @@ export default function AccountManagement() {
         license_number: driverForm.license || null,
         license_expiry: expiry || null,
         role_access: driverForm.roleAccess,
+        photo: driverForm.photo || null,
+        license_document: driverForm.licenseDoc || null,
       })
       await loadAccounts()
       setDriverForm(emptyDriver())
@@ -315,6 +535,7 @@ export default function AccountManagement() {
         phone: cashierForm.phone || null,
         password: cashierForm.password,
         role_access: cashierForm.roleAccess,
+        photo: cashierForm.photo || null,
       })
       await loadAccounts()
       setCashierForm(emptyCashier())
@@ -477,7 +698,7 @@ export default function AccountManagement() {
       <section className="ac-section sa-card">
         <div className="ac-section-head">
           <h2>Admins</h2>
-          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setAddAdmin(true) }}>
+          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setAdminForm(emptyAdmin()); setAddAdmin(true) }}>
             <LuPlus size={16} /> Add Admin
           </button>
         </div>
@@ -524,7 +745,7 @@ export default function AccountManagement() {
       <section className="ac-section sa-card">
         <div className="ac-section-head">
           <h2>Drivers</h2>
-          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setAddDriver(true) }}>
+          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setDriverForm(emptyDriver()); setAddDriver(true) }}>
             <LuPlus size={16} /> Add Driver
           </button>
         </div>
@@ -573,7 +794,7 @@ export default function AccountManagement() {
       <section className="ac-section sa-card">
         <div className="ac-section-head">
           <h2>Cashiers</h2>
-          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setAddCashier(true) }}>
+          <button type="button" className="ac-btn-primary" onClick={() => { setFormError(''); setCashierForm(emptyCashier()); setAddCashier(true) }}>
             <LuPlus size={16} /> Add Cashier
           </button>
         </div>
@@ -681,57 +902,100 @@ export default function AccountManagement() {
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Admin</h2>
-              <button type="button" className="ac-modal-close-circle" onClick={() => setAddAdmin(false)} aria-label="Close">
+              <button
+                type="button"
+                className="ac-modal-close-circle"
+                onClick={() => { setAddAdmin(false); setFormError('') }}
+                aria-label="Close"
+              >
                 <LuX size={18} />
               </button>
             </div>
-            <div className="ac-upload-circle">
-              <LuUser size={24} />
-              <span>Upload Photo</span>
+            <div className="ac-modal-body">
+              <PhotoUploader
+                photo={adminForm.photo}
+                onChange={(photo) => setAdminForm((f) => ({ ...f, photo }))}
+                disabled={saving}
+              />
+              <div className="ac-form-grid">
+                <label>
+                  First Name
+                  <input
+                    value={adminForm.firstName}
+                    placeholder="e.g. John"
+                    onChange={(e) => setAdminForm((f) => ({ ...f, firstName: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Last Name
+                  <input
+                    value={adminForm.lastName}
+                    placeholder="e.g. Doe"
+                    onChange={(e) => setAdminForm((f) => ({ ...f, lastName: e.target.value }))}
+                  />
+                </label>
+                <label className="full">
+                  Email Address
+                  <input
+                    type="email"
+                    placeholder="e.g. admin@morebites.com"
+                    value={adminForm.email}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Username
+                  <input
+                    placeholder="e.g. johndoe"
+                    value={adminForm.username}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, username: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Phone Number
+                  <input
+                    type="tel"
+                    maxLength={11}
+                    placeholder="09XX XXX XXXX"
+                    value={adminForm.phone}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                  />
+                </label>
+                <label>
+                  New Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={adminForm.password}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, password: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Confirm Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={adminForm.confirm}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, confirm: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <RoleAccessEditor
+                value={adminForm.roleAccess}
+                onChange={(roleAccess) => setAdminForm((f) => ({ ...f, roleAccess }))}
+                disabled={saving}
+              />
+              {formError ? <p className="ac-form-error">{formError}</p> : null}
             </div>
-            <div className="ac-form-grid">
-              <label>
-                First Name
-                <input value={adminForm.firstName} onChange={(e) => setAdminForm((f) => ({ ...f, firstName: e.target.value }))} />
-              </label>
-              <label>
-                Last Name
-                <input value={adminForm.lastName} onChange={(e) => setAdminForm((f) => ({ ...f, lastName: e.target.value }))} />
-              </label>
-              <label className="full">
-                Email Address
-                <input type="email" value={adminForm.email} onChange={(e) => setAdminForm((f) => ({ ...f, email: e.target.value }))} />
-              </label>
-              <label>
-                Username
-                <input value={adminForm.username} onChange={(e) => setAdminForm((f) => ({ ...f, username: e.target.value }))} />
-              </label>
-              <label>
-                Phone Number
-                <input
-                  type="tel"
-                  maxLength={11}
-                  placeholder="09XX XXX XXXX"
-                  value={adminForm.phone}
-                  onChange={(e) => setAdminForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
-                />
-              </label>
-              <label>
-                New Password
-                <input type="password" value={adminForm.password} onChange={(e) => setAdminForm((f) => ({ ...f, password: e.target.value }))} />
-              </label>
-              <label>
-                Confirm Password
-                <input type="password" value={adminForm.confirm} onChange={(e) => setAdminForm((f) => ({ ...f, confirm: e.target.value }))} />
-              </label>
-            </div>
-            <RoleAccessEditor
-              value={adminForm.roleAccess}
-              onChange={(roleAccess) => setAdminForm((f) => ({ ...f, roleAccess }))}
-            />
-            {formError ? <p className="ac-form-error" style={{ color: '#c62828', margin: '0 0 12px', fontSize: 13 }}>{formError}</p> : null}
             <div className="ac-modal-foot">
-              <button type="button" className="ac-btn-cancel" onClick={() => { setAddAdmin(false); setFormError('') }}>Cancel</button>
+              <button
+                type="button"
+                className="ac-btn-cancel"
+                onClick={() => { setAddAdmin(false); setFormError('') }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
               <button type="button" className="ac-btn-primary" onClick={saveAdmin} disabled={saving}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
@@ -745,77 +1009,149 @@ export default function AccountManagement() {
           <div className="ac-modal ac-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Driver</h2>
-              <button type="button" className="ac-modal-close-circle" onClick={() => setAddDriver(false)} aria-label="Close">
+              <button
+                type="button"
+                className="ac-modal-close-circle"
+                onClick={() => { setAddDriver(false); setFormError('') }}
+                aria-label="Close"
+              >
                 <LuX size={18} />
               </button>
             </div>
-            <div className="ac-upload-circle">
-              <LuUser size={24} />
-              <span>Upload Photo</span>
-            </div>
-            <div className="ac-form-grid">
-              <label>
-                First Name
-                <input value={driverForm.firstName} onChange={(e) => setDriverForm((f) => ({ ...f, firstName: e.target.value }))} />
-              </label>
-              <label>
-                Last Name
-                <input value={driverForm.lastName} onChange={(e) => setDriverForm((f) => ({ ...f, lastName: e.target.value }))} />
-              </label>
-              <label className="full">
-                Email Address
-                <input type="email" value={driverForm.email} onChange={(e) => setDriverForm((f) => ({ ...f, email: e.target.value }))} />
-              </label>
-              <label>
-                Username
-                <input value={driverForm.username} onChange={(e) => setDriverForm((f) => ({ ...f, username: e.target.value }))} />
-              </label>
-              <label>
-                Phone Number
-                <input
-                  type="tel"
-                  maxLength={11}
-                  placeholder="09XX XXX XXXX"
-                  value={driverForm.phone}
-                  onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+            <div className="ac-modal-body">
+              <PhotoUploader
+                photo={driverForm.photo}
+                onChange={(photo) => setDriverForm((f) => ({ ...f, photo }))}
+                disabled={saving}
+              />
+              <div className="ac-form-grid">
+                <label>
+                  First Name
+                  <input
+                    value={driverForm.firstName}
+                    placeholder="e.g. Alex"
+                    onChange={(e) => setDriverForm((f) => ({ ...f, firstName: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Last Name
+                  <input
+                    value={driverForm.lastName}
+                    placeholder="e.g. Cruz"
+                    onChange={(e) => setDriverForm((f) => ({ ...f, lastName: e.target.value }))}
+                  />
+                </label>
+                <label className="full">
+                  Email Address
+                  <input
+                    type="email"
+                    placeholder="e.g. driver@morebites.com"
+                    value={driverForm.email}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Username
+                  <input
+                    placeholder="e.g. alexcruz"
+                    value={driverForm.username}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, username: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Phone Number
+                  <input
+                    type="tel"
+                    maxLength={11}
+                    placeholder="09XX XXX XXXX"
+                    value={driverForm.phone}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                  />
+                </label>
+                <label>
+                  New Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={driverForm.password}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, password: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Confirm Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={driverForm.confirm}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, confirm: e.target.value }))}
+                  />
+                </label>
+                <label className="full">
+                  License Number
+                  <input
+                    placeholder="e.g. N01-12-345678"
+                    value={driverForm.license}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, license: e.target.value }))}
+                  />
+                </label>
+                <div className="ac-expiry-container full">
+                  <span className="ac-field-label">License Expiry Date</span>
+                  <div className="ac-expiry-row">
+                    <div className="ac-expiry-col">
+                      <span className="ac-expiry-sub">Month</span>
+                      <input
+                        placeholder="MM"
+                        maxLength={2}
+                        value={driverForm.expiryMonth}
+                        onChange={(e) => setDriverForm((f) => ({ ...f, expiryMonth: e.target.value.replace(/\D/g, '').slice(0, 2) }))}
+                      />
+                    </div>
+                    <div className="ac-expiry-col">
+                      <span className="ac-expiry-sub">Day</span>
+                      <input
+                        placeholder="DD"
+                        maxLength={2}
+                        value={driverForm.expiryDay}
+                        onChange={(e) => setDriverForm((f) => ({ ...f, expiryDay: e.target.value.replace(/\D/g, '').slice(0, 2) }))}
+                      />
+                    </div>
+                    <div className="ac-expiry-col">
+                      <span className="ac-expiry-sub">Year</span>
+                      <input
+                        placeholder="YYYY"
+                        maxLength={4}
+                        value={driverForm.expiryYear}
+                        onChange={(e) => setDriverForm((f) => ({ ...f, expiryYear: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <RoleAccessEditor
+                value={driverForm.roleAccess}
+                onChange={(roleAccess) => setDriverForm((f) => ({ ...f, roleAccess }))}
+                disabled={saving}
+              />
+              <div className="ac-doc-section">
+                <span className="ac-field-label">Driver Documents / License</span>
+                <DocumentUploader
+                  document={driverForm.licenseDoc}
+                  meta={driverForm.licenseDocMeta}
+                  onChange={(doc, meta) => setDriverForm((f) => ({ ...f, licenseDoc: doc, licenseDocMeta: meta }))}
+                  disabled={saving}
                 />
-              </label>
-              <label>
-                New Password
-                <input type="password" value={driverForm.password} onChange={(e) => setDriverForm((f) => ({ ...f, password: e.target.value }))} />
-              </label>
-              <label>
-                Confirm Password
-                <input type="password" value={driverForm.confirm} onChange={(e) => setDriverForm((f) => ({ ...f, confirm: e.target.value }))} />
-              </label>
-              <label className="full">
-                License Number
-                <input value={driverForm.license} onChange={(e) => setDriverForm((f) => ({ ...f, license: e.target.value }))} />
-              </label>
-              <label>
-                Expiry Month
-                <input placeholder="MM" value={driverForm.expiryMonth} onChange={(e) => setDriverForm((f) => ({ ...f, expiryMonth: e.target.value }))} />
-              </label>
-              <label>
-                Expiry Day
-                <input placeholder="DD" value={driverForm.expiryDay} onChange={(e) => setDriverForm((f) => ({ ...f, expiryDay: e.target.value }))} />
-              </label>
-              <label className="full">
-                Expiry Year
-                <input placeholder="YYYY" value={driverForm.expiryYear} onChange={(e) => setDriverForm((f) => ({ ...f, expiryYear: e.target.value }))} />
-              </label>
+              </div>
+              {formError ? <p className="ac-form-error">{formError}</p> : null}
             </div>
-            <RoleAccessEditor
-              value={driverForm.roleAccess}
-              onChange={(roleAccess) => setDriverForm((f) => ({ ...f, roleAccess }))}
-            />
-            <div className="ac-dropzone">
-              <IconImage />
-              <span>Upload Documents / License</span>
-            </div>
-            {formError ? <p className="ac-form-error" style={{ color: '#c62828', margin: '0 0 12px', fontSize: 13 }}>{formError}</p> : null}
             <div className="ac-modal-foot">
-              <button type="button" className="ac-btn-cancel" onClick={() => { setAddDriver(false); setFormError('') }}>Cancel</button>
+              <button
+                type="button"
+                className="ac-btn-cancel"
+                onClick={() => { setAddDriver(false); setFormError('') }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
               <button type="button" className="ac-btn-primary" onClick={saveDriver} disabled={saving}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
@@ -829,57 +1165,100 @@ export default function AccountManagement() {
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Cashier</h2>
-              <button type="button" className="ac-modal-close-circle" onClick={() => setAddCashier(false)} aria-label="Close">
+              <button
+                type="button"
+                className="ac-modal-close-circle"
+                onClick={() => { setAddCashier(false); setFormError('') }}
+                aria-label="Close"
+              >
                 <LuX size={18} />
               </button>
             </div>
-            <div className="ac-upload-circle">
-              <LuUser size={24} />
-              <span>Upload Photo</span>
+            <div className="ac-modal-body">
+              <PhotoUploader
+                photo={cashierForm.photo}
+                onChange={(photo) => setCashierForm((f) => ({ ...f, photo }))}
+                disabled={saving}
+              />
+              <div className="ac-form-grid">
+                <label>
+                  First Name
+                  <input
+                    value={cashierForm.firstName}
+                    placeholder="e.g. Maria"
+                    onChange={(e) => setCashierForm((f) => ({ ...f, firstName: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Last Name
+                  <input
+                    value={cashierForm.lastName}
+                    placeholder="e.g. Santos"
+                    onChange={(e) => setCashierForm((f) => ({ ...f, lastName: e.target.value }))}
+                  />
+                </label>
+                <label className="full">
+                  Email Address
+                  <input
+                    type="email"
+                    placeholder="e.g. cashier@morebites.com"
+                    value={cashierForm.email}
+                    onChange={(e) => setCashierForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Username
+                  <input
+                    placeholder="e.g. mariasantos"
+                    value={cashierForm.username}
+                    onChange={(e) => setCashierForm((f) => ({ ...f, username: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Phone Number
+                  <input
+                    type="tel"
+                    maxLength={11}
+                    placeholder="09XX XXX XXXX"
+                    value={cashierForm.phone}
+                    onChange={(e) => setCashierForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                  />
+                </label>
+                <label>
+                  New Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={cashierForm.password}
+                    onChange={(e) => setCashierForm((f) => ({ ...f, password: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Confirm Password
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={cashierForm.confirm}
+                    onChange={(e) => setCashierForm((f) => ({ ...f, confirm: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <RoleAccessEditor
+                value={cashierForm.roleAccess}
+                onChange={(roleAccess) => setCashierForm((f) => ({ ...f, roleAccess }))}
+                disabled={saving}
+              />
+              {formError ? <p className="ac-form-error">{formError}</p> : null}
             </div>
-            <div className="ac-form-grid">
-              <label>
-                First Name
-                <input value={cashierForm.firstName} onChange={(e) => setCashierForm((f) => ({ ...f, firstName: e.target.value }))} />
-              </label>
-              <label>
-                Last Name
-                <input value={cashierForm.lastName} onChange={(e) => setCashierForm((f) => ({ ...f, lastName: e.target.value }))} />
-              </label>
-              <label className="full">
-                Email Address
-                <input type="email" value={cashierForm.email} onChange={(e) => setCashierForm((f) => ({ ...f, email: e.target.value }))} />
-              </label>
-              <label>
-                Username
-                <input value={cashierForm.username} onChange={(e) => setCashierForm((f) => ({ ...f, username: e.target.value }))} />
-              </label>
-              <label>
-                Phone Number
-                <input
-                  type="tel"
-                  maxLength={11}
-                  placeholder="09XX XXX XXXX"
-                  value={cashierForm.phone}
-                  onChange={(e) => setCashierForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
-                />
-              </label>
-              <label>
-                New Password
-                <input type="password" value={cashierForm.password} onChange={(e) => setCashierForm((f) => ({ ...f, password: e.target.value }))} />
-              </label>
-              <label>
-                Confirm Password
-                <input type="password" value={cashierForm.confirm} onChange={(e) => setCashierForm((f) => ({ ...f, confirm: e.target.value }))} />
-              </label>
-            </div>
-            <RoleAccessEditor
-              value={cashierForm.roleAccess}
-              onChange={(roleAccess) => setCashierForm((f) => ({ ...f, roleAccess }))}
-            />
-            {formError ? <p className="ac-form-error" style={{ color: '#c62828', margin: '0 0 12px', fontSize: 13 }}>{formError}</p> : null}
             <div className="ac-modal-foot">
-              <button type="button" className="ac-btn-cancel" onClick={() => { setAddCashier(false); setFormError('') }}>Cancel</button>
+              <button
+                type="button"
+                className="ac-btn-cancel"
+                onClick={() => { setAddCashier(false); setFormError('') }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
               <button type="button" className="ac-btn-primary" onClick={saveCashier} disabled={saving}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
@@ -907,7 +1286,11 @@ export default function AccountManagement() {
               </div>
             </div>
             <div className="ac-drawer-photo">
-              <LuUser size={40} />
+              {profile.item.photo ? (
+                <img src={profile.item.photo} alt={profile.item.firstName} className="ac-drawer-img" />
+              ) : (
+                <LuUser size={40} />
+              )}
             </div>
             <dl className="ac-profile-list">
               {[
@@ -956,6 +1339,22 @@ export default function AccountManagement() {
                   </dd>
                 </div>
               ))}
+              {profile.type === 'driver' && profile.item.license_document && (
+                <div className="ac-profile-doc-item">
+                  <dt>License Document</dt>
+                  <dd>
+                    <a
+                      href={profile.item.license_document}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ac-doc-link-btn"
+                    >
+                      <LuFileText size={15} />
+                      <span>View Document</span>
+                    </a>
+                  </dd>
+                </div>
+              )}
             </dl>
             <div className="ac-drawer-access">
               <RoleAccessEditor

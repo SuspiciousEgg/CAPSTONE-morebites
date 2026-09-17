@@ -535,3 +535,277 @@
 .dm-suspend:hover {
   background: #DC2626;
 }
+
+/* Drawer Action Buttons (Suspend / Reactivate / Blacklist) */
+.dm-drawer-actions {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #EDEDED;
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.dm-action-btn {
+  flex: 1;
+  height: 42px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.dm-btn-suspend {
+  background: #EF4444;
+  color: #FFFFFF;
+}
+
+.dm-btn-suspend:hover {
+  background: #DC2626;
+}
+
+.dm-btn-reactivate {
+  background: #10B981;
+  color: #FFFFFF;
+}
+
+.dm-btn-reactivate:hover {
+  background: #059669;
+}
+
+.dm-btn-blacklist {
+  background: #1F2937;
+  color: #FFFFFF;
+}
+
+.dm-btn-blacklist:hover {
+  background: #111827;
+}
+
+/* Modals (Suspend/Reactivate Confirmation & Dedicated Blacklist Modal) */
+.dm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.dm-modal-card {
+  background: #FFFFFF;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 440px;
+  padding: 28px 24px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  animation: dmPop 0.18s ease;
+}
+
+.dm-modal-card.blacklist {
+  max-width: 480px;
+  text-align: left;
+  align-items: stretch;
+}
+
+.dm-modal-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  flex-shrink: 0;
+}
+
+.dm-modal-icon-wrap.suspend {
+  background: #FEE2E2;
+  color: #EF4444;
+}
+
+.dm-modal-icon-wrap.reactivate {
+  background: #D1FAE5;
+  color: #10B981;
+}
+
+.dm-modal-icon-wrap.blacklist {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.dm-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1C1B18;
+  margin: 0 0 8px;
+  line-height: 1.3;
+}
+
+.dm-modal-card.blacklist .dm-modal-title {
+  text-align: center;
+}
+
+.dm-modal-subtext {
+  font-size: 13px;
+  color: #6B7280;
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.dm-modal-card.blacklist .dm-modal-subtext {
+  text-align: center;
+}
+
+.dm-driver-summary-chip {
+  background: #F9FAFB;
+  border: 1px solid #EDEDED;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dm-driver-summary-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1C1B18;
+}
+
+.dm-driver-summary-meta {
+  font-size: 12px;
+  color: #6B7280;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dm-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dm-form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.dm-form-select,
+.dm-form-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #D1D5DB;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #1C1B18;
+  background: #FFFFFF;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dm-form-select:focus,
+.dm-form-textarea:focus {
+  border-color: #FFA500;
+  box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.12);
+}
+
+.dm-form-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.dm-modal-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.dm-modal-btn {
+  flex: 1;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  box-sizing: border-box;
+}
+
+.dm-modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dm-modal-btn.cancel {
+  background: #FFFFFF;
+  border: 1px solid #D1D5DB;
+  color: #4B5563;
+}
+
+.dm-modal-btn.cancel:hover:not(:disabled) {
+  background: #F9FAFB;
+  border-color: #9CA3AF;
+  color: #111827;
+}
+
+.dm-modal-btn.confirm-suspend {
+  background: #EF4444;
+  color: #FFFFFF;
+}
+
+.dm-modal-btn.confirm-suspend:hover:not(:disabled) {
+  background: #DC2626;
+}
+
+.dm-modal-btn.confirm-reactivate {
+  background: #10B981;
+  color: #FFFFFF;
+}
+
+.dm-modal-btn.confirm-reactivate:hover:not(:disabled) {
+  background: #059669;
+}
+
+.dm-modal-btn.confirm-blacklist {
+  background: #991B1B;
+  color: #FFFFFF;
+}
+
+.dm-modal-btn.confirm-blacklist:hover:not(:disabled) {
+  background: #7F1D1D;
+}
+

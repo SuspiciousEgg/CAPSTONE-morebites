@@ -71,6 +71,52 @@ class DriverAccessTest extends TestCase
         $suspendResponse = $this->postJson("/api/drivers/{$driver->id}/suspend");
         $suspendResponse->assertStatus(200);
         $this->assertEquals('Inactive', $driver->fresh()->status);
+        $this->assertNull($driver->fresh()->archived_at);
+        $this->assertDatabaseMissing('driver_blacklist', ['driver_id' => $driver->id]);
+
+        // Cashier reactivates driver
+        $reactivateResponse = $this->postJson("/api/drivers/{$driver->id}/reactivate");
+        $reactivateResponse->assertStatus(200);
+        $this->assertEquals('Active', $driver->fresh()->status);
+
+        // Unsuspend alias also works
+        $this->postJson("/api/drivers/{$driver->id}/suspend");
+        $this->assertEquals('Inactive', $driver->fresh()->status);
+        $unsuspendResponse = $this->postJson("/api/drivers/{$driver->id}/unsuspend");
+        $unsuspendResponse->assertStatus(200);
+        $this->assertEquals('Active', $driver->fresh()->status);
+
+        // Blacklist driver with reason
+        $blacklistResponse = $this->postJson("/api/drivers/{$driver->id}/blacklist", [
+            'reason' => 'Repeated tardiness and delivery complaints',
+        ]);
+        $blacklistResponse->assertStatus(200);
+        $this->assertEquals('Inactive', $driver->fresh()->status);
+        $this->assertNotNull($driver->fresh()->archived_at);
+        $this->assertDatabaseHas('driver_blacklist', [
+            'driver_id' => $driver->id,
+            'reason' => 'Repeated tardiness and delivery complaints',
+        ]);
+
+        // Blacklisted driver no longer appears in /api/drivers
+        $activeDriversResponse = $this->getJson('/api/drivers');
+        $activeDriversResponse->assertStatus(200);
+        $activeDriversResponse->assertJsonMissing(['name' => 'John Driver']);
+        $activeDriversResponse->assertJsonFragment(['name' => 'Marco Rider']);
+
+        // Blacklisted driver appears in /api/blacklist (admin/super_admin view)
+        $admin = User::query()->create([
+            'name' => 'Admin Boss',
+            'email' => 'admin_boss@test.com',
+            'phone' => '09121112222',
+            'password' => Hash::make('password'),
+            'role' => 'admin',
+            'status' => 'Active',
+        ]);
+        Sanctum::actingAs($admin);
+        $blacklistListResponse = $this->getJson('/api/blacklist');
+        $blacklistListResponse->assertStatus(200);
+        $blacklistListResponse->assertJsonFragment(['name' => 'John Driver']);
     }
 }
 

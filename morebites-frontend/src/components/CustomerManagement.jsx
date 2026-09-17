@@ -14,18 +14,6 @@ import {
   LuCalendar,
   LuCheck,
 } from 'react-icons/lu'
-import {
-  IconCalendar,
-  IconCart,
-  IconCheck,
-  IconChevronDown,
-  IconClose,
-  IconCustomers,
-  IconEdit,
-  IconSearch,
-  IconStar,
-  IconUser,
-} from './Icons'
 import { customersApi } from '../api/client'
 import './CustomerManagement.css'
 
@@ -330,123 +318,162 @@ export default function CustomerManagement() {
         <div className="cm-backdrop" onClick={() => setSelected(null)} role="presentation">
           <div className="cm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="cm-modal-head">
-              <h2>Customer Details</h2>
-              <button type="button" className="cm-modal-close-circle" onClick={() => setSelected(null)} aria-label="Close">
+              <div className="cm-modal-title-wrap">
+                <h2>Customer Details</h2>
+                <span className="cm-modal-code">{selected.id}</span>
+              </div>
+              <button
+                type="button"
+                className="cm-modal-close-circle"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+              >
                 <LuX size={18} />
               </button>
             </div>
 
-            <div className="cm-profile">
-              <div className="cm-avatar">{selected.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</div>
-              <div>
-                <div className="cm-profile-name">
-                  {selected.name}
-                  <span className={`cm-badge ${selected.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
-                    {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+            <div className="cm-modal-body">
+              {/* Profile Card */}
+              <div className="cm-profile-card">
+                <div className="cm-avatar">
+                  {selected.name
+                    ? selected.name
+                        .split(' ')
+                        .filter(Boolean)
+                        .map((n) => n[0])
+                        .join('')
+                        .slice(0, 2)
+                        .toUpperCase()
+                    : 'CU'}
+                </div>
+                <div className="cm-profile-info">
+                  <div className="cm-profile-name-row">
+                    <span className="cm-profile-name">{selected.name}</span>
+                    <span className={`cm-badge ${selected.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
+                      {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <div className="cm-profile-meta">
+                    Registered {selected.registeredFull || selected.registered || '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Mini Stats */}
+              <div className="cm-mini-stats">
+                <div className="cm-mini">
+                  <span className="cm-stat-icon yellow">
+                    <LuShoppingCart size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Total Orders</div>
+                    <strong>{selected.orders}</strong>
+                  </div>
+                </div>
+                <div className="cm-mini">
+                  <span className="cm-stat-icon green">
+                    <LuCheck size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Total Spent</div>
+                    <strong>{peso(selected.spent)}</strong>
+                  </div>
+                </div>
+                <div className="cm-mini">
+                  <span className="cm-stat-icon purple">
+                    <LuCalendar size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Last Order</div>
+                    <strong>{selected.lastOrder}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Customer Information */}
+              <div className="cm-modal-section">
+                <div className="cm-section-head">
+                  <h3>Customer Information</h3>
+                </div>
+                <div className="cm-info-grid">
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Full Name</span>
+                    <span className="cm-info-value">{selected.name || '—'}</span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Contact Number</span>
+                    <span className={`cm-info-value${!selected.phone ? ' cm-empty' : ''}`}>
+                      {selected.phone || 'Not provided yet'}
+                    </span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Email Address</span>
+                    <span className={`cm-info-value${!selected.email ? ' cm-empty' : ''}`}>
+                      {selected.email || 'Not provided yet'}
+                    </span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Date Registered</span>
+                    <span className="cm-info-value">{selected.registered || '—'}</span>
+                  </div>
+                  <div className="cm-info-card cm-span-2">
+                    <span className="cm-info-label">Delivery Address</span>
+                    <span className={`cm-info-value${!selected.address ? ' cm-empty' : ''}`}>
+                      {selected.address || 'Not provided yet'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order History */}
+              <div className="cm-modal-section">
+                <div className="cm-section-head">
+                  <h3>Order History</h3>
+                  <span className="cm-count-badge">
+                    {orderHistory.length} {orderHistory.length === 1 ? 'order' : 'orders'}
                   </span>
                 </div>
-                <div className="cm-profile-meta">{selected.id} · Registered {selected.registeredFull}</div>
-              </div>
-            </div>
-
-            <div className="cm-mini-stats">
-              <div className="cm-mini">
-                <span className="cm-stat-icon yellow"><IconCart /></span>
-                <div>
-                  <div className="cm-stat-label">Total Orders</div>
-                  <strong>{selected.orders}</strong>
-                </div>
-              </div>
-              <div className="cm-mini">
-                <span className="cm-stat-icon green"><IconCheck /></span>
-                <div>
-                  <div className="cm-stat-label">Total Spent</div>
-                  <strong>{peso(selected.spent)}</strong>
-                </div>
-              </div>
-              <div className="cm-mini">
-                <span className="cm-stat-icon purple"><IconCalendar /></span>
-                <div>
-                  <div className="cm-stat-label">Last Order</div>
-                  <strong>{selected.lastOrder}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="cm-details-grid">
-              <div>
-                <h3>Customer Information</h3>
-                <dl className="cm-info">
-                  <div><dt>Full Name</dt><dd>{selected.name || '—'}</dd></div>
-                  <div>
-                    <dt>Contact Number</dt>
-                    <dd className={!selected.phone ? 'cm-empty' : ''}>
-                      {selected.phone || 'Not provided yet'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Email Address</dt>
-                    <dd className={!selected.email ? 'cm-empty' : ''}>
-                      {selected.email || 'Not provided yet'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Delivery Address</dt>
-                    <dd className={!selected.address ? 'cm-empty' : ''}>
-                      {selected.address || 'Not provided yet'}
-                    </dd>
-                  </div>
-                  <div><dt>Date Registered</dt><dd>{selected.registered || '—'}</dd></div>
-                  <div>
-                    <dt>Account Status</dt>
-                    <dd className={selected.status === 'ACTIVE' ? 'ok' : ''}>
-                      {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-              <div>
-                <h3>Order History</h3>
-                <table className="cm-history">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Date & Time</th>
-                      <th>Items</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderHistory.length === 0 ? (
+                <div className="cm-history-wrap">
+                  <table className="cm-history-table">
+                    <thead>
                       <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', padding: '16px' }}>
-                          No orders recorded yet
-                        </td>
+                        <th>Order ID</th>
+                        <th>Date &amp; Time</th>
+                        <th>Items</th>
+                        <th>Total</th>
+                        <th>Status</th>
                       </tr>
-                    ) : (
-                      orderHistory.map((o) => (
-                        <tr key={o.id}>
-                          <td className="cm-id">{o.id}</td>
-                          <td>{o.datetime}</td>
-                          <td>{o.items}</td>
-                          <td>{peso(o.total)}</td>
-                          <td><span className="cm-badge active">{o.status}</span></td>
+                    </thead>
+                    <tbody>
+                      {orderHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="cm-history-empty">
+                            No orders recorded yet
+                          </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        orderHistory.map((o) => (
+                          <tr key={o.id}>
+                            <td className="cm-history-id">{o.id}</td>
+                            <td className="cm-history-date">{o.datetime}</td>
+                            <td className="cm-history-items">{o.items}</td>
+                            <td className="cm-history-total">{peso(o.total)}</td>
+                            <td>
+                              <span
+                                className={`cm-status-pill status-${(o.status || '')
+                                  .toLowerCase()
+                                  .replace(/\s+/g, '-')}`}
+                              >
+                                {o.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-
-            <div className="cm-modal-foot">
-              <button type="button" className="cm-btn-cancel" onClick={() => setSelected(null)}>
-                CLOSE
-              </button>
-              <button type="button" className="cm-btn-primary">
-                <IconEdit /> Edit Customer
-              </button>
             </div>
           </div>
         </div>

@@ -18,21 +18,35 @@ const ORANGE = "#F97000";
 const CATEGORIES = ["All", "Pizza", "Snacks", "Desserts", "Beverages", "Rice Meals"];
 
 function FoodCard({ item, horizontal = false }) {
+  const isAvailable = item.availability !== false && item.available !== false;
   const imageUrl = mediaUrl(item.image);
   return (
     <Pressable
-      style={[styles.card, horizontal && styles.horizontalCard]}
-      onPress={() =>
-        router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } })
-      }
+      style={[
+        styles.card,
+        horizontal && styles.horizontalCard,
+        !isAvailable && styles.cardDisabled,
+      ]}
+      disabled={!isAvailable}
+      onPress={() => {
+        if (!isAvailable) return;
+        router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
+      }}
     >
-      {imageUrl ? (
-        <Image source={{ uri: imageUrl }} style={styles.cardImage} />
-      ) : (
-        <View style={styles.placeholderImage}>
-          <Ionicons name="fast-food-outline" size={42} color="#8A8A8A" />
-        </View>
-      )}
+      <View style={styles.imageWrap}>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+        ) : (
+          <View style={styles.placeholderImage}>
+            <Ionicons name="fast-food-outline" size={42} color="#8A8A8A" />
+          </View>
+        )}
+        {!isAvailable && (
+          <View style={styles.unavailableBadge}>
+            <Text style={styles.unavailableBadgeText}>Unavailable</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.cardContent}>
         <Text style={styles.foodName} numberOfLines={2}>
           {item.name}
@@ -142,7 +156,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View style={styles.greetingRow}>
             {user.photo ? (
-              <Image source={{ uri: user.photo }} style={styles.avatar} />
+              <Image source={{ uri: mediaUrl(user.photo) || user.photo }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarFallback}>
                 <Ionicons name="person" size={28} color="#8A8A8A" />
@@ -299,8 +313,31 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     width: "47%",
   },
+  cardDisabled: {
+    opacity: 0.5,
+  },
   horizontalCard: {
     width: 150,
+  },
+  imageWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  unavailableBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#4B5563",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+    zIndex: 10,
+  },
+  unavailableBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   placeholderImage: {
     alignItems: "center",

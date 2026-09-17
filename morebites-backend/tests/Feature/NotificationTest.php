@@ -260,4 +260,118 @@ class NotificationTest extends TestCase
         $adminRes->assertStatus(200);
         $this->assertGreaterThanOrEqual(1, $adminRes->json('count'));
     }
+
+    public function test_order_notification_idempotency_prevents_duplicate_rows(): void
+    {
+        $customerUser = User::query()->create([
+            'name' => 'Idempotent Customer',
+            'email' => 'idempotent@customer.test',
+            'password' => Hash::make('password'),
+            'role' => 'customer',
+            'status' => 'Active',
+        ]);
+
+        $customer = \App\Models\Customer::query()->create([
+            'user_id' => $customerUser->id,
+            'customer_code' => 'C-IDEM',
+            'full_name' => 'Idempotent Customer',
+            'phone' => '09190003333',
+            'status' => 'ACTIVE',
+        ]);
+
+        $order = Order::query()->create([
+            'order_code' => '#ORD-00099',
+            'customer_id' => $customer->id,
+            'customer_name' => 'Idempotent Customer',
+            'order_type' => 'Online Order',
+            'total' => 450,
+            'status' => 'Pending',
+        ]);
+
+        // Call twice for Pending
+        $notif1 = Notification::createOrderNotification($order);
+        $notif2 = Notification::createOrderNotification($order);
+
+        $this->assertEquals($notif1->id, $notif2->id);
+        $this->assertEquals(1, Notification::query()->whereNull('user_id')->where('data->order_code', '#ORD-00099')->count());
+        $this->assertEquals(1, Notification::query()->where('user_id', $customerUser->id)->where('data->order_code', '#ORD-00099')->count());
+
+        // Update to Preparing and call twice
+        $order->update(['status' => 'Preparing']);
+        $notif3 = Notification::createOrderNotification($order);
+        $notif4 = Notification::createOrderNotification($order);
+
+        $this->assertEquals($notif3->id, $notif4->id);
+        $this->assertNotEquals($notif1->id, $notif3->id);
+
+        // Total admin notifs for this order should be exactly 2 (Pending + Preparing)
+        $this->assertEquals(2, Notification::query()->whereNull('user_id')->where('data->order_code', '#ORD-00099')->count());
+        // Total customer notifs for this order should be exactly 2
+        $this->assertEquals(2, Notification::query()->where('user_id', $customerUser->id)->where('data->order_code', '#ORD-00099')->count());
+    }
+
+    public function test_order_status_transitions_produce_distinct_notifications_for_admin_and_customer(): void
+    {
+        $customerUser = User::query()->create([
+            'name' => 'Flow Customer',
+            'email' => 'flow@customer.test',
+            'password' => Hash::make('password'),
+            'role' => 'customer',
+            'status' => 'Active',
+        ]);
+
+        $customer = \App\Models\Customer::query()->create([
+            'user_id' => $customerUser->id,
+            'customer_code' => 'C-FLOW',
+            'full_name' => 'Flow Customer',
+            'phone' => '09190004444',
+            'status' => 'ACTIVE',
+        ]);
+
+        $order = Order::query()->create([
+            'order_code' => '#ORD-00088',
+            'customer_id' => $customer->id,
+            'customer_name' => 'Flow Customer',
+            'order_type' => 'Online Order',
+            'total' => 600,
+            'status' => 'Pending',
+        ]);
+
+        $statuses = ['Pending', 'Preparing', 'Ready', 'Out for Delivery', 'Completed'];
+        foreach ($statuses as $status) {
+            $order->update(['status' => $status]);
+            Notification::createOrderNotification($order);
+        }
+
+        $adminTitles = Notification::query()
+            ->whereNull('user_id')
+            ->where('data->order_code', '#ORD-00088')
+            ->orderBy('id')
+            ->pluck('title')
+            ->all();
+
+        $this->assertEquals([
+            'New order #ORD-00088 received',
+            'Order #ORD-00088 is being prepared',
+            'Order #ORD-00088 ready for delivery',
+            'Order #ORD-00088 out for delivery',
+            'Order #ORD-00088 completed',
+        ], $adminTitles);
+
+        $customerTitles = Notification::query()
+            ->where('user_id', $customerUser->id)
+            ->where('data->order_code', '#ORD-00088')
+            ->orderBy('id')
+            ->pluck('title')
+            ->all();
+
+        $this->assertEquals([
+            'Order #ORD-00088 placed',
+            'Order #ORD-00088 is being prepared',
+            'Order #ORD-00088 is ready',
+            'Order #ORD-00088 out for delivery',
+            'Order #ORD-00088 delivered',
+        ], $customerTitles);
+    }
 }
+

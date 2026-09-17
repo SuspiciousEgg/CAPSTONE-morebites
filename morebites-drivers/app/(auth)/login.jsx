@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -60,7 +61,22 @@ export default function LoginScreen() {
 
     try {
       const res = await driverApi.login(phoneValue.trim(), passwordValue);
-      await authStorage.saveSession(res.token, res.user);
+
+      let userObj = res.user || {};
+      if (!userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        if (cachedMap[userObj.phone]) {
+          userObj = { ...userObj, photo: cachedMap[userObj.phone] };
+        }
+      } else if (userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        cachedMap[userObj.phone] = userObj.photo;
+        await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+      }
+
+      await authStorage.saveSession(res.token, userObj);
       router.replace("/(tabs)/home");
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";

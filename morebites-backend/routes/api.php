@@ -98,6 +98,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/drivers', [DriverController::class, 'index']);
     Route::get('/drivers/{user}', [DriverController::class, 'show']);
     Route::post('/drivers/{user}/suspend', [DriverController::class, 'suspend']);
+    Route::post('/drivers/{user}/reactivate', [DriverController::class, 'reactivate']);
+    Route::post('/drivers/{user}/unsuspend', [DriverController::class, 'reactivate']);
+    Route::post('/drivers/{user}/blacklist', [DriverController::class, 'blacklist']);
 
     Route::middleware('not.cashier')->group(function () {
         Route::post('/delivery-rates', [DeliveryRateController::class, 'store']);
