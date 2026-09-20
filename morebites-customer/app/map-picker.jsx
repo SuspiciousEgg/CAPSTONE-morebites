@@ -20,6 +20,103 @@ function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function parseNominatimAddress(data) {
+  if (!data) return { street: "", barangay: "", city: "" };
+
+  const address = data.address || {};
+
+  // 1. Street / Purok
+  let road = address.road || address.street || address.residential || address.pedestrian || address.path || "";
+  if (address.house_number && road && !road.includes(address.house_number)) {
+    road = `${address.house_number} ${road}`;
+  }
+
+  // Detect Purok in neighbourhood / quarter / suburb / hamlet
+  const purokCandidate = [address.neighbourhood, address.quarter, address.suburb, address.hamlet].find(
+    (val) => val && /\b(purok|prk)\b/i.test(val)
+  );
+
+  let street = "";
+  if (road && purokCandidate && !road.toLowerCase().includes(purokCandidate.toLowerCase())) {
+    street = `${road}, ${purokCandidate}`;
+  } else if (road) {
+    street = road;
+  } else if (purokCandidate) {
+    street = purokCandidate;
+  } else if (address.neighbourhood && !/\b(barangay|brgy)\b/i.test(address.neighbourhood)) {
+    street = address.neighbourhood;
+  }
+
+  // 2. Barangay
+  let barangay = "";
+  const brgyCandidate = [
+    address.quarter,
+    address.suburb,
+    address.village,
+    address.neighbourhood,
+    address.city_district,
+  ].find((val) => val && /\b(barangay|brgy)\b/i.test(val));
+
+  if (brgyCandidate) {
+    barangay = brgyCandidate;
+  } else if (
+    [address.quarter, address.suburb, address.village].some(
+      (v) => v && v.trim().toLowerCase() === "poblacion"
+    )
+  ) {
+    barangay = "Poblacion";
+  } else if (address.village) {
+    barangay = address.village;
+  } else if (address.quarter && address.quarter !== purokCandidate && address.quarter !== street) {
+    barangay = address.quarter;
+  } else if (address.suburb && address.suburb !== purokCandidate && address.suburb !== street) {
+    barangay = address.suburb;
+  } else if (address.city_district) {
+    barangay = address.city_district;
+  } else if (address.neighbourhood && address.neighbourhood !== street && address.neighbourhood !== purokCandidate) {
+    barangay = address.neighbourhood;
+  }
+
+  // 3. Municipality / City
+  let city =
+    address.city ||
+    address.town ||
+    address.municipality ||
+    "";
+  if (!city && address.county) {
+    city = address.county;
+  }
+
+  // Fallback: If address object was missing or didn't provide enough fields, try parsing display_name
+  if (!street && !barangay && !city && data.display_name) {
+    const parts = data.display_name.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 3) {
+      street = parts[0];
+      barangay = parts[1];
+      city = parts[2];
+    } else if (parts.length === 2) {
+      street = parts[0];
+      city = parts[1];
+    } else if (parts.length === 1) {
+      street = parts[0];
+    }
+  }
+
+  // Prevent duplication between fields
+  if (street && barangay && street.trim().toLowerCase() === barangay.trim().toLowerCase()) {
+    street = "";
+  }
+  if (barangay && city && barangay.trim().toLowerCase() === city.trim().toLowerCase()) {
+    barangay = "";
+  }
+
+  return {
+    street: street.trim(),
+    barangay: barangay.trim(),
+    city: city.trim(),
+  };
+}
+
 async function reverseGeocode(latitude, longitude) {
   try {
     const url =
@@ -32,7 +129,10 @@ async function reverseGeocode(latitude, longitude) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    return data?.display_name || null;
+    return {
+      displayName: data?.display_name || null,
+      parsed: parseNominatimAddress(data),
+    };
   } catch {
     return null;
   }
@@ -56,6 +156,7 @@ export default function MapPickerScreen() {
       : null,
   );
   const [addressLabel, setAddressLabel] = useState("");
+  const [parsedAddress, setParsedAddress] = useState({ street: "", barangay: "", city: "" });
   const [locating, setLocating] = useState(!initialCoordinate);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -65,11 +166,14 @@ export default function MapPickerScreen() {
 
     (async () => {
       if (initialCoordinate) {
-        const label = await reverseGeocode(
+        const res = await reverseGeocode(
           initialCoordinate.latitude,
           initialCoordinate.longitude,
         );
-        if (!cancelled && label) setAddressLabel(label);
+        if (!cancelled && res) {
+          if (res.displayName) setAddressLabel(res.displayName);
+          if (res.parsed) setParsedAddress(res.parsed);
+        }
         return;
       }
 
@@ -93,8 +197,11 @@ export default function MapPickerScreen() {
           longitudeDelta: 0.01,
         });
         setSelectedCoordinate(coordinate);
-        const label = await reverseGeocode(coordinate.latitude, coordinate.longitude);
-        if (!cancelled && label) setAddressLabel(label);
+        const res = await reverseGeocode(coordinate.latitude, coordinate.longitude);
+        if (!cancelled && res) {
+          if (res.displayName) setAddressLabel(res.displayName);
+          if (res.parsed) setParsedAddress(res.parsed);
+        }
       } catch {
         // leave map empty until user taps
       } finally {
@@ -115,8 +222,14 @@ export default function MapPickerScreen() {
     };
     setSelectedCoordinate(next);
     setAddressLabel("Looking up address…");
-    const label = await reverseGeocode(next.latitude, next.longitude);
-    setAddressLabel(label || `${next.latitude.toFixed(6)}, ${next.longitude.toFixed(6)}`);
+    const res = await reverseGeocode(next.latitude, next.longitude);
+    if (res?.displayName) {
+      setAddressLabel(res.displayName);
+      setParsedAddress(res.parsed || { street: "", barangay: "", city: "" });
+    } else {
+      setAddressLabel(`${next.latitude.toFixed(6)}, ${next.longitude.toFixed(6)}`);
+      setParsedAddress({ street: "", barangay: "", city: "" });
+    }
   };
 
   const runSearch = async () => {
@@ -125,7 +238,7 @@ export default function MapPickerScreen() {
     setSearching(true);
     try {
       const url =
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(q)}`;
+        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=ph&q=${encodeURIComponent(q)}`;
       const res = await fetch(url, {
         headers: {
           Accept: "application/json",
@@ -146,6 +259,7 @@ export default function MapPickerScreen() {
       });
       setSelectedCoordinate(coordinate);
       setAddressLabel(hit.display_name || q);
+      setParsedAddress(parseNominatimAddress(hit));
     } catch {
       // keep previous selection
     } finally {
@@ -162,6 +276,10 @@ export default function MapPickerScreen() {
         draft,
         latitude: String(selectedCoordinate.latitude),
         longitude: String(selectedCoordinate.longitude),
+        street: parsedAddress.street || "",
+        barangay: parsedAddress.barangay || "",
+        city: parsedAddress.city || "",
+        fullAddress: addressLabel || "",
       },
     });
   };

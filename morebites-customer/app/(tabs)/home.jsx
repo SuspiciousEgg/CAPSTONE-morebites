@@ -86,6 +86,7 @@ export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [user, setUser] = useState({ fullName: "Customer", photo: null });
   const [menuItems, setMenuItems] = useState([]);
+  const [popularItems, setPopularItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const { cartCount } = useCart();
@@ -98,11 +99,16 @@ export default function HomeScreen() {
       if (savedUser) {
         setUser((current) => ({ ...current, ...savedUser }));
       }
-      const res = await customerApi.menu();
+      const [res, topRes] = await Promise.all([
+        customerApi.menu(),
+        customerApi.topSelling().catch(() => null),
+      ]);
       setMenuItems(res.data || []);
+      setPopularItems(topRes?.data || []);
     } catch (err) {
       setLoadError(err.message || "Failed to load menu");
       setMenuItems([]);
+      setPopularItems([]);
     } finally {
       setLoading(false);
     }
@@ -119,7 +125,6 @@ export default function HomeScreen() {
     return ["All", ...(fromMenu.length ? fromMenu : CATEGORIES.slice(1))];
   }, [menuItems]);
 
-  const popularItems = menuItems.slice(0, 6);
   const selectedItems = menuItems.filter((item) => item.category === activeCategory);
 
   const renderCategorySections = () => {

@@ -258,6 +258,12 @@ export const driverApi = {
       method: "PATCH",
       body: { latitude, longitude },
     }),
+  updateDeliveryLocation: (deliveryId, latitude, longitude) =>
+    request(`/deliveries/${deliveryId}/location`, {
+      method: "PATCH",
+      body: { latitude, longitude },
+    }),
+  deliveryLocation: (deliveryId) => request(`/deliveries/${deliveryId}/location`),
   tracking: (dbId) => request(`/driver/orders/${dbId}/tracking`),
   unreadNotificationsCount: () => request("/notifications/unread-count"),
   notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),

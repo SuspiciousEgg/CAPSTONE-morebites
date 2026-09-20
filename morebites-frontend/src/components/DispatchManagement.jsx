@@ -61,6 +61,7 @@ export default function DispatchManagement() {
       const r = await dispatchApi.get()
       const d = r.data?.data || r.data || {}
       const isDeliveryOrder = (o) =>
+        (o.order_type === 'Online Order' || o.type === 'Online Order') &&
         o.order_type !== 'Dine-in' &&
         o.order_type !== 'Takeout' &&
         o.type !== 'Dine-in' &&

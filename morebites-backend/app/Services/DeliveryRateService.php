@@ -91,6 +91,21 @@ class DeliveryRateService
         ];
     }
 
+    public function quoteForCoordinates(float $lat, float $lng, ?string $address = null): array
+    {
+        $tracking = app(TrackingService::class);
+        $dest = [
+            'latitude' => $lat,
+            'longitude' => $lng,
+        ];
+        $km = $tracking->haversineKm($tracking->storePoint(), $dest);
+        $quote = $this->quote($km);
+        $quote['address'] = $address;
+        $quote['coordinates'] = $dest;
+
+        return $quote;
+    }
+
     public function quoteForAddress(string $address): array
     {
         $tracking = app(TrackingService::class);
@@ -98,6 +113,7 @@ class DeliveryRateService
         $km = $tracking->haversineKm($tracking->storePoint(), $dest);
         $quote = $this->quote($km);
         $quote['address'] = $address;
+        $quote['coordinates'] = $dest;
 
         return $quote;
     }

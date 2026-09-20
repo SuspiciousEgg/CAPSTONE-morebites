@@ -59,14 +59,70 @@ class TrackingService
             return $fallback;
         }
 
+        // 1. Try full address query
+        $coords = $this->nominatimLookup($query);
+        if ($coords !== null) {
+            return $coords;
+        }
+
+        // 2. Progressive fallback: split by commas and retry sub-components
+        $parts = array_values(array_filter(array_map('trim', explode(',', $query))));
+        $count = count($parts);
+
+        // If 3 or more components (e.g. Street/Purok, Barangay, City, Landmark)
+        if ($count >= 3) {
+            // Try middle components (e.g. Barangay, City) without first (street) and last (landmark)
+            $sub = implode(', ', array_slice($parts, 1, $count - 2));
+            if (($coords = $this->nominatimLookup($sub)) !== null) {
+                return $coords;
+            }
+
+            // Try without first part (e.g. Barangay, City, Province)
+            $sub = implode(', ', array_slice($parts, 1));
+            if (($coords = $this->nominatimLookup($sub)) !== null) {
+                return $coords;
+            }
+        }
+
+        // Try individual components in reverse order (typically city, then barangay)
+        if ($count >= 2) {
+            for ($i = $count - 1; $i >= 0; $i--) {
+                $candidate = $parts[$i];
+                if (strcasecmp($candidate, 'philippines') === 0) {
+                    continue;
+                }
+                // Skip obvious landmark prefixes
+                if (preg_match('/^(near|beside|in front|opposite|behind|across)/i', $candidate)) {
+                    continue;
+                }
+                if (($coords = $this->nominatimLookup($candidate)) !== null) {
+                    return $coords;
+                }
+            }
+        }
+
+        return $this->deterministicOffset($query, $fallback);
+    }
+
+    public function nominatimLookup(string $query): ?array
+    {
+        $clean = trim($query);
+        if ($clean === '') {
+            return null;
+        }
+
+        $searchQuery = str_ends_with(strtolower($clean), 'philippines')
+            ? $clean
+            : $clean.', Philippines';
+
         try {
-            $response = Http::timeout(10)
+            $response = Http::timeout(6)
                 ->withHeaders([
                     'User-Agent' => 'MoreBitesCapstone/1.0 (delivery tracking)',
                     'Accept' => 'application/json',
                 ])
                 ->get('https://nominatim.openstreetmap.org/search', [
-                    'q' => $query.', Philippines',
+                    'q' => $searchQuery,
                     'format' => 'json',
                     'limit' => 1,
                     'countrycodes' => 'ph',
@@ -82,11 +138,12 @@ class TrackingService
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning('Nominatim geocode failed: '.$e->getMessage());
+            Log::warning('Nominatim geocode failed for "'.$searchQuery.'": '.$e->getMessage());
         }
 
-        return $this->deterministicOffset($query, $fallback);
+        return null;
     }
+
 
     public function directions(array $from, array $to): array
     {
@@ -139,6 +196,14 @@ class TrackingService
 
     public function riderPoint(Order $order): ?array
     {
+        if ($order->current_lat && $order->current_lng) {
+            return [
+                'latitude' => (float) $order->current_lat,
+                'longitude' => (float) $order->current_lng,
+                'updated_at' => $order->updated_at?->toIso8601String(),
+            ];
+        }
+
         $driver = $order->relationLoaded('driver') ? $order->driver : $order->driver()->first();
         if (! $driver || ! $driver->current_lat || ! $driver->current_lng) {
             return null;
@@ -208,6 +273,7 @@ class TrackingService
         $orders = Order::query()
             ->with('driver')
             ->whereNotNull('driver_id')
+            ->where('order_type', 'Online Order')
             ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery'])
             ->latest()
             ->take(20)

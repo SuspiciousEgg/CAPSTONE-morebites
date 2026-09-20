@@ -3,10 +3,10 @@ import { customerApi } from "./client";
 const FALLBACK_DELIVERY = 40;
 const FALLBACK_SERVICE = 20;
 
-/** Load current delivery/service fees (optional distance in km or a full address). */
-export async function fetchDeliveryFees(km = null, address = null) {
+/** Load current delivery/service fees (optional distance in km, full address, or coordinates {latitude, longitude}). */
+export async function fetchDeliveryFees(km = null, address = null, coords = null) {
   try {
-    const res = await customerApi.quoteFees(km, address);
+    const res = await customerApi.quoteFees(km, address, coords);
     const data = res.data || res;
     const distance = data.distance_km != null ? Number(data.distance_km) : (km != null ? Number(km) : null);
     const isExceeded = data.deliverable === false || (distance != null && distance > 10);

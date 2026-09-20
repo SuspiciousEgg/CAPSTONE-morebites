@@ -13,6 +13,7 @@ use App\Models\TrustedDevice;
 use App\Models\User;
 use App\Services\DeliveryRateService;
 use App\Services\InventoryDeductionService;
+use App\Services\TopSellingService;
 use App\Services\TrackingService;
 use App\Support\Media;
 use Illuminate\Http\Request;
@@ -260,6 +261,11 @@ class CustomerAppController extends Controller
         return response()->json(['data' => $items]);
     }
 
+    public function topSelling(TopSellingService $service)
+    {
+        return response()->json(['data' => $service->getTopSelling()]);
+    }
+
     public function orders(Request $request)
     {
         $user = $this->customerUser($request);
@@ -346,6 +352,12 @@ class CustomerAppController extends Controller
             'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['required', 'string'],
             'payment_method' => ['nullable', 'string'],
+            'latitude' => ['nullable', 'numeric'],
+            'dest_lat' => ['nullable', 'numeric'],
+            'lat' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'dest_lng' => ['nullable', 'numeric'],
+            'lng' => ['nullable', 'numeric'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.name' => ['required', 'string'],
@@ -386,7 +398,19 @@ class CustomerAppController extends Controller
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $tracking = app(TrackingService::class);
             $rates = app(DeliveryRateService::class);
-            $dest = $tracking->geocode($data['delivery_address']);
+
+            $lat = $data['latitude'] ?? $data['dest_lat'] ?? $data['lat'] ?? null;
+            $lng = $data['longitude'] ?? $data['dest_lng'] ?? $data['lng'] ?? null;
+
+            if ($lat !== null && $lng !== null) {
+                $dest = [
+                    'latitude' => (float) $lat,
+                    'longitude' => (float) $lng,
+                ];
+            } else {
+                $dest = $tracking->geocode($data['delivery_address']);
+            }
+
             $distanceKm = $tracking->distanceKm($tracking->storePoint(), $dest);
             if ($distanceKm !== null && $distanceKm > DeliveryRateService::MAX_DELIVERY_KM) {
                 throw ValidationException::withMessages([

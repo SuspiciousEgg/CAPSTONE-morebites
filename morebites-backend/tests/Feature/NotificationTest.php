@@ -373,5 +373,135 @@ class NotificationTest extends TestCase
             'Order #ORD-00088 delivered',
         ], $customerTitles);
     }
+
+    public function test_dine_in_order_ready_does_not_trigger_dispatch_notification(): void
+    {
+        $order = Order::query()->create([
+            'order_code' => '#ORD-00091',
+            'customer_name' => 'DineIn Customer',
+            'order_type' => 'Dine-in',
+            'total' => 350,
+            'status' => 'Preparing',
+        ]);
+
+        Notification::createOrderNotification($order);
+
+        $order->update(['status' => 'Ready']);
+        $readyNotif = Notification::createOrderNotification($order);
+
+        $this->assertEquals('Orders', $readyNotif->tab);
+        $this->assertEquals('order_status', $readyNotif->type);
+        $this->assertEquals('Order #ORD-00091 ready to serve', $readyNotif->title);
+        $this->assertEquals('Order #ORD-00091 for DineIn Customer is prepared and ready to be served.', $readyNotif->message);
+
+        // Ensure 0 dispatch notifications exist for this order
+        $dispatchNotifCount = Notification::query()
+            ->where('data->order_code', '#ORD-00091')
+            ->where(function ($q) {
+                $q->where('type', 'dispatch')->orWhere('tab', 'Dispatch');
+            })
+            ->count();
+        $this->assertEquals(0, $dispatchNotifCount);
+    }
+
+    public function test_takeout_order_ready_does_not_trigger_dispatch_notification(): void
+    {
+        $order = Order::query()->create([
+            'order_code' => '#ORD-00092',
+            'customer_name' => 'Takeout Customer',
+            'order_type' => 'Takeout',
+            'total' => 420,
+            'status' => 'Preparing',
+        ]);
+
+        Notification::createOrderNotification($order);
+
+        $order->update(['status' => 'Ready']);
+        $readyNotif = Notification::createOrderNotification($order);
+
+        $this->assertEquals('Orders', $readyNotif->tab);
+        $this->assertEquals('order_status', $readyNotif->type);
+        $this->assertEquals('Order #ORD-00092 ready for pickup', $readyNotif->title);
+        $this->assertEquals('Order #ORD-00092 for Takeout Customer is packed and ready for pickup.', $readyNotif->message);
+
+        $dispatchNotifCount = Notification::query()
+            ->where('data->order_code', '#ORD-00092')
+            ->where(function ($q) {
+                $q->where('type', 'dispatch')->orWhere('tab', 'Dispatch');
+            })
+            ->count();
+        $this->assertEquals(0, $dispatchNotifCount);
+    }
+
+    public function test_online_order_ready_triggers_dispatch_notification(): void
+    {
+        $order = Order::query()->create([
+            'order_code' => '#ORD-00093',
+            'customer_name' => 'Online Customer',
+            'order_type' => 'Online Order',
+            'total' => 500,
+            'status' => 'Preparing',
+        ]);
+
+        Notification::createOrderNotification($order);
+
+        $order->update(['status' => 'Ready']);
+        $readyNotif = Notification::createOrderNotification($order);
+
+        $this->assertEquals('Dispatch', $readyNotif->tab);
+        $this->assertEquals('dispatch', $readyNotif->type);
+        $this->assertEquals('Order #ORD-00093 ready for delivery', $readyNotif->title);
+        $this->assertEquals('Order #ORD-00093 for Online Customer is packed and ready for dispatch.', $readyNotif->message);
+    }
+
+    public function test_dispatch_endpoints_strictly_exclude_and_reject_non_online_orders(): void
+    {
+        $admin = User::query()->create([
+            'name' => 'Admin Dispatch',
+            'email' => 'admin_dispatch@morebites.test',
+            'password' => Hash::make('password'),
+            'role' => 'admin',
+            'status' => 'Active',
+        ]);
+
+        $driver = User::query()->create([
+            'name' => 'Driver Dave',
+            'email' => 'dave@driver.test',
+            'password' => Hash::make('password'),
+            'role' => 'driver',
+            'status' => 'Active',
+        ]);
+
+        $dineIn = Order::query()->create([
+            'order_code' => '#ORD-00094',
+            'customer_name' => 'DineIn Wait',
+            'order_type' => 'Dine-in',
+            'total' => 200,
+            'status' => 'Ready',
+        ]);
+
+        $online = Order::query()->create([
+            'order_code' => '#ORD-00095',
+            'customer_name' => 'Online Wait',
+            'order_type' => 'Online Order',
+            'total' => 550,
+            'status' => 'Ready',
+        ]);
+
+        // GET /api/dispatch must contain online order but NOT dine-in order in pending
+        $response = $this->actingAs($admin)->getJson('/api/dispatch');
+        $response->assertStatus(200);
+
+        $pendingIds = collect($response->json('data.pending'))->pluck('id')->all();
+        $this->assertContains('#ORD-00095', $pendingIds);
+        $this->assertNotContains('#ORD-00094', $pendingIds);
+
+        // POST /api/dispatch/{order}/assign on Dine-in must be rejected with 422
+        $assignResponse = $this->actingAs($admin)->postJson("/api/dispatch/{$dineIn->id}/assign", [
+            'rider_name' => $driver->name,
+        ]);
+        $assignResponse->assertStatus(422);
+        $assignResponse->assertJsonFragment(['message' => 'Only online delivery orders can be assigned to a rider.']);
+    }
 }
 

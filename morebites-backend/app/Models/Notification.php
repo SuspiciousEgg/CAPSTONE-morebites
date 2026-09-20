@@ -111,8 +111,10 @@ class Notification extends Model
             })
             ->exists();
 
+        $isOnline = ($order->order_type === 'Online Order');
+
         // Determine Admin Title, Message, Tab, Type
-        $isDispatch = in_array($order->status, ['Out for Delivery', 'Picked Up', 'Ready', 'Assigned'], true);
+        $isDispatch = $isOnline && in_array($order->status, ['Out for Delivery', 'Picked Up', 'Ready', 'Assigned'], true);
         $tab = $isDispatch ? 'Dispatch' : 'Orders';
 
         if ($explicitType) {
@@ -129,22 +131,34 @@ class Notification extends Model
             $type = 'order_status';
         }
 
+        $readyTitle = $isOnline
+            ? "Order {$code} ready for delivery"
+            : ($order->order_type === 'Takeout'
+                ? "Order {$code} ready for pickup"
+                : "Order {$code} ready to serve");
+
         $title = match ($order->status) {
             'Completed', 'Delivered' => "Order {$code} completed",
-            'Out for Delivery', 'Picked Up' => "Order {$code} out for delivery",
-            'Ready' => "Order {$code} ready for delivery",
-            'Assigned' => "Order {$code} rider assigned",
+            'Out for Delivery', 'Picked Up' => $isOnline ? "Order {$code} out for delivery" : "Order {$code} updated",
+            'Ready' => $readyTitle,
+            'Assigned' => $isOnline ? "Order {$code} rider assigned" : "Order {$code} updated",
             'Cancelled' => "Order {$code} cancelled",
             'Preparing' => $hasExistingAdminNotif ? "Order {$code} is being prepared" : "New order {$code} received",
             'Pending' => "New order {$code} received",
             default => $hasExistingAdminNotif ? "Order {$code} updated" : "New order {$code} received",
         };
 
+        $readyMessage = $isOnline
+            ? "Order {$code} for {$order->customer_name} is packed and ready for dispatch."
+            : ($order->order_type === 'Takeout'
+                ? "Order {$code} for {$order->customer_name} is packed and ready for pickup."
+                : "Order {$code} for {$order->customer_name} is prepared and ready to be served.");
+
         $message = match ($order->status) {
             'Completed', 'Delivered' => "The order for {$order->customer_name} has been completed.",
-            'Out for Delivery', 'Picked Up' => "Delivery is in progress for {$order->customer_name}.",
-            'Ready' => "Order {$code} for {$order->customer_name} is packed and ready for dispatch.",
-            'Assigned' => "Order {$code} has been assigned to a delivery rider.",
+            'Out for Delivery', 'Picked Up' => $isOnline ? "Delivery is in progress for {$order->customer_name}." : "Order {$code} for {$order->customer_name} status updated to {$order->status}.",
+            'Ready' => $readyMessage,
+            'Assigned' => $isOnline ? "Order {$code} has been assigned to a delivery rider." : "Order {$code} for {$order->customer_name} status updated to {$order->status}.",
             'Cancelled' => "Order {$code} for {$order->customer_name} has been cancelled.",
             'Preparing' => $hasExistingAdminNotif ? "Order {$code} for {$order->customer_name} is now being prepared in the kitchen." : "A new order has been placed by {$order->customer_name}.",
             'Pending' => "A new order has been placed by {$order->customer_name}.",
@@ -193,10 +207,10 @@ class Notification extends Model
 
         if ($customerUserId) {
             $custTitle = match ($order->status) {
-                'Out for Delivery', 'Picked Up' => "Order {$code} out for delivery",
-                'Ready' => "Order {$code} is ready",
+                'Out for Delivery', 'Picked Up' => $isOnline ? "Order {$code} out for delivery" : "Order {$code} updated",
+                'Ready' => $isOnline ? "Order {$code} is ready" : ($order->order_type === 'Takeout' ? "Order {$code} ready for pickup" : "Order {$code} is ready"),
                 'Preparing' => "Order {$code} is being prepared",
-                'Assigned' => "Order {$code} assigned",
+                'Assigned' => $isOnline ? "Order {$code} assigned" : "Order {$code} updated",
                 'Delivered', 'Completed' => "Order {$code} delivered",
                 'Cancelled' => "Order {$code} cancelled",
                 'Pending' => "Order {$code} placed",
@@ -204,10 +218,14 @@ class Notification extends Model
             };
 
             $custMessage = match ($order->status) {
-                'Out for Delivery', 'Picked Up' => "Order {$code} is out for delivery. Track your rider live.",
-                'Ready' => "Your order {$code} is packed and ready for delivery.",
+                'Out for Delivery', 'Picked Up' => $isOnline ? "Order {$code} is out for delivery. Track your rider live." : "Order {$code} status updated to {$order->status}.",
+                'Ready' => $isOnline
+                    ? "Your order {$code} is packed and ready for delivery."
+                    : ($order->order_type === 'Takeout'
+                        ? "Your order {$code} is packed and ready for pickup."
+                        : "Your order {$code} is ready to be served."),
                 'Preparing' => "Order {$code} is now being prepared by the kitchen.",
-                'Assigned' => "Order {$code} has been assigned to a delivery rider.",
+                'Assigned' => $isOnline ? "Order {$code} has been assigned to a delivery rider." : "Order {$code} status updated to {$order->status}.",
                 'Delivered', 'Completed' => "Order {$code} has been delivered. Enjoy your meal!",
                 'Cancelled' => "Order {$code} has been cancelled.",
                 'Pending' => "Your order {$code} has been received and is awaiting confirmation.",

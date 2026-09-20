@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -74,40 +74,68 @@ export default function OutForDeliveryScreen() {
     return () => clearInterval(timer);
   }, [dbId, loadTracking]);
 
+  const isCompletedRef = useRef(false);
+  const isDelivered = ["Delivered", "Completed"].includes(order?.status || tracking?.status || "");
+
   useEffect(() => {
-    let subscription;
+    if (isDelivered) {
+      isCompletedRef.current = true;
+    }
+  }, [isDelivered]);
+
+  // Periodic device location capture (every 8 seconds while delivery is active)
+  useEffect(() => {
+    if (isDelivered) return undefined;
+
+    let timer = null;
     let cancelled = false;
+
+    const captureAndSendLocation = async () => {
+      if (cancelled || isCompletedRef.current) return;
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled || isCompletedRef.current || !pos?.coords) return;
+
+        const next = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        };
+        setLiveRider(next);
+
+        // Update delivery-specific location and driver fleet location
+        if (dbId) {
+          driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch(() => {});
+        }
+        driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
+      } catch {
+        // Location service temporarily unavailable
+      }
+    };
 
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted" || cancelled) return;
+        if (status !== "granted" || cancelled || isCompletedRef.current) return;
 
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 8000,
-            distanceInterval: 20,
-          },
-          (pos) => {
-            const next = {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-            };
-            setLiveRider(next);
-            driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
-          },
-        );
+        // Immediate initial location fix
+        await captureAndSendLocation();
+
+        // Start 8-second periodic polling interval
+        if (!cancelled && !isCompletedRef.current) {
+          timer = setInterval(captureAndSendLocation, 8000);
+        }
       } catch {
-        // GPS unavailable
+        // Permission error or GPS unavailable
       }
     })();
 
     return () => {
       cancelled = true;
-      subscription?.remove?.();
+      if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [dbId, isDelivered]);
 
   const destinationCoord = tracking?.destination || null;
   const riderCoord = liveRider || tracking?.rider || null;
@@ -192,6 +220,7 @@ export default function OutForDeliveryScreen() {
   };
 
   const completeDelivery = () => {
+    isCompletedRef.current = true;
     router.push({
       pathname: "/confirm-delivery",
       params: {

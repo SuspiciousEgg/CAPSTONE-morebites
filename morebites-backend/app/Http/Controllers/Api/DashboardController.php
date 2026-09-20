@@ -35,8 +35,13 @@ class DashboardController extends Controller
             ->count();
 
         $defaultHours = ['8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM'];
+        $isSqlite = DB::connection()->getDriverName() === 'sqlite';
+        $timeExpression = $isSqlite
+            ? "case cast(strftime('%H', created_at) as integer) when 8 then '8 AM' when 9 then '9 AM' when 10 then '10 AM' when 11 then '11 AM' when 12 then '12 PM' when 13 then '1 PM' when 14 then '2 PM' when 15 then '3 PM' when 16 then '4 PM' when 17 then '5 PM' when 18 then '6 PM' when 19 then '7 PM' else 'Other' end"
+            : "DATE_FORMAT(created_at, '%l %p')";
+
         $salesRows = Order::query()
-            ->select(DB::raw("DATE_FORMAT(created_at, '%l %p') as t"), DB::raw('SUM(total) as v'))
+            ->select(DB::raw("{$timeExpression} as t"), DB::raw('SUM(total) as v'))
             ->whereDate('created_at', today())
             ->groupBy('t')
             ->orderBy('t')
@@ -62,6 +67,7 @@ class DashboardController extends Controller
         ]);
 
         $recentOrders = Order::query()
+            ->whereDate('created_at', today())
             ->latest()
             ->take(5)
             ->get()
@@ -69,10 +75,11 @@ class DashboardController extends Controller
                 'id' => $o->order_code,
                 'customer' => $o->customer_name,
                 'status' => $o->status,
-                'amount' => '₱'.number_format($o->total, 0),
+                'amount' => '₱'.number_format($o->total, 2),
             ]);
 
         $activity = ActivityLog::query()
+            ->whereDate('created_at', today())
             ->latest()
             ->take(8)
             ->get()

@@ -1,7 +1,7 @@
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import { StyleSheet, View } from "react-native";
 
-const OSM_TILE = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_TILE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
 
 export default function DeliveryMap({
   initialRegion,

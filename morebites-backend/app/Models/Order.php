@@ -10,8 +10,8 @@ class Order extends Model
 {
     protected $fillable = [
         'order_code', 'customer_id', 'customer_name', 'order_type',
-        'total', 'delivery_fee', 'service_fee', 'status', 'payment_method', 'payment_status',
-        'delivery_address', 'dest_lat', 'dest_lng', 'driver_id', 'assigned_at', 'delivered_at',
+        'total', 'delivery_fee', 'service_fee', 'status', 'order_date', 'payment_method', 'payment_status',
+        'delivery_address', 'dest_lat', 'dest_lng', 'current_lat', 'current_lng', 'driver_id', 'assigned_at', 'delivered_at',
         'proof_of_delivery', 'delivery_minutes', 'delivery_distance_km', 'route_coordinates',
         'food_rating', 'food_comment', 'rider_rating', 'rider_comment', 'rated_at',
     ];
@@ -22,12 +22,15 @@ class Order extends Model
             'total' => 'float',
             'delivery_fee' => 'float',
             'service_fee' => 'float',
+            'order_date' => 'date',
             'assigned_at' => 'datetime',
             'delivered_at' => 'datetime',
             'rated_at' => 'datetime',
             'delivery_distance_km' => 'float',
             'dest_lat' => 'float',
             'dest_lng' => 'float',
+            'current_lat' => 'float',
+            'current_lng' => 'float',
             'route_coordinates' => 'array',
         ];
     }

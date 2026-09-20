@@ -180,11 +180,12 @@ class OrderController extends Controller
     private function transform(Order $o): array
     {
         $itemsLabel = $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', ');
+        $isOnline = $o->order_type === 'Online Order';
 
         $action = match ($o->status) {
             'Pending' => 'Confirm',
             'Preparing' => 'Mark Ready',
-            'Ready', 'Out for Delivery' => 'Track',
+            'Ready', 'Out for Delivery' => $isOnline ? 'Track' : 'View',
             'Completed' => 'View',
             default => 'View',
         };

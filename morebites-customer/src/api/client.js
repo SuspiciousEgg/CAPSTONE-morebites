@@ -125,10 +125,15 @@ export const customerApi = {
   updateProfile: (payload) =>
     request("/customer/profile", { method: "PATCH", body: payload }),
   menu: () => request("/customer/menu", { auth: false }),
-  quoteFees: (km = null, address = null) => {
+  topSelling: () => request("/menu/top-selling", { auth: false }),
+  quoteFees: (km = null, address = null, coords = null) => {
     const params = new URLSearchParams();
     if (km != null && km !== "") params.set("km", String(km));
     if (address) params.set("address", address);
+    if (coords && coords.latitude != null && coords.longitude != null) {
+      params.set("lat", String(coords.latitude));
+      params.set("lng", String(coords.longitude));
+    }
     const qs = params.toString();
     return request(`/delivery-rates/quote${qs ? `?${qs}` : ""}`, { auth: false });
   },
@@ -137,6 +142,7 @@ export const customerApi = {
   placeOrder: (payload) =>
     request("/customer/orders", { method: "POST", body: payload }),
   tracking: (dbId) => request(`/customer/orders/${dbId}/tracking`),
+  deliveryLocation: (deliveryId) => request(`/deliveries/${deliveryId}/location`),
   rateOrder: (dbId, payload) =>
     request(`/customer/orders/${dbId}/rate`, { method: "POST", body: payload }),
   unreadNotificationsCount: () => request("/notifications/unread-count"),

@@ -23,7 +23,7 @@ import {
   LuSearch,
   LuBellOff,
 } from 'react-icons/lu'
-import { TbClipboardList } from 'react-icons/tb'
+import { TbClipboardList, TbChartBar } from 'react-icons/tb'
 import logo from '../assets/logo.png'
 import {
   IconAccount,
@@ -391,9 +391,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     return DEFAULT_HOURLY_SLOTS
   }, [salesData])
 
+  const hasSales = useMemo(() => {
+    return (displaySalesData || []).some((item) => Number(item.v) > 0)
+  }, [displaySalesData])
+
   const displayActivityLog = useMemo(() => {
-    if (activityLog && activityLog.length > 0) return activityLog
-    return DEFAULT_ACTIVITY_LOG
+    return activityLog || []
   }, [activityLog])
 
   const currentOrderStatus = useMemo(() => {
@@ -831,7 +834,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </div>
             </div>
 
-            <div style={{ width: '100%', height: 260 }}>
+            <div style={{ width: '100%', height: 260, position: 'relative' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={displaySalesData} barSize={22} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid stroke="#EDEDED" strokeDasharray="0" vertical={false} />
@@ -850,19 +853,36 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     width={52}
                     tickFormatter={(v) => (v === 0 ? '₱0' : `₱${v / 1000}K`)}
                   />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(255,165,0,0.06)' }}
-                    contentStyle={{
-                      borderRadius: 8,
-                      border: '1px solid #EDEDED',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                      fontSize: 12,
-                    }}
-                    formatter={(v) => [`₱${Number(v).toLocaleString()}`, 'Sales']}
-                  />
+                  {hasSales && (
+                    <Tooltip
+                      cursor={{ fill: 'rgba(255,165,0,0.06)' }}
+                      contentStyle={{
+                        borderRadius: 8,
+                        border: '1px solid #EDEDED',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                        fontSize: 12,
+                      }}
+                      formatter={(v) => [`₱${Number(v).toLocaleString()}`, 'Sales']}
+                    />
+                  )}
                   <Bar dataKey="v" fill="#FFA500" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              {!hasSales && (
+                <div className="sa-chart-empty-overlay">
+                  <div className="sa-chart-empty-icon">
+                    <TbChartBar size={24} color="#FFA500" />
+                  </div>
+                  <div className="sa-chart-empty-title">
+                    {salesPeriod === 'Daily'
+                      ? 'No sales recorded yet for today'
+                      : `No sales recorded yet for this ${salesPeriod.toLowerCase().replace('ly', '')}`}
+                  </div>
+                  <p className="sa-chart-empty-subtext">
+                    Sales will appear as orders are processed throughout the day.
+                  </p>
+                </div>
+              )}
             </div>
           </article>
 
@@ -883,25 +903,33 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayActivityLog.map((row, idx) => {
-                    const timeParts = String(row.time || '').split(' ')
-                    const timeNum = timeParts[0] || row.time
-                    const timeAmpm = timeParts[1] || ''
+                  {displayActivityLog.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: '32px 16px', color: '#9CA3AF' }}>
+                        No activity recorded today
+                      </td>
+                    </tr>
+                  ) : (
+                    displayActivityLog.map((row, idx) => {
+                      const timeParts = String(row.time || '').split(' ')
+                      const timeNum = timeParts[0] || row.time
+                      const timeAmpm = timeParts[1] || ''
 
-                    return (
-                      <tr key={idx}>
-                        <td className="sa-act-time">
-                          <div>{timeNum}</div>
-                          <div className="sa-act-ampm">{timeAmpm}</div>
-                        </td>
-                        <td className="sa-act-user">{row.user}</td>
-                        <td className="sa-act-desc">{row.action}</td>
-                        <td className="sa-act-status">
-                          <span className="sa-badge-success">Success</span>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                      return (
+                        <tr key={idx}>
+                          <td className="sa-act-time">
+                            <div>{timeNum}</div>
+                            <div className="sa-act-ampm">{timeAmpm}</div>
+                          </td>
+                          <td className="sa-act-user">{row.user}</td>
+                          <td className="sa-act-desc">{row.action}</td>
+                          <td className="sa-act-status">
+                            <span className="sa-badge-success">Success</span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

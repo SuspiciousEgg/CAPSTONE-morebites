@@ -27,7 +27,20 @@ class DeliveryRateController extends Controller
         $data = $request->validate([
             'km' => ['nullable', 'numeric', 'min:0'],
             'address' => ['nullable', 'string', 'max:500'],
+            'lat' => ['nullable', 'numeric'],
+            'latitude' => ['nullable', 'numeric'],
+            'lng' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
         ]);
+
+        $lat = $data['lat'] ?? $data['latitude'] ?? null;
+        $lng = $data['lng'] ?? $data['longitude'] ?? null;
+
+        if ($lat !== null && $lng !== null) {
+            return response()->json([
+                'data' => $rates->quoteForCoordinates((float) $lat, (float) $lng, $data['address'] ?? null),
+            ]);
+        }
 
         if (! empty($data['address'])) {
             return response()->json([

@@ -14,14 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { customerApi, mediaUrl } from "../src/api/client";
+import { useCart } from "../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 const RECENT_SEARCHES_KEY = "recent_searches";
-
-function shuffleItems(items) {
-  return [...items].sort(() => Math.random() - 0.5).slice(0, 4);
-}
 
 function FoodCard({ item, compact = false }) {
   const isAvailable = item.availability !== false && item.available !== false;
@@ -60,14 +57,6 @@ function FoodCard({ item, compact = false }) {
         <Text style={styles.foodName} numberOfLines={2}>{item.name}</Text>
         <View style={styles.foodCardFooter}>
           <Text style={styles.foodPrice}>{item.priceLabel || `₱${item.price}`}</Text>
-          <Pressable
-            style={[styles.addButton, !isAvailable && styles.addButtonDisabled]}
-            onPress={openDetails}
-            disabled={!isAvailable}
-            hitSlop={6}
-          >
-            <Ionicons name="add" size={16} color="#FFFFFF" />
-          </Pressable>
         </View>
       </View>
     </Pressable>
@@ -75,13 +64,15 @@ function FoodCard({ item, compact = false }) {
 }
 
 export default function SearchScreen() {
+  const { cartItems } = useCart();
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(true);
   const [recentSearches, setRecentSearches] = useState([]);
   const [focused, setFocused] = useState(true);
-  const [suggestedItems, setSuggestedItems] = useState([]);
+  const [pastOrders, setPastOrders] = useState([]);
+  const [topSellingItems, setTopSellingItems] = useState([]);
   const isSearching = searchText.trim().length > 0;
 
   const popularSearches = useMemo(() => {
@@ -93,24 +84,92 @@ export default function SearchScreen() {
     const load = async () => {
       setLoadingMenu(true);
       try {
-        const [stored, res] = await Promise.all([
+        const [stored, res, ordersRes, topRes] = await Promise.all([
           AsyncStorage.getItem(RECENT_SEARCHES_KEY),
           customerApi.menu(),
+          customerApi.orders().catch(() => ({ data: [] })),
+          customerApi.topSelling().catch(() => ({ data: [] })),
         ]);
         const searches = stored ? JSON.parse(stored) : [];
         setRecentSearches(Array.isArray(searches) ? searches.slice(0, 5) : []);
         const items = res.data || [];
         setMenuItems(items);
-        setSuggestedItems(shuffleItems(items));
+        setPastOrders(ordersRes?.data || []);
+        setTopSellingItems(topRes?.data || []);
       } catch {
         setMenuItems([]);
-        setSuggestedItems([]);
+        setPastOrders([]);
+        setTopSellingItems([]);
       } finally {
         setLoadingMenu(false);
       }
     };
     load();
   }, []);
+
+  const suggestedItems = useMemo(() => {
+    if (!menuItems.length) return [];
+
+    // 1. Items currently in customer's cart
+    const cartItemIds = new Set((cartItems || []).map((c) => String(c.id || c.db_id || "")).filter(Boolean));
+    const cartItemNames = new Set((cartItems || []).map((c) => String(c.name || "").trim().toLowerCase()).filter(Boolean));
+
+    // 2. Items customer has already ordered before and categories they ordered from
+    const orderedItemIds = new Set();
+    const orderedItemNames = new Set();
+    const orderedCategories = new Set();
+
+    (pastOrders || []).forEach((order) => {
+      (order.items || []).forEach((item) => {
+        if (item.menu_item_id) orderedItemIds.add(String(item.menu_item_id));
+        if (item.id) orderedItemIds.add(String(item.id));
+        if (item.name) {
+          const normName = String(item.name).trim().toLowerCase();
+          orderedItemNames.add(normName);
+          const found = menuItems.find(
+            (m) => String(m.id) === String(item.menu_item_id) || String(m.name).trim().toLowerCase() === normName
+          );
+          if (found?.category) orderedCategories.add(found.category);
+        }
+      });
+    });
+
+    const isExcluded = (item) => {
+      const idStr = String(item.id || item.db_id || "");
+      const nameLower = String(item.name || "").trim().toLowerCase();
+      return (
+        (idStr && (cartItemIds.has(idStr) || orderedItemIds.has(idStr))) ||
+        (nameLower && (cartItemNames.has(nameLower) || orderedItemNames.has(nameLower)))
+      );
+    };
+
+    const hasOrderHistory = pastOrders.length > 0 && (orderedItemIds.size > 0 || orderedItemNames.size > 0);
+
+    if (hasOrderHistory) {
+      // Unpurchased items
+      const unpurchased = menuItems.filter((item) => !isExcluded(item));
+
+      // Prioritize unpurchased items belonging to categories customer previously ordered from
+      const preferred = unpurchased.filter((item) => item.category && orderedCategories.has(item.category));
+      const others = unpurchased.filter((item) => !item.category || !orderedCategories.has(item.category));
+
+      const combined = [...preferred, ...others];
+      if (combined.length > 0) {
+        return combined.slice(0, 8);
+      }
+    }
+
+    // Fallback: If customer has no order history at all, fall back to top-selling, excluding cart
+    const fallbackTop = (topSellingItems.length ? topSellingItems : menuItems).filter(
+      (item) => {
+        const idStr = String(item.id || item.db_id || "");
+        const nameLower = String(item.name || "").trim().toLowerCase();
+        return !cartItemIds.has(idStr) && !cartItemNames.has(nameLower);
+      }
+    );
+
+    return fallbackTop.slice(0, 8);
+  }, [menuItems, cartItems, pastOrders, topSellingItems]);
 
   const runSearch = (term) => {
     setSearchText(term);

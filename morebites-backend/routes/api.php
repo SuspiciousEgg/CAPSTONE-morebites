@@ -25,6 +25,7 @@ Route::post('/driver/login', [DriverAppController::class, 'login']);
 Route::post('/customer/register', [CustomerAppController::class, 'register']);
 Route::post('/customer/login', [CustomerAppController::class, 'login']);
 Route::get('/customer/menu', [CustomerAppController::class, 'menu']);
+Route::get('/menu/top-selling', [CustomerAppController::class, 'topSelling']);
 Route::get('/delivery-rates', [DeliveryRateController::class, 'index']);
 Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
 
@@ -45,6 +46,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
     Route::post('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
     Route::post('/driver/orders/{order}/report', [DriverAppController::class, 'reportIssue']);
+
+    Route::patch('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+    Route::post('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+    Route::get('/deliveries/{order}/location', [TrackingController::class, 'deliveryLocation']);
 
     Route::get('/customer/orders/{order}/tracking', [TrackingController::class, 'show']);
     Route::post('/customer/orders/{order}/rate', [CustomerAppController::class, 'rateOrder']);

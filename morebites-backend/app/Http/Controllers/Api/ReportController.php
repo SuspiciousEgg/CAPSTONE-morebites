@@ -88,17 +88,16 @@ class ReportController extends Controller
                 ];
             });
 
-        $topItems = OrderItem::query()
-            ->select('name', DB::raw('SUM(qty) as units'))
-            ->groupBy('name')
-            ->orderByDesc('units')
-            ->take(5)
-            ->get()
-            ->map(fn ($i) => [
-                'name' => $i->name,
-                'units' => (int) $i->units,
-                'change' => '+1.0%',
-            ]);
+        $topItems = app(\App\Services\TopSellingService::class)->getTopSelling(10)->map(fn ($i) => [
+            'id' => $i['id'],
+            'name' => $i['name'],
+            'category' => $i['category'],
+            'units' => $i['units'],
+            'units_sold' => $i['units_sold'],
+            'price' => $i['price'],
+            'image' => $i['image'],
+            'change' => $i['change'] ?? '+1.0%',
+        ])->values();
 
         $exports = ExportedReport::query()->latest()->take(10)->get()->map(fn ($e) => [
             'id' => $e->id,

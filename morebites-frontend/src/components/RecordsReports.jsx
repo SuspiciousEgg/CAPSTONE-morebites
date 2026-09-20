@@ -6,7 +6,7 @@ import {
   IconSearch,
   IconTrash,
 } from './Icons'
-import { reportsApi } from '../api/client'
+import { menuApi, reportsApi } from '../api/client'
 import './RecordsReports.css'
 
 function peso(n) {
@@ -352,14 +352,17 @@ export default function RecordsReports() {
   const [tab, setTab] = useState('all')
 
   useEffect(() => {
-    reportsApi
-      .get()
-      .then((r) => {
+    Promise.all([
+      reportsApi.get(),
+      menuApi.topSelling().catch(() => null),
+    ])
+      .then(([r, topRes]) => {
         const d = r.data?.data || r.data || {}
+        const topData = topRes?.data?.data || d.top_items || []
         setAllRecords(d.all_records && d.all_records.length > 0 ? d.all_records : DEFAULT_SALES_RECORDS)
         setDeliveryRecords(d.delivery_records && d.delivery_records.length > 0 ? d.delivery_records : DEFAULT_DELIVERY_RECORDS)
         setCustomerRecords(d.customer_records && d.customer_records.length > 0 ? d.customer_records : DEFAULT_CUSTOMER_RECORDS)
-        setTopItems(d.top_items && d.top_items.length > 0 ? d.top_items : DEFAULT_TOP_ITEMS)
+        setTopItems(topData && topData.length > 0 ? topData : DEFAULT_TOP_ITEMS)
         setExportsList(d.exports && d.exports.length > 0 ? d.exports : DEFAULT_EXPORTS)
         setReportStats(
           d.stats || {

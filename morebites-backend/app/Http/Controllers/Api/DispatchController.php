@@ -16,7 +16,7 @@ class DispatchController extends Controller
         $pending = Order::query()
             ->whereIn('status', ['Pending', 'Ready', 'Preparing'])
             ->whereNull('driver_id')
-            ->whereNotIn('order_type', ['Dine-in', 'Takeout'])
+            ->where('order_type', 'Online Order')
             ->latest()
             ->get()
             ->map(fn (Order $o) => [
@@ -32,7 +32,7 @@ class DispatchController extends Controller
         $monitoring = Order::query()
             ->with(['driver', 'items', 'customer'])
             ->whereNotNull('driver_id')
-            ->whereNotIn('order_type', ['Dine-in', 'Takeout'])
+            ->where('order_type', 'Online Order')
             ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery', 'Completed', 'Delivered', 'Cancelled'])
             ->latest()
             ->take(10)
@@ -100,6 +100,10 @@ class DispatchController extends Controller
 
     public function assign(Request $request, Order $order)
     {
+        if ($order->order_type !== 'Online Order') {
+            return response()->json(['message' => 'Only online delivery orders can be assigned to a rider.'], 422);
+        }
+
         $data = $request->validate([
             'rider_name' => ['required', 'string'],
         ]);

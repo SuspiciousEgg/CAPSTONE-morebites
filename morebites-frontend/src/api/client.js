@@ -105,6 +105,7 @@ function toMenuFormData(payload) {
 
 export const menuApi = {
   list: (params) => api.get('/menu', { params }),
+  topSelling: () => api.get('/menu/top-selling'),
   create: (payload) => api.post('/menu', toMenuFormData(payload)),
   update: (id, payload) => api.post(`/menu/${id}`, toMenuFormData(payload)),
   toggleAvailability: (id) => api.patch(`/menu/${id}/availability`),

@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,6 +47,7 @@ function FormField({ label, error, focused, onFocus, onBlur, ...inputProps }) {
 }
 
 export default function CheckoutScreen() {
+  const params = useLocalSearchParams();
   const { cartItems, cartTotal, clearCart } = useCart();
   const [deliveryFee, setDeliveryFee] = useState(40);
   const [serviceFee, setServiceFee] = useState(20);
@@ -59,10 +61,41 @@ export default function CheckoutScreen() {
   const [barangay, setBarangay] = useState("");
   const [city, setCity] = useState("");
   const [landmark, setLandmark] = useState("");
+  const [coordinates, setCoordinates] = useState(null);
+  const [savedAddressList, setSavedAddressList] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [errors, setErrors] = useState({});
   const [focusedField, setFocusedField] = useState("");
   const [showOrderSheet, setShowOrderSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Helper to update field value and immediately clear its validation error if present
+  const updateField = (setter, fieldName, isAddress = false) => (value) => {
+    setter(value);
+    if (isAddress) {
+      // If customer manually alters the address text, clear the pinned coordinates so geocoding calculates from the new address
+      setCoordinates(null);
+    }
+    if (errors[fieldName]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[fieldName];
+        return next;
+      });
+    }
+  };
+
+  const handlePhoneChange = (val) => {
+    const clean = val.replace(/\D/g, "").slice(0, 11);
+    setPhone(clean);
+    if (errors.phone) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.phone;
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     fetchDeliveryFees().then((fees) => {
@@ -76,49 +109,150 @@ export default function CheckoutScreen() {
     const deliveryAddress = [street.trim(), barangay.trim(), city.trim(), landmark.trim()]
       .filter(Boolean)
       .join(", ");
-    if (!street.trim() || !barangay.trim() || !city.trim()) return undefined;
+    if (!street.trim() || !barangay.trim() || !city.trim()) {
+      setFeeQuote(null);
+      return undefined;
+    }
 
     setQuoting(true);
     const timer = setTimeout(() => {
-      fetchDeliveryFees(null, deliveryAddress).then((fees) => {
+      fetchDeliveryFees(null, deliveryAddress, coordinates).then((fees) => {
         setDeliveryFee(fees.deliveryFee);
         setServiceFee(fees.serviceFee);
         setFeeQuote(fees);
         setQuoting(false);
       });
-    }, 700);
+    }, 600);
 
     return () => {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [street, barangay, city, landmark]);
+  }, [street, barangay, city, landmark, coordinates]);
+
+  const loadSavedDetails = useCallback(async () => {
+    const user = await authStorage.getUser();
+    if (user) {
+      setFullName((curr) => curr || user.fullName || "");
+      setPhone((curr) => curr || user.phone || "");
+    }
+
+    const savedAddresses = await AsyncStorage.getItem("saved_addresses");
+    if (savedAddresses) {
+      try {
+        const addresses = JSON.parse(savedAddresses);
+        const list = Array.isArray(addresses) ? addresses : [];
+        setSavedAddressList(list);
+
+        if (list.length > 0) {
+          setSelectedAddressId((currSelected) => {
+            if (currSelected === null) {
+              const defaultAddress = list.find((address) => address.isDefault) || list[0];
+              if (defaultAddress) {
+                setStreet(defaultAddress.street || "");
+                setBarangay(defaultAddress.barangay || "");
+                setCity(defaultAddress.city || "");
+                setLandmark(defaultAddress.landmark || "");
+                if (defaultAddress.latitude != null && defaultAddress.longitude != null) {
+                  const lat = Number(defaultAddress.latitude);
+                  const lng = Number(defaultAddress.longitude);
+                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    setCoordinates({ latitude: lat, longitude: lng });
+                  }
+                }
+                return defaultAddress.id;
+              }
+            } else if (currSelected !== "new" && currSelected !== "custom") {
+              const exists = list.some((a) => a.id === currSelected);
+              if (!exists) return "new";
+            }
+            return currSelected;
+          });
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+    } else if (user?.delivery_address) {
+      const parts = user.delivery_address.split(",").map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 3) {
+        setStreet((curr) => curr || parts.slice(0, parts.length - 2).join(", "));
+        setBarangay((curr) => curr || parts[parts.length - 2]);
+        setCity((curr) => curr || parts[parts.length - 1]);
+      } else if (parts.length === 2) {
+        setStreet((curr) => curr || parts[0]);
+        setBarangay((curr) => curr || parts[1]);
+      } else {
+        setStreet((curr) => curr || user.delivery_address);
+      }
+    }
+  }, []);
+
+  const selectSavedAddress = (addr) => {
+    setSelectedAddressId(addr.id);
+    setStreet(addr.street || "");
+    setBarangay(addr.barangay || "");
+    setCity(addr.city || "");
+    setLandmark(addr.landmark || "");
+    if (addr.latitude != null && addr.longitude != null) {
+      const lat = Number(addr.latitude);
+      const lng = Number(addr.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setCoordinates({ latitude: lat, longitude: lng });
+      } else {
+        setCoordinates(null);
+      }
+    } else {
+      setCoordinates(null);
+    }
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.street;
+      delete next.barangay;
+      delete next.city;
+      return next;
+    });
+  };
+
+  const selectNewAddress = () => {
+    setSelectedAddressId("new");
+    setStreet("");
+    setBarangay("");
+    setCity("");
+    setLandmark("");
+    setCoordinates(null);
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.street;
+      delete next.barangay;
+      delete next.city;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    const loadSavedDetails = async () => {
-      const user = await authStorage.getUser();
-      if (user) {
-        setFullName(user.fullName || "");
-        setPhone(user.phone || "");
-        if (user.delivery_address && !street) {
-          setStreet(user.delivery_address);
-        }
-      }
-
-      const savedAddresses = await AsyncStorage.getItem("saved_addresses");
-      if (savedAddresses) {
-        const addresses = JSON.parse(savedAddresses);
-        const defaultAddress = addresses.find((address) => address.isDefault) || addresses[0];
-        if (defaultAddress) {
-          setStreet(defaultAddress.street || "");
-          setBarangay(defaultAddress.barangay || "");
-          setCity(defaultAddress.city || "");
-          setLandmark(defaultAddress.landmark || "");
-        }
-      }
-    };
     loadSavedDetails();
-  }, []);
+  }, [loadSavedDetails]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSavedDetails();
+    }, [loadSavedDetails])
+  );
+
+  useEffect(() => {
+    if (params.latitude && params.longitude) {
+      const lat = Number(Array.isArray(params.latitude) ? params.latitude[0] : params.latitude);
+      const lng = Number(Array.isArray(params.longitude) ? params.longitude[0] : params.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setCoordinates({ latitude: lat, longitude: lng });
+      }
+      if (params.street) setStreet(String(Array.isArray(params.street) ? params.street[0] : params.street));
+      if (params.barangay) setBarangay(String(Array.isArray(params.barangay) ? params.barangay[0] : params.barangay));
+      if (params.city) setCity(String(Array.isArray(params.city) ? params.city[0] : params.city));
+      if (params.landmark) setLandmark(String(Array.isArray(params.landmark) ? params.landmark[0] : params.landmark));
+      setSelectedAddressId("custom");
+    }
+  }, [params.latitude, params.longitude, params.street, params.barangay, params.city, params.landmark]);
 
   const focusField = (name) => setFocusedField(name);
   const blurField = () => setFocusedField("");
@@ -161,6 +295,8 @@ export default function CheckoutScreen() {
         full_name: fullName.trim(),
         phone: phone.replace(/\s/g, ""),
         delivery_address: deliveryAddress,
+        latitude: coordinates?.latitude ?? null,
+        longitude: coordinates?.longitude ?? null,
         payment_method: "COD",
         items: cartItems.map((item) => ({
           menu_item_id: item.db_id ?? (Number(item.id) || null),
@@ -252,7 +388,7 @@ export default function CheckoutScreen() {
           label="Full Name"
           placeholder="John Doe"
           value={fullName}
-          onChangeText={setFullName}
+          onChangeText={updateField(setFullName, "fullName")}
           error={errors.fullName}
           focused={focusedField === "fullName"}
           onFocus={() => focusField("fullName")}
@@ -265,18 +401,100 @@ export default function CheckoutScreen() {
           keyboardType="phone-pad"
           maxLength={11}
           value={phone}
-          onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
+          onChangeText={handlePhoneChange}
           error={errors.phone}
           focused={focusedField === "phone"}
           onFocus={() => focusField("phone")}
           onBlur={blurField}
         />
 
+        <View style={styles.addressSectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>Delivery Address</Text>
+          <View style={styles.addressHeaderActions}>
+            <Pressable
+              style={styles.addressActionBtn}
+              onPress={() => router.push({ pathname: "/map-picker", params: { returnTo: "/checkout" } })}
+              hitSlop={8}
+            >
+              <Ionicons name="map-outline" size={13} color={PRIMARY} />
+              <Text style={styles.addressActionText}>Pin on map</Text>
+            </Pressable>
+            <Pressable
+              style={styles.addressActionBtn}
+              onPress={() => router.push("/saved-addresses")}
+              hitSlop={8}
+            >
+              <Ionicons name="bookmark-outline" size={13} color={PRIMARY} />
+              <Text style={styles.addressActionText}>Saved</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {savedAddressList.length > 0 ? (
+          <View style={styles.savedSelectorWrap}>
+            <Text style={styles.savedSelectorLabel}>Saved Addresses</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.savedSelectorScroll}
+            >
+              {savedAddressList.map((addr) => {
+                const isSelected = selectedAddressId === addr.id;
+                return (
+                  <Pressable
+                    key={addr.id}
+                    style={[styles.savedChip, isSelected && styles.savedChipSelected]}
+                    onPress={() => selectSavedAddress(addr)}
+                  >
+                    <Ionicons
+                      name={addr.isDefault ? "home" : "location-outline"}
+                      size={14}
+                      color={isSelected ? PRIMARY : "#4B5563"}
+                    />
+                    <Text
+                      style={[styles.savedChipText, isSelected && styles.savedChipTextSelected]}
+                      numberOfLines={1}
+                    >
+                      {addr.label || "Saved"}
+                    </Text>
+                    {addr.isDefault ? (
+                      <View style={[styles.defaultTag, isSelected && styles.defaultTagSelected]}>
+                        <Text style={[styles.defaultTagText, isSelected && styles.defaultTagTextSelected]}>
+                          Default
+                        </Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                style={[
+                  styles.savedChip,
+                  styles.newAddressChip,
+                  selectedAddressId === "new" && styles.savedChipSelected,
+                ]}
+                onPress={selectNewAddress}
+              >
+                <Ionicons
+                  name="add"
+                  size={15}
+                  color={selectedAddressId === "new" ? PRIMARY : "#4B5563"}
+                />
+                <Text
+                  style={[styles.savedChipText, selectedAddressId === "new" && styles.savedChipTextSelected]}
+                >
+                  New Address
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        ) : null}
+
         <FormField
           label="Street Address"
           placeholder="House no., Street name..."
           value={street}
-          onChangeText={setStreet}
+          onChangeText={updateField(setStreet, "street", true)}
           error={errors.street}
           focused={focusedField === "street"}
           onFocus={() => focusField("street")}
@@ -289,7 +507,7 @@ export default function CheckoutScreen() {
               label="Barangay"
               placeholder="Barangay"
               value={barangay}
-              onChangeText={setBarangay}
+              onChangeText={updateField(setBarangay, "barangay", true)}
               error={errors.barangay}
               focused={focusedField === "barangay"}
               onFocus={() => focusField("barangay")}
@@ -301,7 +519,7 @@ export default function CheckoutScreen() {
               label="City"
               placeholder="City"
               value={city}
-              onChangeText={setCity}
+              onChangeText={updateField(setCity, "city", true)}
               error={errors.city}
               focused={focusedField === "city"}
               onFocus={() => focusField("city")}
@@ -320,8 +538,6 @@ export default function CheckoutScreen() {
               <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
               <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
             </View>
-            <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
-            <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
           </View>
           <View style={styles.paymentBadge}>
             <Text style={styles.paymentBadgeText}>Default</Text>
@@ -343,7 +559,6 @@ export default function CheckoutScreen() {
             <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
             <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
           </View>
-          <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
           {quoting ? (
             <View style={styles.feeHintWrap}>
               <ActivityIndicator size="small" color={PRIMARY} />
@@ -363,7 +578,7 @@ export default function CheckoutScreen() {
                   <View style={styles.distanceBadge}>
                     <Ionicons name="location-outline" size={14} color={PRIMARY} />
                     <Text style={styles.distanceBadgeText}>
-                      {Number(feeQuote.distanceKm).toFixed(1)} km from store
+                      {Number(feeQuote.distanceKm).toFixed(1)} km from store{coordinates ? " (Map Pinned)" : ""}
                     </Text>
                   </View>
                 ) : null}
@@ -575,6 +790,106 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
+  },
+  addressSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  sectionHeaderTitle: {
+    color: "#374151",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  addressHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  addressActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF4EB",
+    borderColor: "#FDBA74",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  addressActionText: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  savedSelectorWrap: {
+    marginBottom: 14,
+  },
+  savedSelectorLabel: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  savedSelectorScroll: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  savedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  savedChipSelected: {
+    borderColor: PRIMARY,
+    backgroundColor: "#FFF7ED",
+  },
+  savedChipText: {
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  savedChipTextSelected: {
+    color: PRIMARY,
+    fontWeight: "700",
+  },
+  defaultTag: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    backgroundColor: "#F3F4F6",
+    marginLeft: 2,
+  },
+  defaultTagSelected: {
+    backgroundColor: "#FFEDD5",
+  },
+  defaultTagText: {
+    fontFamily: FONT,
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+  defaultTagTextSelected: {
+    color: PRIMARY,
+  },
+  newAddressChip: {
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FAFAFA",
   },
   fieldGroup: {
     marginBottom: 14,
