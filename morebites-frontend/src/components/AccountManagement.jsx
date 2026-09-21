@@ -715,7 +715,18 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {admins.map((a) => (
+              {admins.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="ac-empty">
+                    <div className="ac-empty-box">
+                      <span className="ac-empty-pill">Admin Accounts</span>
+                      <div className="ac-empty-title">No admin accounts found</div>
+                      <p className="ac-empty-subtext">Registered administrators will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                admins.map((a) => (
                 <tr key={a.id}>
                   <td className="ac-id">{a.id}</td>
                   <td>
@@ -736,7 +747,7 @@ export default function AccountManagement() {
                     />
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -763,7 +774,18 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {drivers.map((d) => (
+              {drivers.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="ac-empty">
+                    <div className="ac-empty-box">
+                      <span className="ac-empty-pill">Driver Accounts</span>
+                      <div className="ac-empty-title">No driver accounts found</div>
+                      <p className="ac-empty-subtext">Registered driver logins will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                drivers.map((d) => (
                 <tr key={d.id}>
                   <td className="ac-id">{d.id}</td>
                   <td>
@@ -785,7 +807,7 @@ export default function AccountManagement() {
                     />
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -812,7 +834,18 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {cashiers.map((c) => (
+              {cashiers.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="ac-empty">
+                    <div className="ac-empty-box">
+                      <span className="ac-empty-pill">Cashier Accounts</span>
+                      <div className="ac-empty-title">No cashier accounts found</div>
+                      <p className="ac-empty-subtext">Registered cashier logins will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                cashiers.map((c) => (
                 <tr key={c.id}>
                   <td className="ac-id">{c.id}</td>
                   <td>
@@ -834,7 +867,7 @@ export default function AccountManagement() {
                     />
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

@@ -1,8 +1,8 @@
 import { View } from "react-native";
 
 /** Web: OSM embed when live destination/rider coords exist. */
-export function MapView({ style, children, destination, rider, ..._props }) {
-  const dest = destination || rider;
+export function MapView({ style, children, destination, rider, initialRegion, region, ..._props }) {
+  const dest = destination || rider || region || initialRegion;
   if (!dest?.latitude || !dest?.longitude) {
     return <View style={[{ backgroundColor: "#E5E7EB" }, style]}>{children}</View>;
   }

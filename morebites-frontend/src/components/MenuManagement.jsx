@@ -4,7 +4,6 @@ import {
   LuPlus,
   LuPencil,
   LuArchive,
-  LuUtensils,
   LuRotateCcw,
   LuChevronDown,
   LuChevronLeft,
@@ -771,15 +770,26 @@ export default function MenuManagement() {
                 <tr>
                   <td colSpan={7} style={{ padding: 0 }}>
                     <div className="menu-empty-state">
-                      <div className="menu-empty-icon-circle">
-                        <LuUtensils size={32} />
-                      </div>
+                      <span className="menu-empty-badge">Menu Catalog</span>
                       <div className="menu-empty-title">No menu items found</div>
                       <p className="menu-empty-subtext">
                         {search || category !== 'All Categories'
-                          ? 'Try adjusting your search query or category filter.'
-                          : 'Click "+ Add New Item" above to add your first menu item.'}
+                          ? 'No menu items match your search query or selected category.'
+                          : 'Get started by creating the first item in your menu catalog.'}
                       </p>
+                      {Boolean(search || category !== 'All Categories') && (
+                        <button
+                          type="button"
+                          className="menu-empty-btn-secondary"
+                          onClick={() => {
+                            setSearch('')
+                            setCategory('All Categories')
+                            setPage(1)
+                          }}
+                        >
+                          Clear Filters
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

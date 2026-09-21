@@ -21,9 +21,8 @@ import {
   LuChevronRight,
   LuX,
   LuSearch,
-  LuBellOff,
 } from 'react-icons/lu'
-import { TbClipboardList, TbChartBar } from 'react-icons/tb'
+import { TbClipboardList } from 'react-icons/tb'
 import logo from '../assets/logo.png'
 import {
   IconAccount,
@@ -586,10 +585,10 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
             <div className="sa-all-notifs-list">
               {filteredModalNotifs.length === 0 ? (
-                <div className="sa-notif-empty" style={{ padding: '60px 20px' }}>
-                  <LuBellOff size={36} style={{ color: '#9CA3AF', marginBottom: 10 }} />
-                  <div style={{ fontWeight: 600, color: '#4B5563', fontSize: 15 }}>No notifications found</div>
-                  <div style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>
+                <div className="sa-notif-empty" style={{ padding: '48px 20px' }}>
+                  <span className="sa-empty-pill">Notifications</span>
+                  <div style={{ fontWeight: 700, color: '#1E293B', fontSize: 15, marginTop: 4 }}>No notifications found</div>
+                  <div style={{ color: '#64748B', fontSize: 13, marginTop: 4 }}>
                     {modalSearch ? 'Try a different search keyword' : 'New orders, inventory alerts, and dispatch updates will appear here.'}
                   </div>
                 </div>
@@ -671,8 +670,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               <div className="sa-notif-list">
                 {filteredNotifs.length === 0 ? (
                   <div className="sa-notif-empty">
-                    <LuBellOff size={28} style={{ color: '#9CA3AF', marginBottom: 6 }} />
-                    <div>No notifications yet</div>
+                    <span className="sa-empty-pill">Notifications</span>
+                    <div style={{ fontWeight: 600, color: '#1E293B', fontSize: 13, marginTop: 4 }}>No notifications yet</div>
+                    <div style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>You're all caught up!</div>
                   </div>
                 ) : (
                   filteredNotifs.map((n) => {
@@ -870,17 +870,17 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </ResponsiveContainer>
               {!hasSales && (
                 <div className="sa-chart-empty-overlay">
-                  <div className="sa-chart-empty-icon">
-                    <TbChartBar size={24} color="#FFA500" />
+                  <div className="sa-chart-empty-card">
+                    <span className="sa-chart-empty-pill">Sales Overview</span>
+                    <div className="sa-chart-empty-title">
+                      {salesPeriod === 'Daily'
+                        ? 'No sales recorded yet for today'
+                        : `No sales recorded yet for this ${salesPeriod.toLowerCase().replace('ly', '')}`}
+                    </div>
+                    <p className="sa-chart-empty-subtext">
+                      Sales data will dynamically graph here as orders are processed throughout the {salesPeriod === 'Daily' ? 'day' : salesPeriod === 'Weekly' ? 'week' : 'month'}.
+                    </p>
                   </div>
-                  <div className="sa-chart-empty-title">
-                    {salesPeriod === 'Daily'
-                      ? 'No sales recorded yet for today'
-                      : `No sales recorded yet for this ${salesPeriod.toLowerCase().replace('ly', '')}`}
-                  </div>
-                  <p className="sa-chart-empty-subtext">
-                    Sales will appear as orders are processed throughout the day.
-                  </p>
                 </div>
               )}
             </div>
@@ -905,8 +905,14 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 <tbody>
                   {displayActivityLog.length === 0 ? (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '32px 16px', color: '#9CA3AF' }}>
-                        No activity recorded today
+                      <td colSpan={4} style={{ padding: '24px 16px', borderBottom: 'none' }}>
+                        <div className="sa-table-empty-box">
+                          <span className="sa-empty-pill">Activity Log</span>
+                          <div className="sa-table-empty-title">No activity recorded today</div>
+                          <p className="sa-table-empty-subtext">
+                            System events, staff actions, and order status changes will be logged here.
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -995,12 +1001,10 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {orders.length === 0 ? (
-              <div className="app-empty-state" style={{ padding: '36px 16px' }}>
-                <div className="app-empty-icon-circle" style={{ width: 56, height: 56, marginBottom: 12 }}>
-                  <TbClipboardList size={26} />
-                </div>
-                <div className="app-empty-title" style={{ fontSize: 16 }}>No orders today</div>
-                <p className="app-empty-subtext" style={{ fontSize: 13 }}>New orders placed today will appear here.</p>
+              <div className="sa-bottom-empty-card">
+                <span className="sa-empty-pill">Orders Queue</span>
+                <div className="sa-bottom-empty-title">No orders today</div>
+                <p className="sa-bottom-empty-subtext">New orders placed today will appear here as they are received.</p>
               </div>
             ) : (
               <div className="sa-activity-table-wrap">
@@ -1042,12 +1046,10 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {lowStocks.length === 0 ? (
-              <div className="app-empty-state" style={{ padding: '36px 16px' }}>
-                <div className="app-empty-icon-circle" style={{ width: 56, height: 56, marginBottom: 12 }}>
-                  <LuPackage size={26} />
-                </div>
-                <div className="app-empty-title" style={{ fontSize: 16 }}>All stocks healthy</div>
-                <p className="app-empty-subtext" style={{ fontSize: 13 }}>All inventory items are above the reorder level.</p>
+              <div className="sa-healthy-card">
+                <span className="sa-empty-pill sa-empty-pill-success">Inventory Status</span>
+                <div className="sa-healthy-title">All stocks healthy</div>
+                <p className="sa-healthy-subtext">All inventory items are currently above their minimum reorder level.</p>
               </div>
             ) : (
               lowStocks.map((item) => {

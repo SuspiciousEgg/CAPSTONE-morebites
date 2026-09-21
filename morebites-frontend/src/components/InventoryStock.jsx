@@ -1101,9 +1101,19 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="inv-empty">
-                    {currentTab === 'archived'
-                      ? 'No archived inventory items found.'
-                      : 'No inventory items found.'}
+                    <div className="inv-empty-box">
+                      <span className="inv-empty-pill">Inventory</span>
+                      <div className="inv-empty-title">
+                        {currentTab === 'archived'
+                          ? 'No archived inventory items found'
+                          : 'No inventory items found'}
+                      </div>
+                      <p className="inv-empty-subtext">
+                        {search
+                          ? 'No items match your search query or filters.'
+                          : 'Raw materials, ingredients, and tracked inventory will appear here.'}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -1464,7 +1474,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     {logRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="inv-empty">
-                          No activity found for the selected filters.
+                          <div className="inv-empty-box">
+                            <span className="inv-empty-pill">Stock History</span>
+                            <div className="inv-empty-title">No stock movements found</div>
+                            <p className="inv-empty-subtext">
+                              Stock additions, deductions, and batch adjustments will be logged here.
+                            </p>
+                          </div>
                         </td>
                       </tr>
                     ) : (

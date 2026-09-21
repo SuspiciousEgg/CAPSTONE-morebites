@@ -243,7 +243,18 @@ export default function DriverManagement({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="dm-empty">
+                    <div className="dm-empty-box">
+                      <span className="dm-empty-pill">Drivers</span>
+                      <div className="dm-empty-title">No drivers found</div>
+                      <p className="dm-empty-subtext">Registered delivery drivers will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((d) => (
                 <tr key={d.id}>
                   <td className="dm-id">{d.id}</td>
                   <td>{d.name}</td>
@@ -263,7 +274,7 @@ export default function DriverManagement({ embedded = false }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

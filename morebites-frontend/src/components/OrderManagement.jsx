@@ -13,7 +13,6 @@ import {
   LuX,
   LuEllipsis,
 } from 'react-icons/lu'
-import { TbClipboardList } from 'react-icons/tb'
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import './OrderManagement.css'
@@ -291,8 +290,9 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
             <div className="om-cart">
               {cart.length === 0 ? (
                 <div className="om-cart-empty">
-                  <TbClipboardList size={32} style={{ color: '#D1D5DB' }} />
-                  <p>No items yet. Select items from the menu.</p>
+                  <span className="om-cart-empty-pill">Cart Empty</span>
+                  <div className="om-cart-empty-text">No items added yet</div>
+                  <p className="om-cart-empty-sub">Select items from the menu to build the order</p>
                 </div>
               ) : (
                 <ul className="om-cart-list">
@@ -624,13 +624,33 @@ export default function OrderManagement() {
       <section className="om-main-card">
         {pageRows.length === 0 ? (
           <div className="om-empty-state">
-            <div className="om-empty-icon-wrap">
-              <TbClipboardList size={32} />
+            <div className="om-empty-box">
+              <span className="om-empty-badge">Orders Queue</span>
+              <h3 className="om-empty-title">
+                {search || status !== 'All Status' || type !== 'All Types'
+                  ? 'No matching orders found'
+                  : 'No orders yet'}
+              </h3>
+              <p className="om-empty-subtitle">
+                {search || status !== 'All Status' || type !== 'All Types'
+                  ? 'No orders match your current search query or active filter settings.'
+                  : 'Orders will appear here once customers place them or you create one from POS.'}
+              </p>
+              {Boolean(search || status !== 'All Status' || type !== 'All Types') && (
+                <button
+                  type="button"
+                  className="om-empty-btn-secondary"
+                  onClick={() => {
+                    setSearch('')
+                    setStatus('All Status')
+                    setType('All Types')
+                    setPage(1)
+                  }}
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
-            <h3 className="om-empty-title">No orders yet</h3>
-            <p className="om-empty-subtitle">
-              Orders will appear here once customers place them or you create one
-            </p>
           </div>
         ) : (
           <>

@@ -108,7 +108,18 @@ export default function BlacklistDrivers({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="bl-empty">
+                    <div className="bl-empty-box">
+                      <span className="bl-empty-pill">Blacklist</span>
+                      <div className="bl-empty-title">No blacklisted drivers</div>
+                      <p className="bl-empty-subtext">Drivers restricted from accepting deliveries will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((d) => (
                 <tr key={d.id}>
                   <td className="bl-id">{d.id}</td>
                   <td>{d.name}</td>
@@ -125,7 +136,7 @@ export default function BlacklistDrivers({ embedded = false }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

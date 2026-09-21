@@ -249,7 +249,20 @@ export default function CustomerManagement() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '24px 16px', borderBottom: 'none' }}>
+                    <div className="cm-table-empty-box">
+                      <span className="cm-empty-pill">Customers</span>
+                      <div className="cm-empty-title">No customer records found</div>
+                      <p className="cm-empty-subtext">
+                        {search ? 'No customers match your search query.' : 'Registered customers will appear here.'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((c) => (
                 <tr key={c.id}>
                   <td className="cm-id">{c.id}</td>
                   <td>{c.name}</td>
@@ -270,7 +283,7 @@ export default function CustomerManagement() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -448,7 +461,11 @@ export default function CustomerManagement() {
                       {orderHistory.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="cm-history-empty">
-                            No orders recorded yet
+                            <div className="cm-table-empty-box" style={{ margin: '8px auto', padding: '28px 16px' }}>
+                              <span className="cm-empty-pill">Order History</span>
+                              <div className="cm-empty-title">No orders recorded yet</div>
+                              <p className="cm-empty-subtext">Customer purchase history will be displayed here.</p>
+                            </div>
                           </td>
                         </tr>
                       ) : (

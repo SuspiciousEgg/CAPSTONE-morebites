@@ -207,7 +207,11 @@ export default function ExpiringStock() {
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="exp-empty">
-                    No expiring perishables in the queue right now.
+                    <div className="exp-empty-box">
+                      <span className="exp-empty-pill">Perishables Queue</span>
+                      <div className="exp-empty-title">All stocks fresh</div>
+                      <p className="exp-empty-subtext">No inventory items are near their expiration thresholds.</p>
+                    </div>
                   </td>
                 </tr>
               ) : (

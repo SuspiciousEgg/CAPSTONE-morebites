@@ -175,7 +175,13 @@ export default function ArchivePage({ embedded = false }) {
             <tbody>
               {admins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="ar-empty">No archived admins.</td>
+                  <td colSpan={5} className="ar-empty">
+                    <div className="ar-empty-box">
+                      <span className="ar-empty-pill">Archived Accounts</span>
+                      <div className="ar-empty-title">No archived admins</div>
+                      <p className="ar-empty-subtext">Archived administrator accounts will appear here.</p>
+                    </div>
+                  </td>
                 </tr>
               ) : (
                 pagedAdmins.map((a) => (
@@ -252,7 +258,13 @@ export default function ArchivePage({ embedded = false }) {
             <tbody>
               {drivers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="ar-empty">No archived drivers.</td>
+                  <td colSpan={5} className="ar-empty">
+                    <div className="ar-empty-box">
+                      <span className="ar-empty-pill">Archived Accounts</span>
+                      <div className="ar-empty-title">No archived drivers</div>
+                      <p className="ar-empty-subtext">Archived driver accounts will appear here.</p>
+                    </div>
+                  </td>
                 </tr>
               ) : (
                 pagedDrivers.map((d) => (

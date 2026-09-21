@@ -4,7 +4,6 @@ import {
   IconDownload,
   IconFile,
   IconSearch,
-  IconTrash,
 } from './Icons'
 import { menuApi, reportsApi } from '../api/client'
 import './RecordsReports.css'
@@ -173,6 +172,7 @@ const DEFAULT_EXPORTS = [
   { id: 'exp-2', name: 'Monthly_Delivery_Stats_April....', date: 'Apr 01, 2026', size: '840 KB', format: 'PDF' },
   { id: 'exp-3', name: 'Inventory_Audit_Log.xlsx', date: 'Apr 28, 2026', size: '2.4 MB', format: 'XLSX' },
   { id: 'exp-4', name: 'Daily_Sales_Report_Apr27.csv', date: 'Apr 27, 2026', size: '560 KB', format: 'CSV' },
+  { id: 'exp-5', name: 'Sales_Summary_Report_Apr20.pdf', date: 'Apr 20, 2026', size: '980 KB', format: 'PDF' },
 ]
 
 const DEFAULT_SALES_RECORDS = [
@@ -453,16 +453,6 @@ export default function RecordsReports() {
       items: true,
     })
     setGenerateOpen(false)
-  }
-
-  async function handleDeleteExport(id) {
-    if (window.confirm && !window.confirm('Are you sure you want to delete this report?')) return
-    try {
-      await reportsApi.delete(id)
-    } catch (err) {
-      console.warn('Backend delete error, updating state locally:', err)
-    }
-    setExportsList((prev) => prev.filter((item) => item.id !== id))
   }
 
   async function triggerFileDownload(fileName, formatType, periodValue, exportType) {
@@ -849,6 +839,7 @@ export default function RecordsReports() {
                   <tr>
                     <td colSpan={7}>
                       <div className="reports-empty-state">
+                        <span className="reports-empty-pill">Transactions</span>
                         <div className="reports-empty-title">No transactions found</div>
                         <div className="reports-empty-subtext">Try clearing your search or date range filter.</div>
                       </div>
@@ -900,6 +891,7 @@ export default function RecordsReports() {
                   <tr>
                     <td colSpan={7}>
                       <div className="reports-empty-state">
+                        <span className="reports-empty-pill">Deliveries</span>
                         <div className="reports-empty-title">No delivery records found</div>
                         <div className="reports-empty-subtext">Dispatched deliveries will be logged here.</div>
                       </div>
@@ -946,6 +938,7 @@ export default function RecordsReports() {
                     <tr>
                       <td colSpan={6}>
                         <div className="reports-empty-state">
+                          <span className="reports-empty-pill">Customers</span>
                           <div className="reports-empty-title">No customer records found</div>
                           <div className="reports-empty-subtext">Customer loyalty data will be logged here.</div>
                         </div>
@@ -1041,29 +1034,36 @@ export default function RecordsReports() {
             </button>
           </div>
           <div className="reports-top-list">
-            {topItems.map((item, idx) => {
-              const isTrendDown = String(item.change).startsWith('-')
-              const trendDisplay = String(item.change).startsWith('-')
-                ? `↓ ${String(item.change).replace('-', '')}`
-                : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                ? item.change
-                : `↑ ${String(item.change).replace('+', '')}`
+            {topItems.length === 0 ? (
+              <div className="reports-empty-state-mini">No sales recorded for this period</div>
+            ) : (
+              topItems.slice(0, 5).map((item, idx) => {
+                const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
+                const trendDisplay = String(item.change).startsWith('-')
+                  ? `↓ ${String(item.change).replace('-', '')}`
+                  : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
+                  ? item.change
+                  : `↑ ${String(item.change).replace('+', '')}`
 
-              return (
-                <div key={item.name} className="reports-top-item-row">
-                  <div className="reports-top-item-left">
-                    <span className="reports-rank-badge">#{idx + 1}</span>
-                    <span className="reports-top-item-name">{item.name}</span>
+                return (
+                  <div key={item.name} className="reports-top-item-row">
+                    <div className="reports-top-item-left">
+                      <span className="reports-rank-badge">#{idx + 1}</span>
+                      <div className="reports-top-item-details">
+                        <span className="reports-top-item-name">{item.name}</span>
+                        <span className="reports-top-item-sub">{item.category || getItemCategory(item.name)}</span>
+                      </div>
+                    </div>
+                    <div className="reports-top-item-right">
+                      <span className="reports-units-count">{item.units} units</span>
+                      <span className={`reports-trend-badge ${isTrendDown ? 'down' : 'up'}`}>
+                        {trendDisplay}
+                      </span>
+                    </div>
                   </div>
-                  <div className="reports-top-item-right">
-                    <span className="reports-units-count">{item.units} units</span>
-                    <span className={`reports-trend-badge ${isTrendDown ? 'down' : 'up'}`}>
-                      {trendDisplay}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
         </section>
 
@@ -1080,7 +1080,10 @@ export default function RecordsReports() {
             </button>
           </div>
           <div className="reports-recent-list">
-            {exportsList.map((file) => {
+            {exportsList.length === 0 ? (
+              <div className="reports-empty-state-mini">No exported reports generated yet</div>
+            ) : (
+              exportsList.slice(0, 5).map((file) => {
               const ext = (file.name.split('.').pop() || file.format || 'pdf').toLowerCase()
               const badgeClass = ext === 'csv' ? 'csv' : ext === 'xlsx' || ext === 'excel' ? 'xlsx' : 'pdf'
               return (
@@ -1110,7 +1113,7 @@ export default function RecordsReports() {
                   </div>
                 </div>
               )
-            })}
+            }))}
           </div>
         </section>
       </div>
@@ -1408,6 +1411,7 @@ export default function RecordsReports() {
               <div className="reports-recent-list">
                 {filteredExports.length === 0 ? (
                   <div className="reports-empty-state">
+                    <span className="reports-empty-pill">Exported Reports</span>
                     <div className="reports-empty-title">No exported reports found</div>
                     <div className="reports-empty-subtext">Try changing your search query or format filter.</div>
                   </div>
@@ -1438,16 +1442,6 @@ export default function RecordsReports() {
                             title="Download"
                           >
                             <IconDownload />
-                          </button>
-                          <button
-                            type="button"
-                            className="reports-download-btn"
-                            style={{ color: '#EF4444', borderColor: '#FCA5A5' }}
-                            aria-label="Delete"
-                            onClick={() => handleDeleteExport(file.id)}
-                            title="Delete"
-                          >
-                            <IconTrash />
                           </button>
                         </div>
                       </div>

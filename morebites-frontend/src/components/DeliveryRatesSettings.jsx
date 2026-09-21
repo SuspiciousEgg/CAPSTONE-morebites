@@ -109,6 +109,16 @@ export default function DeliveryRatesSettings() {
                     Loading…
                   </td>
                 </tr>
+              ) : rates.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="dr-empty">
+                    <div className="dr-empty-box">
+                      <span className="dr-empty-pill">Delivery Rates</span>
+                      <div className="dr-empty-title">No delivery rate tiers</div>
+                      <p className="dr-empty-subtext">Configured distance tiers and fee rules will appear here.</p>
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 rates.map((rate) => (
                   <tr key={rate.id}>

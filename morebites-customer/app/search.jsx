@@ -66,14 +66,30 @@ function FoodCard({ item, compact = false }) {
 export default function SearchScreen() {
   const { cartItems } = useCart();
   const [searchText, setSearchText] = useState("");
-  const [results, setResults] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(true);
   const [recentSearches, setRecentSearches] = useState([]);
   const [focused, setFocused] = useState(true);
   const [pastOrders, setPastOrders] = useState([]);
   const [topSellingItems, setTopSellingItems] = useState([]);
+
+  // DIAGNOSIS & REFACTOR (Prompt 33):
+  // Active search state: when customer types any character into the search bar,
+  // isSearching is true. Both "Popular Searches" and "You Might Like" are hidden,
+  // and search results (or "No results found for '...'") are rendered.
+  // Note on "Recent Searches": It shares the same empty-state container as Popular Searches
+  // and You Might Like, meaning it is also appropriately hidden during active search
+  // and reappears when the search input is empty.
   const isSearching = searchText.trim().length > 0;
+  const trimmedSearch = searchText.trim();
+
+  const searchResults = useMemo(() => {
+    const term = trimmedSearch.toLowerCase();
+    if (!term) return [];
+    return menuItems.filter((item) =>
+      `${item.name} ${item.category || ""}`.toLowerCase().includes(term)
+    );
+  }, [trimmedSearch, menuItems]);
 
   const popularSearches = useMemo(() => {
     const cats = Array.from(new Set(menuItems.map((i) => i.category).filter(Boolean)));
@@ -173,14 +189,6 @@ export default function SearchScreen() {
 
   const runSearch = (term) => {
     setSearchText(term);
-    const normalizedTerm = term.trim().toLowerCase();
-    setResults(
-      normalizedTerm
-        ? menuItems.filter((item) =>
-            `${item.name} ${item.category || ""}`.toLowerCase().includes(normalizedTerm),
-          )
-        : [],
-    );
   };
 
   const saveRecentSearch = async () => {
@@ -226,6 +234,11 @@ export default function SearchScreen() {
             returnKeyType="search"
             autoFocus
           />
+          {searchText.length > 0 ? (
+            <Pressable onPress={() => setSearchText("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            </Pressable>
+          ) : null}
         </View>
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={styles.cancelText}>Cancel</Text>
@@ -238,14 +251,14 @@ export default function SearchScreen() {
         showsVerticalScrollIndicator={false}
       >
         {isSearching ? (
-          results.length ? (
+          searchResults.length ? (
             <View style={styles.resultsGrid}>
-              {results.map((item) => <FoodCard key={item.id} item={item} />)}
+              {searchResults.map((item) => <FoodCard key={item.id} item={item} />)}
             </View>
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="search-outline" size={64} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No results for &apos;{searchText.trim()}&apos;</Text>
+              <Text style={styles.emptyTitle}>No results found for &apos;{trimmedSearch}&apos;</Text>
               <Text style={styles.emptySubtitle}>Try searching for something else</Text>
             </View>
           )

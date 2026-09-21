@@ -371,9 +371,6 @@ export default function CheckoutScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.orderBar}>
-          <View style={styles.orderIconWrap}>
-            <Ionicons name="bag-handle-outline" size={20} color={PRIMARY} />
-          </View>
           <View style={styles.orderInfo}>
             <Text style={styles.orderLabel}>Your Order</Text>
             <Text style={styles.orderTotal}>₱ {Number(total).toFixed(2)}</Text>
@@ -531,13 +528,8 @@ export default function CheckoutScreen() {
         <Text style={styles.fieldLabel}>Payment Method</Text>
         <View style={styles.paymentCard}>
           <View style={styles.paymentLeft}>
-            <View style={styles.paymentIconWrap}>
-              <Ionicons name="cash-outline" size={20} color={PRIMARY} />
-            </View>
-            <View>
-              <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
-              <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
-            </View>
+            <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
+            <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
           </View>
           <View style={styles.paymentBadge}>
             <Text style={styles.paymentBadgeText}>Default</Text>
@@ -968,11 +960,9 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   paymentLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     flex: 1,
     marginRight: 10,
+    justifyContent: "center",
   },
   paymentIconWrap: {
     width: 38,

@@ -725,9 +725,44 @@
 
 .cm-history-empty {
   text-align: center;
-  color: #9CA3AF;
-  font-style: italic;
-  padding: 24px;
+  padding: 16px;
+}
+
+.cm-table-empty-box {
+  background: #F8FAFC;
+  border: 1.5px dashed #CBD5E1;
+  border-radius: 12px;
+  padding: 36px 20px;
+  text-align: center;
+  max-width: 440px;
+  margin: 16px auto;
+}
+
+.cm-empty-pill {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748B;
+  background: #E2E8F0;
+  padding: 2.5px 9px;
+  border-radius: 9999px;
+  margin-bottom: 8px;
+}
+
+.cm-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px;
+}
+
+.cm-empty-subtext {
+  font-size: 13px;
+  color: #64748B;
+  line-height: 1.45;
+  margin: 0;
 }
 
 /* Status Pill Badges */

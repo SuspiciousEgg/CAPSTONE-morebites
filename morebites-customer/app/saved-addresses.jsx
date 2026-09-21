@@ -118,9 +118,6 @@ export default function SavedAddressesScreen() {
               style={[styles.addressCard, address.isDefault && styles.defaultAddressCard]}
             >
               <View style={styles.cardHeader}>
-                <View style={styles.locationIcon}>
-                  <Ionicons name="location" size={18} color={PRIMARY} />
-                </View>
                 <Text style={styles.addressLabel}>{address.label}</Text>
                 {address.isDefault ? (
                   <View style={styles.defaultBadge}>
@@ -133,29 +130,38 @@ export default function SavedAddressesScreen() {
                 {[address.street, address.barangay, address.city].filter(Boolean).join(", ")}
               </Text>
               {address.landmark ? (
-                <Text style={styles.landmark}>Near {address.landmark}</Text>
+                <View style={styles.landmarkRow}>
+                  <Ionicons name="navigate-outline" size={12} color="#64748B" />
+                  <Text style={styles.landmark}>Near {address.landmark}</Text>
+                </View>
               ) : null}
 
               <View style={styles.actions}>
-                <Pressable style={styles.actionButton} onPress={() => editAddress(address)}>
-                  <Ionicons name="create-outline" size={16} color={PRIMARY} />
-                  <Text style={styles.actionText}>Edit</Text>
+                <Pressable
+                  style={styles.actionBtnEdit}
+                  onPress={() => editAddress(address)}
+                  hitSlop={4}
+                >
+                  <Ionicons name="pencil-outline" size={13} color="#334155" />
+                  <Text style={styles.actionBtnEditText}>Edit</Text>
                 </Pressable>
                 {!address.isDefault ? (
                   <>
                     <Pressable
-                      style={styles.actionButton}
+                      style={styles.actionBtnDefault}
                       onPress={() => setDefaultAddress(address.id)}
+                      hitSlop={4}
                     >
-                      <Ionicons name="checkmark-circle-outline" size={16} color={PRIMARY} />
-                      <Text style={styles.actionText}>Set Default</Text>
+                      <Ionicons name="checkmark-circle-outline" size={13} color="#EA580C" />
+                      <Text style={styles.actionBtnDefaultText}>Set Default</Text>
                     </Pressable>
                     <Pressable
-                      style={styles.deleteButton}
+                      style={styles.actionBtnDelete}
                       onPress={() => setAddressToDelete(address)}
+                      hitSlop={4}
                     >
-                      <Ionicons name="trash-outline" size={16} color="#D94848" />
-                      <Text style={styles.deleteText}>Delete</Text>
+                      <Ionicons name="trash-outline" size={13} color="#DC2626" />
+                      <Text style={styles.actionBtnDeleteText}>Delete</Text>
                     </Pressable>
                   </>
                 ) : null}
@@ -163,7 +169,8 @@ export default function SavedAddressesScreen() {
             </View>
           ))}
           <Pressable style={styles.listAddButton} onPress={() => router.push("/add-address")}>
-            <Text style={styles.listAddButtonText}>+ Add New Address</Text>
+            <Ionicons name="add" size={18} color={PRIMARY} />
+            <Text style={styles.listAddButtonText}>Add New Address</Text>
           </Pressable>
         </ScrollView>
       )}
@@ -197,15 +204,15 @@ export default function SavedAddressesScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F8F8F8" },
+  screen: { flex: 1, backgroundColor: "#F8FAFC" },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 18,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#EEEEEE",
+    borderBottomColor: "#F1F5F9",
   },
   headerTitle: {
     flex: 1,
@@ -213,48 +220,133 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 18,
     fontWeight: "700",
-    color: "#191919",
+    color: "#0F172A",
   },
   headerSpacer: { width: 24 },
   list: { flex: 1 },
-  listContent: { padding: 16, paddingBottom: 24, gap: 12 },
+  listContent: { padding: 16, paddingBottom: 28, gap: 14 },
   addressCard: {
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-    backgroundColor: "#FFFFFF",
-  },
-  defaultAddressCard: { borderColor: PRIMARY, backgroundColor: "#FFF7F0" },
-  cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  locationIcon: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
+    padding: 18,
     borderRadius: 16,
-    backgroundColor: "#FFF0E5",
-    marginRight: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1.5,
   },
-  addressLabel: { flex: 1, fontFamily: FONT, fontSize: 16, fontWeight: "700", color: "#202020" },
-  defaultBadge: { borderRadius: 12, backgroundColor: PRIMARY, paddingHorizontal: 9, paddingVertical: 4 },
-  defaultBadgeText: { fontFamily: FONT, fontSize: 10, fontWeight: "700", color: "#FFFFFF" },
-  addressLine: { fontFamily: FONT, fontSize: 13, lineHeight: 20, color: "#555555" },
-  landmark: { marginTop: 4, fontFamily: FONT, fontSize: 12, color: "#858585" },
+  defaultAddressCard: {
+    borderColor: "#FDBA74",
+    backgroundColor: "#FFF9F2",
+    shadowColor: "#F97000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  addressLabel: {
+    fontFamily: FONT,
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  defaultBadge: {
+    borderRadius: 9999,
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 10,
+    paddingVertical: 3.5,
+  },
+  defaultBadgeText: {
+    fontFamily: FONT,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    letterSpacing: 0.2,
+  },
+  addressLine: {
+    fontFamily: FONT,
+    fontSize: 13.5,
+    lineHeight: 21,
+    color: "#475569",
+    marginBottom: 4,
+  },
+  landmarkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  landmark: {
+    fontFamily: FONT,
+    fontSize: 12,
+    color: "#64748B",
+  },
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 15,
-    paddingTop: 13,
-    borderTopWidth: 1,
-    borderTopColor: "#EEEEEE",
+    marginTop: 12,
     gap: 8,
+    flexWrap: "wrap",
   },
-  actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, gap: 4 },
-  actionText: { fontFamily: FONT, fontSize: 11, fontWeight: "600", color: PRIMARY },
-
-  deleteButton: { flexDirection: "row", alignItems: "center", marginLeft: "auto", paddingVertical: 4, gap: 4 },
-  deleteText: { fontFamily: FONT, fontSize: 11, fontWeight: "600", color: "#D94848" },
+  actionBtnEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+  },
+  actionBtnEditText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#334155",
+  },
+  actionBtnDefault: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FDBA74",
+    backgroundColor: "#FFF7ED",
+  },
+  actionBtnDefaultText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#EA580C",
+  },
+  actionBtnDelete: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  actionBtnDeleteText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#DC2626",
+  },
   emptyState: { flex: 1, justifyContent: "space-between", padding: 16 },
   emptyContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   emptyImage: { width: 112, height: 112, resizeMode: "contain", marginBottom: 18 },
@@ -262,8 +354,20 @@ const styles = StyleSheet.create({
   emptyText: { marginTop: 6, fontFamily: FONT, fontSize: 13, lineHeight: 19, textAlign: "center", color: "#777777" },
   emptyAddButton: { width: "100%", height: 52, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: PRIMARY },
   emptyAddButtonText: { fontFamily: FONT, fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
-  listAddButton: { height: 52, alignItems: "center", justifyContent: "center", marginTop: 4, borderWidth: 1.5, borderStyle: "dashed", borderColor: PRIMARY, borderRadius: 12, backgroundColor: "#FFFFFF" },
-  listAddButtonText: { fontFamily: FONT, fontSize: 14, fontWeight: "700", color: PRIMARY },
+  listAddButton: {
+    height: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 2,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: PRIMARY,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+  },
+  listAddButtonText: { fontFamily: FONT, fontSize: 14.5, fontWeight: "700", color: PRIMARY },
   modalOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.45)" },
   modalCard: { width: "100%", maxWidth: 360, alignItems: "center", borderRadius: 18, padding: 24, backgroundColor: "#FFFFFF" },
   binImage: { width: 72, height: 72, resizeMode: "contain", marginBottom: 14 },

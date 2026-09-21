@@ -1,7 +1,5 @@
-import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
+import MapView, { Marker, Polyline } from "react-native-maps";
 import { StyleSheet, View } from "react-native";
-
-const OSM_TILE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
 
 export default function DeliveryMap({
   initialRegion,
@@ -15,12 +13,10 @@ export default function DeliveryMap({
       style={styles.map}
       initialRegion={initialRegion}
       region={region || initialRegion}
-      mapType="none"
       rotateEnabled={false}
       scrollEnabled
       zoomEnabled
     >
-      <UrlTile urlTemplate={OSM_TILE} maximumZ={19} flipY={false} />
       {Array.isArray(routeCoordinates) && routeCoordinates.length >= 2 ? (
         <Polyline
           coordinates={routeCoordinates}
