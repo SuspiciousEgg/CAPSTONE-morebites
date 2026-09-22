@@ -242,10 +242,11 @@ class DriverAppController extends Controller
             ->first();
 
         if ($active) {
-            app(\App\Services\TrackingService::class)->ensureRoute($active, [
-                'latitude' => (float) $data['latitude'],
-                'longitude' => (float) $data['longitude'],
-            ]);
+            app(\App\Services\TrackingService::class)->updateLivePosition(
+                $active,
+                (float) $data['latitude'],
+                (float) $data['longitude']
+            );
         }
 
         return response()->json([

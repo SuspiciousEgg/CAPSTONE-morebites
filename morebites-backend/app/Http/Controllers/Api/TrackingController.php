@@ -51,11 +51,6 @@ class TrackingController extends Controller
         $lat = (float) $data['latitude'];
         $lng = (float) $data['longitude'];
 
-        $order->update([
-            'current_lat' => $lat,
-            'current_lng' => $lng,
-        ]);
-
         $user->update([
             'current_lat' => $lat,
             'current_lng' => $lng,
@@ -63,9 +58,11 @@ class TrackingController extends Controller
         ]);
 
         if (in_array($order->status, ['Assigned', 'Picked Up', 'Out for Delivery'], true)) {
-            $tracking->ensureRoute($order, [
-                'latitude' => $lat,
-                'longitude' => $lng,
+            $tracking->updateLivePosition($order, $lat, $lng);
+        } else {
+            $order->update([
+                'current_lat' => $lat,
+                'current_lng' => $lng,
             ]);
         }
 

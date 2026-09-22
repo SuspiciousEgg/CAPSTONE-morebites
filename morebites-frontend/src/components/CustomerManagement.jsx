@@ -14,10 +14,38 @@ import {
   LuCalendar,
   LuCheck,
 } from 'react-icons/lu'
-import { customersApi } from '../api/client'
+import { customersApi, mediaUrl } from '../api/client'
 import './CustomerManagement.css'
 
 const PAGE_SIZE = 8
+
+function CustomerAvatar({ photo, name }) {
+  const [failed, setFailed] = useState(false)
+  const initials = name
+    ? name
+        .split(' ')
+        .filter(Boolean)
+        .map((n) => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'CU'
+
+  if (photo && !failed) {
+    return (
+      <div className="cm-avatar has-photo">
+        <img
+          src={mediaUrl(photo)}
+          alt={name || 'Customer'}
+          className="cm-avatar-img"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    )
+  }
+
+  return <div className="cm-avatar">{initials}</div>
+}
 
 function peso(n) {
   return `₱ ${Number(n).toLocaleString('en-PH')}`
@@ -348,17 +376,7 @@ export default function CustomerManagement() {
             <div className="cm-modal-body">
               {/* Profile Card */}
               <div className="cm-profile-card">
-                <div className="cm-avatar">
-                  {selected.name
-                    ? selected.name
-                        .split(' ')
-                        .filter(Boolean)
-                        .map((n) => n[0])
-                        .join('')
-                        .slice(0, 2)
-                        .toUpperCase()
-                    : 'CU'}
-                </div>
+                <CustomerAvatar photo={selected.photo} name={selected.name} />
                 <div className="cm-profile-info">
                   <div className="cm-profile-name-row">
                     <span className="cm-profile-name">{selected.name}</span>

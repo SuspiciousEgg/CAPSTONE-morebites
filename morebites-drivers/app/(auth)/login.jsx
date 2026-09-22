@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -11,6 +12,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, driverApi } from "../../src/api/client";
+import {
+  getDeviceId,
+  isDeviceTrusted,
+  addTrustedDevice,
+  normalizePhoneNumber,
+} from "../../src/utils/device";
 
 const FONT_REGULAR = "Plus Jakarta Sans";
 const FONT_MEDIUM = "Plus Jakarta Sans";
@@ -60,7 +67,8 @@ export default function LoginScreen() {
     setPasswordError("");
 
     try {
-      const res = await driverApi.login(phoneValue.trim(), passwordValue);
+      const deviceId = await getDeviceId();
+      const res = await driverApi.login(phoneValue.trim(), passwordValue, deviceId);
 
       let userObj = res.user || {};
       if (!userObj.photo && userObj.phone) {
@@ -77,7 +85,39 @@ export default function LoginScreen() {
       }
 
       await authStorage.saveSession(res.token, userObj);
-      router.replace("/(tabs)/home");
+
+      const cleanPhone = normalizePhoneNumber(userObj.phone || phoneValue);
+      const isTrusted = await isDeviceTrusted(cleanPhone, deviceId);
+
+      if (!isTrusted) {
+        Alert.alert(
+          "New device sign-in detected. If this wasn't you, please secure your account immediately.",
+          "",
+          [
+            {
+              text: "This Was Me",
+              onPress: async () => {
+                await addTrustedDevice(cleanPhone, deviceId);
+                router.replace("/(tabs)/home");
+              },
+            },
+            {
+              text: "This Wasn't Me",
+              style: "destructive",
+              onPress: async () => {
+                await authStorage.clear();
+                router.push({
+                  pathname: "/(auth)/forgot-password",
+                  params: { phone: cleanPhone },
+                });
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      } else {
+        router.replace("/(tabs)/home");
+      }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";
       if (/phone/i.test(msg) && /not found|inactive/i.test(msg)) {
@@ -186,6 +226,19 @@ export default function LoginScreen() {
             <Text style={styles.fieldErrorText}>{passwordError}</Text>
           </View>
         ) : null}
+
+        <TouchableOpacity
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/forgot-password",
+              params: { phone: phoneValue.trim() },
+            })
+          }
+          style={styles.forgotRow}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.forgotText}>Forgot Password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.signInButton, saving && { opacity: 0.7 }]}
@@ -301,13 +354,23 @@ const styles = StyleSheet.create({
     fontFamily: FONT_REGULAR,
     fontSize: 12,
   },
+  forgotRow: {
+    alignSelf: "flex-end",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  forgotText: {
+    color: "#E37925",
+    fontFamily: FONT_MEDIUM,
+    fontSize: 13,
+  },
   signInButton: {
     height: 54,
     borderRadius: 9,
     backgroundColor: "#F97000",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
+    marginTop: 16,
   },
   signInText: {
     color: "#FFFFFF",

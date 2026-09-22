@@ -57,6 +57,8 @@ class DispatchController extends Controller
                 },
                 'raw_status' => $o->status,
                 'updated' => $o->updated_at?->format('g:i A'),
+                'updated_time' => $o->updated_at?->format('g:i A'),
+                'updated_date' => $o->updated_at?->format('M d, Y'),
                 'assigned_at' => $o->assigned_at?->format('M d, Y g:i A'),
                 'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
                 'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
@@ -90,10 +92,6 @@ class DispatchController extends Controller
                 'pending' => $pending,
                 'monitoring' => $monitoring,
                 'riders' => $riders,
-                'map' => [
-                    'distance_km' => 6.8,
-                    'eta_mins' => 12,
-                ],
             ],
         ]);
     }

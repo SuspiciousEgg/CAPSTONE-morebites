@@ -193,10 +193,10 @@ export const authStorage = {
 };
 
 export const driverApi = {
-  login: (phone, password) =>
+  login: (phone, password, deviceId) =>
     request("/driver/login", {
       method: "POST",
-      body: { phone, password },
+      body: { phone, password, ...(deviceId ? { device_id: deviceId } : {}) },
       auth: false,
     }),
   me: () => request("/driver/me"),

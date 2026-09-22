@@ -83,32 +83,43 @@ export default function OutForDeliveryScreen() {
     }
   }, [isDelivered]);
 
-  // Periodic device location capture (every 8 seconds while delivery is active)
+  const lastSentRef = useRef(0);
+
+  // Real-time device location streaming while delivery is active
   useEffect(() => {
     if (isDelivered) return undefined;
 
     let timer = null;
+    let locationSubscription = null;
     let cancelled = false;
 
-    const captureAndSendLocation = async () => {
+    const sendCoords = (coords) => {
+      if (cancelled || isCompletedRef.current || !coords) return;
+      const now = Date.now();
+      if (now - lastSentRef.current < 3000) return;
+      lastSentRef.current = now;
+
+      const next = {
+        latitude: Number(coords.latitude),
+        longitude: Number(coords.longitude),
+      };
+      setLiveRider(next);
+
+      if (dbId) {
+        driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch(() => {});
+      }
+      driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
+    };
+
+    const captureSingleFix = async () => {
       if (cancelled || isCompletedRef.current) return;
       try {
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        if (cancelled || isCompletedRef.current || !pos?.coords) return;
-
-        const next = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        };
-        setLiveRider(next);
-
-        // Update delivery-specific location and driver fleet location
-        if (dbId) {
-          driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch(() => {});
+        if (pos?.coords) {
+          sendCoords(pos.coords);
         }
-        driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
       } catch {
         // Location service temporarily unavailable
       }
@@ -120,11 +131,26 @@ export default function OutForDeliveryScreen() {
         if (status !== "granted" || cancelled || isCompletedRef.current) return;
 
         // Immediate initial location fix
-        await captureAndSendLocation();
+        await captureSingleFix();
 
-        // Start 8-second periodic polling interval
-        if (!cancelled && !isCompletedRef.current) {
-          timer = setInterval(captureAndSendLocation, 8000);
+        // Subscribe to live GPS updates
+        try {
+          locationSubscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              distanceInterval: 5,
+              timeInterval: 4000,
+            },
+            (pos) => {
+              if (pos?.coords) {
+                sendCoords(pos.coords);
+              }
+            }
+          );
+        } catch {
+          if (!cancelled && !isCompletedRef.current) {
+            timer = setInterval(captureSingleFix, 6000);
+          }
         }
       } catch {
         // Permission error or GPS unavailable
@@ -133,6 +159,9 @@ export default function OutForDeliveryScreen() {
 
     return () => {
       cancelled = true;
+      if (locationSubscription?.remove) {
+        locationSubscription.remove();
+      }
       if (timer) clearInterval(timer);
     };
   }, [dbId, isDelivered]);

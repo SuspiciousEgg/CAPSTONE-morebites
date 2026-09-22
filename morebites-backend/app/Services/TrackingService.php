@@ -51,6 +51,40 @@ class TrackingService
         return $order->fresh();
     }
 
+    public function updateLivePosition(Order $order, float $lat, float $lng): Order
+    {
+        $order = $this->ensureDestination($order);
+        $from = ['latitude' => $lat, 'longitude' => $lng];
+        $dest = ['latitude' => (float) $order->dest_lat, 'longitude' => (float) $order->dest_lng];
+
+        $distanceKm = $this->haversineKm($from, $dest);
+        $etaMins = max(1, (int) round($distanceKm * 3.5));
+
+        $hasExistingRoute = is_array($order->route_coordinates) && count($order->route_coordinates) >= 2;
+
+        $updates = [
+            'current_lat' => $lat,
+            'current_lng' => $lng,
+            'delivery_distance_km' => $distanceKm,
+            'delivery_minutes' => $etaMins,
+        ];
+
+        if (! $hasExistingRoute) {
+            $route = $this->directions($from, $dest);
+            $updates['route_coordinates'] = $route['coordinates'];
+            if (isset($route['distance_km'])) {
+                $updates['delivery_distance_km'] = $route['distance_km'];
+            }
+            if (isset($route['eta_mins'])) {
+                $updates['delivery_minutes'] = $route['eta_mins'];
+            }
+        }
+
+        $order->update($updates);
+
+        return $order->fresh();
+    }
+
     public function geocode(?string $address): array
     {
         $fallback = $this->storePoint();
@@ -223,15 +257,21 @@ class TrackingService
             'latitude' => (float) $order->dest_lat,
             'longitude' => (float) $order->dest_lng,
         ];
-        $rider = $this->riderPoint($order) ?? $this->storePoint();
-        $coords = $order->route_coordinates;
-        if (! is_array($coords) || count($coords) < 2) {
-            $order = $this->ensureRoute($order, $rider);
+        $rider = $this->riderPoint($order);
+        $coords = [];
+        $distanceKm = null;
+        $etaMins = null;
+
+        if ($rider) {
             $coords = $order->route_coordinates;
+            if (! is_array($coords) || count($coords) < 2) {
+                $order = $this->ensureRoute($order, $rider);
+                $coords = $order->route_coordinates;
+            }
+            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
+            $etaMins = (int) ($order->delivery_minutes ?: max(1, (int) round($distanceKm * 3.5)));
         }
 
-        $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
-        $etaMins = (int) ($order->delivery_minutes ?: max(8, (int) round($distanceKm * 4)));
         $status = $order->status === 'Completed' ? 'Delivered' : $order->status;
 
         return [
@@ -243,13 +283,12 @@ class TrackingService
             'driver' => $order->driver?->name,
             'driver_phone' => $order->driver?->phone,
             'eta_mins' => $etaMins,
-            'distance_km' => round($distanceKm, 2),
-            'distance_label' => number_format($distanceKm, 1).' km',
-            'arrival_by' => now()->addMinutes($etaMins)->format('g:i A'),
+            'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
+            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : '—',
+            'arrival_by' => $etaMins ? now()->addMinutes($etaMins)->format('g:i A') : null,
             'destination' => $destination,
             'rider' => $rider,
-            'route' => is_array($coords) ? array_values($coords) : [$rider, $destination],
-            'store' => $this->storePoint(),
+            'route' => is_array($coords) ? array_values($coords) : [],
             'updated_at' => $order->updated_at?->toIso8601String(),
             'timeline' => $this->timeline($order),
             'items' => $order->items->map(fn ($i) => [
@@ -274,7 +313,7 @@ class TrackingService
             ->with('driver')
             ->whereNotNull('driver_id')
             ->where('order_type', 'Online Order')
-            ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery'])
+            ->where('status', 'Out for Delivery')
             ->latest()
             ->take(20)
             ->get()
@@ -297,7 +336,6 @@ class TrackingService
             ->values();
 
         return [
-            'store' => $this->storePoint(),
             'deliveries' => $orders,
         ];
     }

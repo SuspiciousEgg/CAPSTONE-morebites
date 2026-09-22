@@ -13,6 +13,8 @@ import {
   LuCloudUpload,
   LuFileText,
   LuTrash2,
+  LuEye,
+  LuEyeOff,
 } from 'react-icons/lu'
 import {
   IconClose,
@@ -284,6 +286,33 @@ function AccessBadges({ roles = [] }) {
           {r}
         </span>
       ))}
+    </div>
+  )
+}
+
+function PasswordInput({ value, onChange, placeholder = '••••••••', disabled = false, ...rest }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="ac-password-input-wrap">
+      <input
+        type={show ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        {...rest}
+      />
+      <button
+        type="button"
+        className="ac-password-toggle-btn"
+        onClick={() => setShow((v) => !v)}
+        tabIndex={-1}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        title={show ? 'Hide password' : 'Show password'}
+        disabled={disabled}
+      >
+        {show ? <LuEyeOff size={16} /> : <LuEye size={16} />}
+      </button>
     </div>
   )
 }
@@ -996,20 +1025,18 @@ export default function AccountManagement() {
                 </label>
                 <label>
                   New Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={adminForm.password}
                     onChange={(e) => setAdminForm((f) => ({ ...f, password: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
                 <label>
                   Confirm Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={adminForm.confirm}
                     onChange={(e) => setAdminForm((f) => ({ ...f, confirm: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
               </div>
@@ -1103,20 +1130,18 @@ export default function AccountManagement() {
                 </label>
                 <label>
                   New Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={driverForm.password}
                     onChange={(e) => setDriverForm((f) => ({ ...f, password: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
                 <label>
                   Confirm Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={driverForm.confirm}
                     onChange={(e) => setDriverForm((f) => ({ ...f, confirm: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
                 <label className="full">
@@ -1259,20 +1284,18 @@ export default function AccountManagement() {
                 </label>
                 <label>
                   New Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={cashierForm.password}
                     onChange={(e) => setCashierForm((f) => ({ ...f, password: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
                 <label>
                   Confirm Password
-                  <input
-                    type="password"
-                    placeholder="••••••••"
+                  <PasswordInput
                     value={cashierForm.confirm}
                     onChange={(e) => setCashierForm((f) => ({ ...f, confirm: e.target.value }))}
+                    disabled={saving}
                   />
                 </label>
               </div>

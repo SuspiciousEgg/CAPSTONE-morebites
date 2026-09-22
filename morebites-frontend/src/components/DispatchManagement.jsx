@@ -91,9 +91,10 @@ export default function DispatchManagement() {
     loadDispatch().catch(console.error)
     loadFleet().catch(console.error)
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
       loadDispatch().catch(() => {})
       loadFleet().catch(() => {})
-    }, 5000)
+    }, 10000)
     return () => clearInterval(timer)
   }, [])
 
@@ -101,11 +102,14 @@ export default function DispatchManagement() {
     const focused = fleet.deliveries.find((d) => String(d.db_id) === String(focusId))
     const active = focused || fleet.deliveries[0]
     if (!active) {
-      return { distance: '4.6 km', eta: '12 mins' }
+      return { distance: '—', eta: '—', activeCount: 0 }
     }
+    const distNum = Number(active.distance_km)
+    const etaNum = Number(active.eta_mins)
     return {
-      distance: `${Number(active.distance_km || 4.6).toFixed(1)} km`,
-      eta: `${active.eta_mins || 12} mins`,
+      distance: Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—',
+      eta: Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—',
+      activeCount: fleet.deliveries.length,
     }
   }, [fleet.deliveries, focusId])
 
@@ -267,7 +271,6 @@ export default function DispatchManagement() {
 
           <div className="dp-map-canvas-container">
             <FleetMap
-              store={fleet.store}
               deliveries={fleet.deliveries}
               focusId={focusId}
             />
@@ -349,8 +352,8 @@ export default function DispatchManagement() {
                           </span>
                         </td>
                         <td className="dp-last-update-text">
-                          <div className="dp-update-time">{m.updated || '10:15 AM'}</div>
-                          <div className="dp-update-date">May 25, 2026</div>
+                          <div className="dp-update-time">{m.updated_time || m.updated || '—'}</div>
+                          <div className="dp-update-date">{m.updated_date || m.date || 'Today'}</div>
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <button
@@ -530,7 +533,6 @@ export default function DispatchManagement() {
 
             <div className="dp-map-modal-body">
               <FleetMap
-                store={fleet.store}
                 deliveries={fleet.deliveries}
                 focusId={focusId}
               />

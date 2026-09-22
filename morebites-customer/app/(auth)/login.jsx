@@ -12,7 +12,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, customerApi } from "../../src/api/client";
-import { getDeviceId } from "../../src/utils/device";
+import {
+  getDeviceId,
+  isDeviceTrusted,
+  addTrustedDevice,
+  normalizePhoneNumber,
+} from "../../src/utils/device";
 
 const FONT_REGULAR = "Plus Jakarta Sans";
 const FONT_MEDIUM = "Plus Jakarta Sans";
@@ -101,14 +106,18 @@ export default function LoginScreen() {
 
       await authStorage.saveSession(res.token, userObj);
 
-      if (res?.new_device === true) {
+      const cleanPhone = normalizePhoneNumber(userObj.phone || phoneValue);
+      const isTrusted = await isDeviceTrusted(cleanPhone, deviceId);
+
+      if (!isTrusted) {
         Alert.alert(
           "New device sign-in detected. If this wasn't you, please secure your account immediately.",
           "",
           [
             {
               text: "This Was Me",
-              onPress: () => {
+              onPress: async () => {
+                await addTrustedDevice(cleanPhone, deviceId);
                 router.replace("/(tabs)/home");
               },
             },
@@ -117,10 +126,14 @@ export default function LoginScreen() {
               style: "destructive",
               onPress: async () => {
                 await authStorage.clear();
-                router.push("/(auth)/forgot-password");
+                router.push({
+                  pathname: "/(auth)/forgot-password",
+                  params: { phone: cleanPhone },
+                });
               },
             },
-          ]
+          ],
+          { cancelable: false }
         );
       } else {
         router.replace("/(tabs)/home");

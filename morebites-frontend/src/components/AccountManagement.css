@@ -504,6 +504,49 @@
   box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.12);
 }
 
+.ac-password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.ac-password-input-wrap input {
+  width: 100%;
+  padding-right: 38px !important;
+}
+
+.ac-password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #9CA3AF;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  z-index: 2;
+}
+
+.ac-password-toggle-btn:hover:not(:disabled) {
+  color: #374151;
+  background-color: #F3F4F6;
+}
+
+.ac-password-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ac-password-toggle-btn:focus-visible {
+  outline: 2px solid #FFA500;
+  outline-offset: 1px;
+}
+
 /* Expiry Date Row */
 .ac-expiry-container {
   display: flex;

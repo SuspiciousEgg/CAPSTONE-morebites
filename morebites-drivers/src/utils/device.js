@@ -96,3 +96,4 @@ export async function addTrustedDevice(phoneNumber, deviceId) {
     console.warn("Error saving trusted device:", err);
   }
 }
+

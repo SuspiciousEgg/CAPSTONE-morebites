@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Support\Media;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
@@ -12,6 +13,7 @@ class CustomerController extends Controller
     {
         $query = Customer::query()
             ->whereNotNull('user_id')
+            ->with('user')
             ->withCount('orders')
             ->withSum('orders', 'total')
             ->latest('registered_at');
@@ -50,7 +52,7 @@ class CustomerController extends Controller
     {
         abort_unless($customer->user_id !== null, 404);
 
-        $customer->load(['orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
+        $customer->load(['user', 'orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
         $customer->loadCount('orders');
         $customer->loadSum('orders', 'total');
 
@@ -76,12 +78,15 @@ class CustomerController extends Controller
             ? $c->orders->first()
             : $c->orders()->latest()->first();
 
+        $user = $c->relationLoaded('user') ? $c->user : ($c->user_id ? $c->user()->first() : null);
+
         return [
             'id' => $c->customer_code,
             'db_id' => $c->id,
             'name' => $c->full_name,
             'phone' => $c->phone,
             'email' => $c->email,
+            'photo' => $user?->photo ? Media::url($user->photo) : null,
             'address' => $c->delivery_address,
             'registered' => $c->registered_at?->format('M d, Y'),
             'registeredFull' => $c->registered_at?->format('M d, Y h:i A'),
