@@ -1,34 +1,32 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './FleetMap.css'
 
 /**
- * DIAGNOSIS REPORT (Prompt 34):
- * 1. How the route polyline is drawn:
- *    - The backend (TrackingService.php) attempts to call the external OSRM routing API
- *      (https://router.project-osrm.org/route/v1/driving/...) to generate a road-based coordinate path.
- *    - Previously in FleetMap.jsx, the route drawing was guarded by `if (route.length >= 2)` on `d.route`.
- *      When the rider and customer were far apart (or across water/different road networks), OSRM
- *      returned a non-Ok code (e.g. "NoRoute" or timeout). If `d.route` was missing, empty, or failed
- *      to parse, `route.length >= 2` evaluated to false. FleetMap had NO fallback to draw a straight line
- *      connecting `rider` and `destination`, causing the delivery route to be completely omitted while
- *      both markers still rendered. Furthermore, `toLatLng()` only checked object keys (`point.latitude ?? point.lat`),
- *      returning null for array-formatted coordinates `[lat, lng]`.
- * 2. External Routing API & Error Handling:
- *    - If an external routing API is called from the client, any failed response or network error must
- *      be caught with try/catch, logged with console.error, and immediately fall back to a straight
- *      Leaflet Polyline between rider and customer coordinates.
- *    - Any distance-based restriction or range guard that could suppress polyline rendering at large
- *      distances has been removed.
- * 3. Polling Mechanism & Visual Jarring:
- *    - On each 10-second poll tick in DispatchManagement, `deliveries` received a new array reference.
- *      FleetMap was computing `shouldFit` based on `prevCountRef !== deliveries.length` or re-evaluating
- *      viewport camera logic, repeatedly calling `map.fitBounds()` and `map.setView()`.
- *    - To eliminate the jarring re-centering, the map instance is stored in `mapRef`. On each poll tick,
- *      existing markers are updated via `.setLatLng()` on refs, and the route polyline is updated via
- *      `.setLatLngs()` on refs. Neither `map.setView()` nor `map.flyTo()` is called on regular poll ticks;
- *      initial bounds/center are only set on first load or when no center has been established yet.
+ * PROMPT 38 DIAGNOSTIC REPORT:
+ * 1. Re-render Cause Investigation:
+ *    - setState on the map instance itself: Not called. The map instance is stored in `mapRef.current`.
+ *    - map.remove() followed by re-initialization: Only occurs when <FleetMap> unmounts. However, broad
+ *      re-renders in the parent <DispatchManagement> previously caused recreation of DOM structures.
+ *    - map.setView() / map.flyTo() called unconditionally: In the previous code (lines 293-303), when
+ *      `deliveries.length === 0`, `map.setView([7.6094, 124.9883], 13)` was called, but `hasInitializedViewRef`
+ *      was never marked true. Consequently, every 10-second polling tick repeatedly re-centered the map back
+ *      to default coordinates, snapping user panning/zooming.
+ *    - Marker and Polyline storage (useRef vs useState): Markers and polylines were managed in a generic
+ *      Map ref and iteratively pruned and re-added. Dedicated singular refs (`riderMarkerRef`, `customerMarkerRef`,
+ *      `routePolylineRef`) were missing.
+ *
+ * 2. In-Place Polling Architecture (Prompt 38 Fix):
+ *    - Dedicated refs: `mapRef`, `riderMarkerRef`, `customerMarkerRef`, and `routePolylineRef`.
+ *    - In-place updates: On each poll tick, existing instances are mutated in place via `.setLatLng()`
+ *      and `.setLatLngs()` without removing/recreating markers or polylines.
+ *    - Camera positioning: The initial view is set once on initial mount. Bounds/view are only adjusted
+ *      when transitioning from 0 to 1 active delivery for the first time, or when the user explicitly clicks
+ *      a delivery row (`focusId`). Routine poll ticks NEVER call map.setView(), map.flyTo(), or map.fitBounds().
+ *    - Zero active deliveries: When deliveries count is 0, markers are cleanly detached from the layer,
+ *      and the map stays completely visually still at its current coordinates and zoom level.
+ *    - Memoization: <FleetMap> is exported with React.memo to prevent unnecessary container reconciliations.
  */
 
 function toLatLng(point) {
@@ -71,7 +69,7 @@ async function fetchRoadRoute(from, to) {
   }
 }
 
-export default function FleetMap({
+function FleetMap({
   deliveries = [],
   focusId = null,
   isFullscreen = false,
@@ -79,10 +77,12 @@ export default function FleetMap({
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
-  const markersRef = useRef(new Map())
-  const polylinesRef = useRef(new Map())
+  const riderMarkerRef = useRef(null)
+  const customerMarkerRef = useRef(null)
+  const routePolylineRef = useRef(null)
   const fetchedRoutesRef = useRef(new Map())
   const hasInitializedViewRef = useRef(false)
+  const prevCountRef = useRef(0)
   const prevFocusIdRef = useRef(focusId)
 
   // Handle container resizing (e.g. fullscreen toggle or modal opening)
@@ -120,6 +120,7 @@ export default function FleetMap({
     const layer = L.layerGroup().addTo(map)
     layerRef.current = layer
     mapRef.current = map
+    hasInitializedViewRef.current = true
 
     const resize = () => map.invalidateSize()
     setTimeout(resize, 80)
@@ -130,177 +131,152 @@ export default function FleetMap({
       map.remove()
       mapRef.current = null
       layerRef.current = null
-      markersRef.current.clear()
-      polylinesRef.current.clear()
+      riderMarkerRef.current = null
+      customerMarkerRef.current = null
+      routePolylineRef.current = null
       fetchedRoutesRef.current.clear()
       hasInitializedViewRef.current = false
+      prevCountRef.current = 0
     }
   }, [])
 
-  // Smooth polling updates: update positions via .setLatLng() & .setLatLngs() on existing refs without re-centering
+  // Smooth polling updates: update positions in place via .setLatLng() & .setLatLngs() on dedicated refs
   useEffect(() => {
     const map = mapRef.current
     const layer = layerRef.current
     if (!map || !layer) return
 
-    const activeCustKeys = new Set()
-    const activeRiderKeys = new Set()
-    const activeRouteKeys = new Set()
-    const markers = markersRef.current
-    const polylines = polylinesRef.current
-    const initialBounds = []
+    const focused = focusId
+      ? deliveries.find((d) => String(d.db_id) === String(focusId))
+      : null
+    const active = focused || deliveries[0]
 
-    deliveries.forEach((d) => {
-      const dest = toLatLng(d.destination)
-      const rider = toLatLng(d.rider)
+    if (active) {
+      const dest = toLatLng(active.destination)
+      const rider = toLatLng(active.rider)
 
-      // 1. Customer Marker (Blue)
+      // 1. Customer Marker: update in place via setLatLng
       if (dest) {
-        const custKey = `cust_${d.db_id}`
-        activeCustKeys.add(custKey)
-        const custPopup = `<strong>${d.order_id || ''}</strong><br/>${d.customer || 'Customer'}`
-        if (markers.has(custKey)) {
-          const m = markers.get(custKey)
-          m.setLatLng(dest)
-          m.setPopupContent(custPopup)
+        const custPopup = `<strong>${active.order_id || ''}</strong><br/>${active.customer || 'Customer'}`
+        if (customerMarkerRef.current) {
+          customerMarkerRef.current.setLatLng(dest)
+          customerMarkerRef.current.setPopupContent(custPopup)
         } else {
-          const m = L.marker(dest, { icon: markerIcon('customer') })
+          customerMarkerRef.current = L.marker(dest, { icon: markerIcon('customer') })
             .bindPopup(custPopup)
             .addTo(layer)
-          markers.set(custKey, m)
         }
-        initialBounds.push(dest)
+      } else if (customerMarkerRef.current) {
+        layer.removeLayer(customerMarkerRef.current)
+        customerMarkerRef.current = null
       }
 
-      // 2. Rider Marker (Green)
+      // 2. Rider Marker: update in place via setLatLng
       if (rider) {
-        const riderKey = `rider_${d.db_id}`
-        activeRiderKeys.add(riderKey)
-        const riderPopup = `<strong>${d.driver || 'Rider'}</strong><br/>${d.status || ''}`
-        if (markers.has(riderKey)) {
-          const m = markers.get(riderKey)
-          m.setLatLng(rider)
-          m.setPopupContent(riderPopup)
+        const riderPopup = `<strong>${active.driver || 'Rider'}</strong><br/>${active.status || ''}`
+        if (riderMarkerRef.current) {
+          riderMarkerRef.current.setLatLng(rider)
+          riderMarkerRef.current.setPopupContent(riderPopup)
         } else {
-          const m = L.marker(rider, { icon: markerIcon('rider') })
+          riderMarkerRef.current = L.marker(rider, { icon: markerIcon('rider') })
             .bindPopup(riderPopup)
             .addTo(layer)
-          markers.set(riderKey, m)
         }
-        initialBounds.push(rider)
+      } else if (riderMarkerRef.current) {
+        layer.removeLayer(riderMarkerRef.current)
+        riderMarkerRef.current = null
       }
 
-      // 3. Delivery Route Polyline (Orange)
-      // Must ALWAYS draw whenever both rider and destination coordinates are present
-      if (rider && dest) {
-        const routeKey = `route_${d.db_id}`
-        activeRouteKeys.add(routeKey)
+      // 3. Delivery Route Polyline: update in place via setLatLngs
+      const parsedBackendRoute = Array.isArray(active.route)
+        ? active.route.map(toLatLng).filter(Boolean)
+        : []
+      const currentRoute = parsedBackendRoute.length >= 2
+        ? parsedBackendRoute
+        : (rider && dest ? [rider, dest] : [])
 
-        // Parse backend road coordinates if already present with >= 2 points
-        const parsedBackendRoute = Array.isArray(d.route)
-          ? d.route.map(toLatLng).filter(Boolean)
-          : []
-
-        // If backend provided a valid multi-point road route, use it.
-        // Otherwise, immediately use the straight-line fallback [rider, dest] so a line is ALWAYS visible.
-        const currentRoute = parsedBackendRoute.length >= 2
-          ? parsedBackendRoute
-          : [rider, dest]
-
-        if (polylines.has(routeKey)) {
-          polylines.get(routeKey).setLatLngs(currentRoute)
+      if (currentRoute.length >= 2) {
+        if (routePolylineRef.current) {
+          routePolylineRef.current.setLatLngs(currentRoute)
         } else {
-          const poly = L.polyline(currentRoute, {
+          routePolylineRef.current = L.polyline(currentRoute, {
             color: '#F97000',
             weight: 4,
             opacity: 0.9,
             lineJoin: 'round',
           }).addTo(layer)
-          polylines.set(routeKey, poly)
         }
 
-        // If backend did not provide a road path, attempt fetching from routing API with try/catch & fallback
-        if (parsedBackendRoute.length < 2) {
-          const cacheKey = `${d.db_id}_${rider[0].toFixed(5)},${rider[1].toFixed(5)}_${dest[0].toFixed(5)},${dest[1].toFixed(5)}`
+        // Fetch road route asynchronously if backend only provided endpoints
+        if (parsedBackendRoute.length < 2 && rider && dest) {
+          const cacheKey = `${active.db_id}_${rider[0].toFixed(5)},${rider[1].toFixed(5)}_${dest[0].toFixed(5)},${dest[1].toFixed(5)}`
           if (fetchedRoutesRef.current.has(cacheKey)) {
             const cached = fetchedRoutesRef.current.get(cacheKey)
-            if (cached && polylines.has(routeKey)) {
-              polylines.get(routeKey).setLatLngs(cached)
+            if (cached && routePolylineRef.current) {
+              routePolylineRef.current.setLatLngs(cached)
             }
           } else {
             fetchRoadRoute(rider, dest)
               .then((roadPts) => {
                 if (roadPts && roadPts.length >= 2) {
                   fetchedRoutesRef.current.set(cacheKey, roadPts)
-                  if (polylines.has(routeKey)) {
-                    polylines.get(routeKey).setLatLngs(roadPts)
+                  if (routePolylineRef.current) {
+                    routePolylineRef.current.setLatLngs(roadPts)
                   }
                 }
               })
               .catch((err) => {
                 console.error('Failed to fetch road route via routing API:', err)
-                if (polylines.has(routeKey)) {
-                  polylines.get(routeKey).setLatLngs([rider, dest])
+                if (routePolylineRef.current) {
+                  routePolylineRef.current.setLatLngs([rider, dest])
                 }
               })
           }
         }
-
-        currentRoute.forEach((pt) => initialBounds.push(pt))
+      } else if (routePolylineRef.current) {
+        layer.removeLayer(routePolylineRef.current)
+        routePolylineRef.current = null
       }
-    })
 
-    // Prune stale markers and polylines that are no longer active
-    markers.forEach((markerInstance, key) => {
-      const isCust = key.startsWith('cust_')
-      const isRider = key.startsWith('rider_')
-      if ((isCust && !activeCustKeys.has(key)) || (isRider && !activeRiderKeys.has(key))) {
-        layer.removeLayer(markerInstance)
-        markers.delete(key)
-      }
-    })
-
-    polylines.forEach((polyInstance, key) => {
-      if (!activeRouteKeys.has(key)) {
-        layer.removeLayer(polyInstance)
-        polylines.delete(key)
-      }
-    })
-
-    // Explicit User Focus: Only fit when user explicitly clicks/changes focusId
-    if (focusId && focusId !== prevFocusIdRef.current) {
-      prevFocusIdRef.current = focusId
-      const focusItem = deliveries.find((d) => String(d.db_id) === String(focusId))
-      if (focusItem) {
-        const dest = toLatLng(focusItem.destination)
-        const rider = toLatLng(focusItem.rider)
+      // 4. Viewport Camera: Only adjust on user focus change or transition from 0 to 1 active delivery
+      if (focusId && focusId !== prevFocusIdRef.current) {
+        prevFocusIdRef.current = focusId
         const pts = [dest, rider].filter(Boolean)
         if (pts.length >= 2) {
           map.fitBounds(pts, { padding: [48, 48], maxZoom: 15 })
-          hasInitializedViewRef.current = true
         } else if (pts.length === 1) {
           map.setView(pts[0], 15)
-          hasInitializedViewRef.current = true
+        }
+      } else if (prevCountRef.current === 0 && deliveries.length > 0) {
+        // Transition from 0 active deliveries to 1 active delivery for the first time
+        const pts = [dest, rider].filter(Boolean)
+        if (pts.length >= 2) {
+          map.fitBounds(pts, { padding: [40, 40], maxZoom: 14 })
+        } else if (pts.length === 1) {
+          map.setView(pts[0], 14)
         }
       }
+      // Routine poll ticks DO NOT call map.setView(), map.flyTo(), or map.fitBounds()
     } else {
-      prevFocusIdRef.current = focusId
+      // When there are no active deliveries:
+      // Clean up markers and polyline without moving or re-centering the map
+      if (customerMarkerRef.current) {
+        layer.removeLayer(customerMarkerRef.current)
+        customerMarkerRef.current = null
+      }
+      if (riderMarkerRef.current) {
+        layer.removeLayer(riderMarkerRef.current)
+        riderMarkerRef.current = null
+      }
+      if (routePolylineRef.current) {
+        layer.removeLayer(routePolylineRef.current)
+        routePolylineRef.current = null
+      }
+      // Map stays visually still at its current position! Never reset view on 0 deliveries tick.
     }
 
-    // Initial Viewport Camera Logic:
-    // Only set initial view on first load or when map has no center established yet.
-    // Do NOT call map.setView() or map.flyTo() on routine poll ticks.
-    if (!hasInitializedViewRef.current) {
-      if (initialBounds.length >= 2) {
-        map.fitBounds(initialBounds, { padding: [40, 40], maxZoom: 14 })
-        hasInitializedViewRef.current = true
-      } else if (initialBounds.length === 1) {
-        map.setView(initialBounds[0], 14)
-        hasInitializedViewRef.current = true
-      } else if (deliveries.length === 0) {
-        map.setView([7.6094, 124.9883], 13)
-      }
-    }
+    prevCountRef.current = deliveries.length
+    prevFocusIdRef.current = focusId
   }, [deliveries, focusId])
 
   return (
@@ -313,3 +289,5 @@ export default function FleetMap({
     </div>
   )
 }
+
+export default memo(FleetMap)

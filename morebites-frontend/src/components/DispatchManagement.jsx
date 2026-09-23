@@ -28,6 +28,9 @@ export default function DispatchManagement() {
   const [riders, setRiders] = useState([])
   const [monitoring, setMonitoring] = useState([])
   const [fleet, setFleet] = useState({ deliveries: [], store: null })
+  const [estimatedDistance, setEstimatedDistance] = useState('—')
+  const [estimatedTime, setEstimatedTime] = useState('—')
+  const [activeDeliveriesCount, setActiveDeliveriesCount] = useState(0)
   const [page, setPage] = useState(1)
   const [assignOrder, setAssignOrder] = useState(null)
   const [selectedRider, setSelectedRider] = useState(null)
@@ -78,8 +81,24 @@ export default function DispatchManagement() {
     try {
       const r = await dispatchApi.fleet()
       const d = r.data?.data || r.data || {}
+      const newDeliveries = d.deliveries || []
+
+      // Prompt 38: Update bottom bar values using setState on specific display values
+      setActiveDeliveriesCount(newDeliveries.length)
+      const focused = newDeliveries.find((item) => String(item.db_id) === String(focusId))
+      const active = focused || newDeliveries[0]
+      if (active) {
+        const distNum = Number(active.distance_km)
+        const etaNum = Number(active.eta_mins)
+        setEstimatedDistance(Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—')
+        setEstimatedTime(Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—')
+      } else {
+        setEstimatedDistance('—')
+        setEstimatedTime('—')
+      }
+
       setFleet({
-        deliveries: d.deliveries || [],
+        deliveries: newDeliveries,
         store: d.store || null,
       })
     } catch (err) {
@@ -99,19 +118,12 @@ export default function DispatchManagement() {
   }, [])
 
   const mapStats = useMemo(() => {
-    const focused = fleet.deliveries.find((d) => String(d.db_id) === String(focusId))
-    const active = focused || fleet.deliveries[0]
-    if (!active) {
-      return { distance: '—', eta: '—', activeCount: 0 }
-    }
-    const distNum = Number(active.distance_km)
-    const etaNum = Number(active.eta_mins)
     return {
-      distance: Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—',
-      eta: Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—',
-      activeCount: fleet.deliveries.length,
+      distance: estimatedDistance,
+      eta: estimatedTime,
+      activeCount: activeDeliveriesCount,
     }
-  }, [fleet.deliveries, focusId])
+  }, [estimatedDistance, estimatedTime, activeDeliveriesCount])
 
   const pageSize = 3
   const totalPages = Math.max(1, Math.ceil(pending.length / pageSize))
@@ -557,7 +569,7 @@ export default function DispatchManagement() {
                 <span className="dp-stat-divider">|</span>
                 <div className="dp-map-stat-item">
                   <LuBike size={14} className="dp-stat-icon" />
-                  <span>Active Deliveries: <strong>{fleet.deliveries.length}</strong></span>
+                  <span>Active Deliveries: <strong>{activeDeliveriesCount}</strong></span>
                 </div>
               </div>
             </div>
