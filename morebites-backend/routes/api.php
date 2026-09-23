@@ -97,7 +97,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/dispatch/{order}/assign', [DispatchController::class, 'assign']);
 
     Route::get('/reports', [ReportController::class, 'index']);
+    Route::get('/reports/customers', [ReportController::class, 'customers']);
     Route::post('/reports/generate', [ReportController::class, 'generate']);
+    Route::post('/reports/log-export', [ReportController::class, 'logExport']);
     Route::delete('/reports/{report}', [ReportController::class, 'destroy']);
 
     Route::get('/drivers', [DriverController::class, 'index']);

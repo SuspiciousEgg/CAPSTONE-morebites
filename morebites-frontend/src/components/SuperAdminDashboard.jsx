@@ -292,7 +292,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   }, [notifications, modalNotifTab, modalSearch])
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [salesData, setSalesData] = useState([])
-  const [salesTotalLabel, setSalesTotalLabel] = useState('₱890.00')
+  const [salesTotalLabel, setSalesTotalLabel] = useState('₱0.00')
   const [totalOrdersToday, setTotalOrdersToday] = useState(0)
   const [activeOrders, setActiveOrders] = useState(0)
   const [activeDrivers, setActiveDrivers] = useState(0)
@@ -311,7 +311,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         if (cancelled) return
         const d = res.data?.data || {}
         const stats = d.stats || {}
-        setSalesTotalLabel(stats.total_sales_label || (stats.total_sales ? `₱${Number(stats.total_sales).toFixed(2)}` : '₱890.00'))
+        setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
         setTotalOrdersToday(stats.total_orders ?? 0)
         setActiveOrders(stats.active_orders ?? 0)
         setActiveDrivers(stats.active_drivers ?? 0)
@@ -755,7 +755,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               <IconCart />
             </div>
             <div className="sa-stat-text">
-              <div className="sa-stat-value">{salesTotalLabel || '₱890.00'}</div>
+              <div className="sa-stat-value">{salesTotalLabel || '₱0.00'}</div>
               <div className="sa-stat-label">Total Sales</div>
             </div>
           </article>

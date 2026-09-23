@@ -39,7 +39,7 @@ import {
   IconUpload,
   IconWarning,
 } from './Icons'
-import { inventoryApi } from '../api/client'
+import { inventoryApi, reportsApi } from '../api/client'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
@@ -462,15 +462,28 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
         .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
         .join(','),
     )
+    const filename = `inventory-activity-log-${new Date().toISOString().slice(0, 10)}.csv`
     const blob = new Blob([[header.join(','), ...lines].join('\n')], {
       type: 'text/csv;charset=utf-8;',
     })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `inventory-activity-log-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
+
+    try {
+      const sizeKB = `${(blob.size / 1024).toFixed(1)} KB`
+      reportsApi.logExport({
+        name: filename,
+        format: 'CSV',
+        size: sizeKB,
+        type: 'Inventory Activity Log',
+      }).catch(console.error)
+    } catch (e) {
+      console.warn('Failed to log inventory export:', e)
+    }
   }
 
   function buildPayload() {

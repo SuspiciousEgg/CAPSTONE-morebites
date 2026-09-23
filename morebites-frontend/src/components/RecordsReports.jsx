@@ -32,6 +32,14 @@ function escapeXml(str) {
     .replace(/'/g, '&apos;')
 }
 
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+}
+
 function exportCsv(filename, headers, rows) {
   const lines = rows.map((row) =>
     row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','),
@@ -40,6 +48,7 @@ function exportCsv(filename, headers, rows) {
     type: 'text/csv;charset=utf-8;',
   })
   downloadBlob(blob, filename)
+  return blob
 }
 
 async function exportXlsx(filename, title, headers, rows) {
@@ -47,8 +56,12 @@ async function exportXlsx(filename, title, headers, rows) {
     const ws = window.XLSX.utils.aoa_to_sheet([headers, ...rows])
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, ws, 'Report')
-    window.XLSX.writeFile(wb, filename)
-    return
+    const wbout = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8;',
+    })
+    downloadBlob(blob, filename)
+    return blob
   }
 
   const xml = `<?xml version="1.0"?>
@@ -77,6 +90,7 @@ async function exportXlsx(filename, title, headers, rows) {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8;',
   })
   downloadBlob(blob, filename)
+  return blob
 }
 
 async function exportPdf(filename, title, headers, rows) {
@@ -95,8 +109,9 @@ async function exportPdf(filename, title, headers, rows) {
       doc.text(r.join('  |  '), 14, y)
       y += 7
     })
-    doc.save(filename)
-    return
+    const blob = doc.output ? doc.output('blob') : new Blob([doc.output()], { type: 'application/pdf' })
+    downloadBlob(blob, filename)
+    return blob
   }
 
   const lines = [
@@ -140,6 +155,7 @@ async function exportPdf(filename, title, headers, rows) {
 
   const blob = new Blob([pdfBody], { type: 'application/pdf' })
   downloadBlob(blob, filename)
+  return blob
 }
 
 function getFileTypeColor(file) {
@@ -153,168 +169,6 @@ function getFileTypeColor(file) {
   }
   return { color: '#2f7de0', bg: '#e8f1fc', label: 'XLSX' }
 }
-
-const DEFAULT_TOP_ITEMS = [
-  { name: 'Pepperoni Pizza', category: 'Pizza', units: 143, change: '↑ 12%' },
-  { name: 'Full House (Pizza)', category: 'Pizza', units: 98, change: '↑ 5%' },
-  { name: 'Heavenly Ube', category: 'Dessert', units: 76, change: '↓ 2%' },
-  { name: 'Supreme Pizza', category: 'Pizza', units: 64, change: '↑ 18%' },
-  { name: 'Cheese Overload', category: 'Pizza', units: 51, change: '↑ 8%' },
-  { name: 'Burger Combo', category: 'Burgers', units: 47, change: '↑ 10%' },
-  { name: 'Chicken Wings', category: 'Sides', units: 41, change: '↑ 4%' },
-  { name: 'Sprite 1.5L', category: 'Beverages', units: 32, change: '↓ 1%' },
-  { name: 'Cheeseburger Combo', category: 'Burgers', units: 31, change: '↑ 6%' },
-  { name: 'Family Meal Deal', category: 'Combos', units: 25, change: '↑ 15%' },
-]
-
-const DEFAULT_EXPORTS = [
-  { id: 'exp-1', name: 'Weekly_Sales_May_W2.pdf', date: 'Apr 14, 2026', size: '1.2 MB', format: 'PDF' },
-  { id: 'exp-2', name: 'Monthly_Delivery_Stats_April....', date: 'Apr 01, 2026', size: '840 KB', format: 'PDF' },
-  { id: 'exp-3', name: 'Inventory_Audit_Log.xlsx', date: 'Apr 28, 2026', size: '2.4 MB', format: 'XLSX' },
-  { id: 'exp-4', name: 'Daily_Sales_Report_Apr27.csv', date: 'Apr 27, 2026', size: '560 KB', format: 'CSV' },
-  { id: 'exp-5', name: 'Sales_Summary_Report_Apr20.pdf', date: 'Apr 20, 2026', size: '980 KB', format: 'PDF' },
-]
-
-const DEFAULT_SALES_RECORDS = [
-  {
-    id: '#ORD-00040',
-    datetime: '2026-05-30',
-    customer: 'John Customer',
-    items_sold: '2x Burger Combo',
-    type: 'Online Order',
-    amount: 540.00,
-    payment: 'COD',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-00041',
-    datetime: '2026-05-30',
-    customer: 'John Buyer',
-    items_sold: '3x Chicken Wings',
-    type: 'Online Order',
-    amount: 540.00,
-    payment: 'COD',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-00042',
-    datetime: '2026-05-30',
-    customer: 'John Loan',
-    items_sold: '1x Pizza Special',
-    type: 'Online Order',
-    amount: 540.00,
-    payment: 'COD',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-001',
-    datetime: '2026-05-25',
-    customer: 'Mark Customer',
-    items_sold: '1x Pepperoni Pizza',
-    type: 'Online Order',
-    amount: 350.00,
-    payment: 'COD',
-    status: 'Out for Delivery',
-  },
-  {
-    id: '#ORD-002',
-    datetime: '2026-05-25',
-    customer: 'John Buyer 2',
-    items_sold: '2x Cheeseburger Combo',
-    type: 'Online Order',
-    amount: 440.00,
-    payment: 'COD',
-    status: 'Out for Delivery',
-  },
-  {
-    id: '#ORD-003',
-    datetime: '2026-05-24',
-    customer: 'Benny Sean',
-    items_sold: '1x Family Meal Deal',
-    type: 'Dine-in',
-    amount: 620.00,
-    payment: 'Cash',
-    status: 'Completed',
-  },
-]
-
-const DEFAULT_DELIVERY_RECORDS = [
-  {
-    id: '#ORD-00040',
-    datetime: '2026-05-30',
-    customer: 'John Customer',
-    rider: 'Unassigned',
-    time: '-- mins',
-    distance: '-- km',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-00041',
-    datetime: '2026-05-30',
-    customer: 'John Buyer',
-    rider: 'Unassigned',
-    time: '-- mins',
-    distance: '-- km',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-00042',
-    datetime: '2026-05-30',
-    customer: 'John Loan',
-    rider: 'Unassigned',
-    time: '-- mins',
-    distance: '-- km',
-    status: 'Preparing',
-  },
-  {
-    id: '#ORD-001',
-    datetime: '2026-05-25',
-    customer: 'Mark Customer',
-    rider: 'Mark',
-    time: '-- mins',
-    distance: '-- km',
-    status: 'Out for Delivery',
-  },
-  {
-    id: '#ORD-002',
-    datetime: '2026-05-25',
-    customer: 'John Buyer 2',
-    rider: 'John',
-    time: '-- mins',
-    distance: '-- km',
-    status: 'Out for Delivery',
-  },
-  {
-    id: '#ORD-003',
-    datetime: '2026-05-24',
-    customer: 'Benny Sean',
-    rider: 'John Driver',
-    time: '18 mins',
-    distance: '2.5 km',
-    status: 'Completed',
-  },
-]
-
-const DEFAULT_CUSTOMER_RECORDS = [
-  { name: 'Benny Sean', orders: '21 orders', spent: 935.00, points: '450 pts', last: '2026-05-25', freq: 'Frequent' },
-  { name: 'Sean Sean', orders: '19 orders', spent: 1120.00, points: '380 pts', last: '2026-05-25', freq: 'Frequent' },
-  { name: 'Benny QT', orders: '18 orders', spent: 890.00, points: '320 pts', last: '2026-05-25', freq: 'Frequent' },
-  { name: 'Benedict', orders: '15 orders', spent: 750.00, points: '210 pts', last: '2026-05-25', freq: 'Regular' },
-  { name: 'Ben Seanix', orders: '9 orders', spent: 1450.00, points: '90 pts', last: '2026-05-25', freq: 'New' },
-  { name: 'Ana Customer', orders: '8 orders', spent: 680.00, points: '80 pts', last: '2026-05-24', freq: 'New' },
-  { name: 'John Buyer', orders: '7 orders', spent: 540.00, points: '70 pts', last: '2026-05-23', freq: 'New' },
-  { name: 'Maria Santos', orders: '16 orders', spent: 820.00, points: '240 pts', last: '2026-05-22', freq: 'Regular' },
-  { name: 'Carlos Reyes', orders: '17 orders', spent: 910.00, points: '270 pts', last: '2026-05-21', freq: 'Regular' },
-  { name: 'David Lim', orders: '20 orders', spent: 1050.00, points: '400 pts', last: '2026-05-20', freq: 'Frequent' },
-  { name: 'Grace Tan', orders: '6 orders', spent: 490.00, points: '50 pts', last: '2026-05-19', freq: 'New' },
-  { name: 'Kevin Yu', orders: '14 orders', spent: 710.00, points: '190 pts', last: '2026-05-18', freq: 'Regular' },
-  { name: 'Lisa Cruz', orders: '22 orders', spent: 1280.00, points: '480 pts', last: '2026-05-17', freq: 'Frequent' },
-  { name: 'Mark Bautista', orders: '11 orders', spent: 630.00, points: '140 pts', last: '2026-05-16', freq: 'Regular' },
-  { name: 'Nina Lopez', orders: '5 orders', spent: 420.00, points: '40 pts', last: '2026-05-15', freq: 'New' },
-  { name: 'Oliver Ramos', orders: '13 orders', spent: 690.00, points: '170 pts', last: '2026-05-14', freq: 'Regular' },
-  { name: 'Patricia Gomez', orders: '23 orders', spent: 1340.00, points: '510 pts', last: '2026-05-13', freq: 'Frequent' },
-  { name: 'Quinn Dizon', orders: '4 orders', spent: 350.00, points: '30 pts', last: '2026-05-12', freq: 'New' },
-]
 
 function getItemCategory(name) {
   const n = (name || '').toLowerCase()
@@ -338,11 +192,14 @@ function getStatusBadgeClass(status) {
 }
 
 export default function RecordsReports() {
-  const [allRecords, setAllRecords] = useState(DEFAULT_SALES_RECORDS)
-  const [deliveryRecords, setDeliveryRecords] = useState(DEFAULT_DELIVERY_RECORDS)
-  const [customerRecords, setCustomerRecords] = useState(DEFAULT_CUSTOMER_RECORDS)
-  const [topItems, setTopItems] = useState(DEFAULT_TOP_ITEMS)
-  const [exportsList, setExportsList] = useState(DEFAULT_EXPORTS)
+  const [allRecords, setAllRecords] = useState([])
+  const [deliveryRecords, setDeliveryRecords] = useState([])
+  const [customerRecords, setCustomerRecords] = useState([])
+  const [customerTotalPages, setCustomerTotalPages] = useState(1)
+  const [customerTotalCount, setCustomerTotalCount] = useState(0)
+  const [customerLoading, setCustomerLoading] = useState(false)
+  const [topItems, setTopItems] = useState([])
+  const [exportsList, setExportsList] = useState([])
   const [reportStats, setReportStats] = useState({
     total_sales_today: 0,
     completed_deliveries: 0,
@@ -359,11 +216,11 @@ export default function RecordsReports() {
       .then(([r, topRes]) => {
         const d = r.data?.data || r.data || {}
         const topData = topRes?.data?.data || d.top_items || []
-        setAllRecords(d.all_records && d.all_records.length > 0 ? d.all_records : DEFAULT_SALES_RECORDS)
-        setDeliveryRecords(d.delivery_records && d.delivery_records.length > 0 ? d.delivery_records : DEFAULT_DELIVERY_RECORDS)
-        setCustomerRecords(d.customer_records && d.customer_records.length > 0 ? d.customer_records : DEFAULT_CUSTOMER_RECORDS)
-        setTopItems(topData && topData.length > 0 ? topData : DEFAULT_TOP_ITEMS)
-        setExportsList(d.exports && d.exports.length > 0 ? d.exports : DEFAULT_EXPORTS)
+        setAllRecords(Array.isArray(d.all_records) ? d.all_records : [])
+        setDeliveryRecords(Array.isArray(d.delivery_records) ? d.delivery_records : [])
+        setCustomerRecords(Array.isArray(d.customer_records) ? d.customer_records : [])
+        setTopItems(Array.isArray(topData) ? topData : [])
+        setExportsList(Array.isArray(d.exports) ? d.exports : [])
         setReportStats(
           d.stats || {
             total_sales_today: 0,
@@ -458,13 +315,15 @@ export default function RecordsReports() {
   async function triggerFileDownload(fileName, formatType, periodValue, exportType) {
     const { title, headers, rows: reportRows } = getReportData(formatType, periodValue)
     const normalizedExport = (exportType || 'PDF').toUpperCase()
+    let blob = null
     if (normalizedExport === 'CSV') {
-      exportCsv(fileName, headers, reportRows)
+      blob = exportCsv(fileName, headers, reportRows)
     } else if (normalizedExport === 'PDF') {
-      await exportPdf(fileName, title, headers, reportRows)
+      blob = await exportPdf(fileName, title, headers, reportRows)
     } else {
-      await exportXlsx(fileName, title, headers, reportRows)
+      blob = await exportXlsx(fileName, title, headers, reportRows)
     }
+    return blob
   }
 
   async function generateReport() {
@@ -472,54 +331,107 @@ export default function RecordsReports() {
     const selectedFormat = format
     const selectedExportAs = exportAs
     const ext = selectedExportAs.toLowerCase() === 'csv' ? 'csv' : selectedExportAs.toLowerCase() === 'pdf' ? 'pdf' : 'xlsx'
-    const fallbackName = `${selectedFormat.replace(/\s+/g, '_')}_${selectedPeriod}.${ext}`
+    const fileName = `${selectedFormat.replace(/\s+/g, '_')}_${selectedPeriod}.${ext}`
 
-    let report = null
+    let blob = null
     try {
-      const { data } = await reportsApi.generate({
-        period: selectedPeriod,
-        format_type: selectedFormat,
-        export_as: selectedExportAs,
-      })
-      report = data?.data || data
+      blob = await triggerFileDownload(fileName, selectedFormat, selectedPeriod, selectedExportAs)
     } catch (err) {
-      console.warn('Backend generate call error, proceeding with download:', err)
+      console.error(err)
+      alert(err.message || 'Failed to generate report.')
+      return
     }
 
-    const fileName = report?.name || fallbackName
+    const calculatedSize = blob?.size ? formatBytes(blob.size) : '1.2 MB'
 
     try {
-      await triggerFileDownload(fileName, selectedFormat, selectedPeriod, selectedExportAs)
-
+      const { data } = await reportsApi.logExport({
+        name: fileName,
+        format: selectedExportAs,
+        size: calculatedSize,
+        type: selectedFormat,
+      })
+      const report = data?.data || data
       setExportsList((prev) => [
         {
           id: report?.id || Date.now(),
           name: fileName,
-          date: report?.created_at
-            ? new Date(report.created_at).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })
-            : 'Today',
-          size: report?.size || '1.2 MB',
+          date: report?.date || new Date().toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          }),
+          size: report?.size || calculatedSize,
           format: selectedExportAs,
+          type: selectedFormat,
+          created_at: report?.created_at || new Date().toISOString(),
         },
         ...prev,
       ])
-      handleCancel()
-      setExportsOpen(true)
     } catch (err) {
-      console.error(err)
-      alert(err.message || 'Failed to generate report.')
+      console.warn('Backend logExport call error, proceeding with local addition:', err)
+      setExportsList((prev) => [
+        {
+          id: Date.now(),
+          name: fileName,
+          date: new Date().toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          }),
+          size: calculatedSize,
+          format: selectedExportAs,
+          type: selectedFormat,
+          created_at: new Date().toISOString(),
+        },
+        ...prev,
+      ])
     }
+
+    handleCancel()
+    setExportsOpen(true)
   }
 
   function handleDownloadExport(file) {
     const ext = file.name.split('.').pop()?.toUpperCase() || file.format?.toUpperCase() || 'PDF'
-    triggerFileDownload(file.name, 'Sales Summary Report', 'Weekly', ext).catch(console.error)
+    triggerFileDownload(file.name, file.type || 'Sales Summary Report', 'Weekly', ext).catch(console.error)
   }
   const pageSize = 5
+
+  useEffect(() => {
+    if (tab !== 'customer') return
+    let cancelled = false
+    setCustomerLoading(true)
+    reportsApi
+      .customers({
+        page,
+        per_page: pageSize,
+        search: customerSearch,
+        status: customerStatus,
+      })
+      .then((res) => {
+        if (cancelled) return
+        const d = res.data || {}
+        const items = d.data || []
+        setCustomerRecords(Array.isArray(items) ? items : [])
+        setCustomerTotalPages(d.last_page || 1)
+        setCustomerTotalCount(d.total || 0)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Error fetching customers report:', err)
+        setCustomerRecords([])
+        setCustomerTotalPages(1)
+        setCustomerTotalCount(0)
+      })
+      .finally(() => {
+        if (!cancelled) setCustomerLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [tab, page, customerSearch, customerStatus])
 
   const filteredSales = useMemo(() => {
     const q = salesSearch.trim().toLowerCase()
@@ -572,23 +484,10 @@ export default function RecordsReports() {
     })
   }, [deliverySearch, startDate, endDate, deliveryStatus, deliveryRecords])
 
-  const filteredCustomers = useMemo(() => {
-    const q = customerSearch.trim().toLowerCase()
-    return customerRecords.filter((r) => {
-      const matchQuery = !q || (r.name && r.name.toLowerCase().includes(q))
-
-      let matchStatus = true
-      if (customerStatus !== 'All Customers') {
-        matchStatus = (r.freq || '').toLowerCase() === customerStatus.toLowerCase()
-      }
-
-      return matchQuery && matchStatus
-    })
-  }, [customerSearch, customerStatus, customerRecords])
-
-  const activeItems = tab === 'all' ? filteredSales : tab === 'delivery' ? filteredDeliveries : filteredCustomers
-  const totalPages = Math.max(1, Math.ceil(activeItems.length / pageSize))
-  const paginatedRows = activeItems.slice((page - 1) * pageSize, page * pageSize)
+  const activeItems = tab === 'all' ? filteredSales : tab === 'delivery' ? filteredDeliveries : customerRecords
+  const totalPages = tab === 'customer' ? customerTotalPages : Math.max(1, Math.ceil(activeItems.length / pageSize))
+  const totalCount = tab === 'customer' ? customerTotalCount : activeItems.length
+  const paginatedRows = tab === 'customer' ? customerRecords : activeItems.slice((page - 1) * pageSize, page * pageSize)
 
   const filteredExports = useMemo(() => {
     return exportsList.filter((file) => {
@@ -604,13 +503,23 @@ export default function RecordsReports() {
 
       let dateMatch = true
       if (historyDate !== 'All Dates') {
-        const d = (file.date || '').toLowerCase()
-        if (historyDate === 'Today') {
-          dateMatch = d.includes('today')
-        } else if (historyDate === 'This Week') {
-          dateMatch = d.includes('may') || d.includes('today')
-        } else if (historyDate === 'This Month') {
-          dateMatch = d.includes('may') || d.includes('apr')
+        const fileTime = file.created_at
+          ? new Date(file.created_at).getTime()
+          : file.date
+          ? new Date(file.date).getTime()
+          : null
+        const now = new Date()
+        if (fileTime && !isNaN(fileTime)) {
+          if (historyDate === 'Today') {
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+            dateMatch = fileTime >= startOfToday
+          } else if (historyDate === 'This Week') {
+            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime()
+            dateMatch = fileTime >= startOfWeek
+          } else if (historyDate === 'This Month') {
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+            dateMatch = fileTime >= startOfMonth
+          }
         }
       }
 
@@ -628,24 +537,24 @@ export default function RecordsReports() {
       <section className="reports-stats-grid">
         <article className="reports-stat-card">
           <div className="reports-stat-label">Total Sales Today</div>
-          <div className="reports-stat-value sales">{peso(reportStats.total_sales_today || 890)}</div>
+          <div className="reports-stat-value sales">{peso(reportStats.total_sales_today ?? 0)}</div>
         </article>
 
         <article className="reports-stat-card">
           <div className="reports-stat-label">Completed Deliveries</div>
-          <div className="reports-stat-value">{reportStats.completed_deliveries || 1}</div>
+          <div className="reports-stat-value">{reportStats.completed_deliveries ?? 0}</div>
         </article>
 
         <article className="reports-stat-card">
           <div className="reports-stat-label">Avg. Delivery Time</div>
           <div className="reports-stat-value">
-            {reportStats.avg_delivery_time ? `${reportStats.avg_delivery_time} mins` : '14 mins'}
+            {reportStats.avg_delivery_time ? `${reportStats.avg_delivery_time} mins` : '-- mins'}
           </div>
         </article>
 
         <article className="reports-stat-card">
           <div className="reports-stat-label">Total Orders</div>
-          <div className="reports-stat-value">{reportStats.total_orders || 6}</div>
+          <div className="reports-stat-value">{reportStats.total_orders ?? 0}</div>
         </article>
       </section>
 
@@ -955,7 +864,7 @@ export default function RecordsReports() {
                         : `${r.points ?? Math.round(Number(r.spent || 0) / 2)} pts`
 
                       return (
-                        <tr key={r.name}>
+                        <tr key={r.id || r.name}>
                           <td><strong>{r.name}</strong></td>
                           <td>{ordersDisplay}</td>
                           <td className="reports-total-amount">{peso(r.spent)}</td>
@@ -981,7 +890,7 @@ export default function RecordsReports() {
 
         <div className="reports-table-footer">
           <span className="reports-pagination-info">
-            Showing {activeItems.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, activeItems.length)} of {activeItems.length} {tab === 'all' ? 'transactions' : tab === 'delivery' ? 'deliveries' : 'customers'}
+            Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} {tab === 'all' ? 'transactions' : tab === 'delivery' ? 'deliveries' : 'customers'}
           </span>
           {totalPages > 1 && (
             <div className="reports-pagination-controls">
@@ -1038,15 +947,18 @@ export default function RecordsReports() {
               <div className="reports-empty-state-mini">No sales recorded for this period</div>
             ) : (
               topItems.slice(0, 5).map((item, idx) => {
+                const isNeutral = !item.change || item.change === '—' || item.change === '-'
                 const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                const trendDisplay = String(item.change).startsWith('-')
+                const trendDisplay = isNeutral
+                  ? '—'
+                  : String(item.change).startsWith('-')
                   ? `↓ ${String(item.change).replace('-', '')}`
                   : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
                   ? item.change
                   : `↑ ${String(item.change).replace('+', '')}`
 
                 return (
-                  <div key={item.name} className="reports-top-item-row">
+                  <div key={item.id || item.name} className="reports-top-item-row">
                     <div className="reports-top-item-left">
                       <span className="reports-rank-badge">#{idx + 1}</span>
                       <div className="reports-top-item-details">
@@ -1055,8 +967,8 @@ export default function RecordsReports() {
                       </div>
                     </div>
                     <div className="reports-top-item-right">
-                      <span className="reports-units-count">{item.units} units</span>
-                      <span className={`reports-trend-badge ${isTrendDown ? 'down' : 'up'}`}>
+                      <span className="reports-units-count">{item.units ?? item.units_sold ?? 0} units</span>
+                      <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
                         {trendDisplay}
                       </span>
                     </div>
@@ -1081,7 +993,7 @@ export default function RecordsReports() {
           </div>
           <div className="reports-recent-list">
             {exportsList.length === 0 ? (
-              <div className="reports-empty-state-mini">No exported reports generated yet</div>
+              <div className="reports-empty-state-mini">No reports exported yet</div>
             ) : (
               exportsList.slice(0, 5).map((file) => {
               const ext = (file.name.split('.').pop() || file.format || 'pdf').toLowerCase()
@@ -1286,30 +1198,41 @@ export default function RecordsReports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {topItems.slice(0, 10).map((item, i) => {
-                    const rankNum = i + 1
-                    const category = item.category || getItemCategory(item.name)
-                    const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                    const trendDisplay = String(item.change).startsWith('-')
-                      ? `↓ ${String(item.change).replace('-', '')}`
-                      : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                      ? item.change
-                      : `↑ ${String(item.change).replace('+', '')}`
+                  {topItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: '#6b7280' }}>
+                        No sales recorded for this period
+                      </td>
+                    </tr>
+                  ) : (
+                    topItems.slice(0, 10).map((item, i) => {
+                      const rankNum = i + 1
+                      const category = item.category || getItemCategory(item.name)
+                      const isNeutral = !item.change || item.change === '—' || item.change === '-'
+                      const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
+                      const trendDisplay = isNeutral
+                        ? '—'
+                        : String(item.change).startsWith('-')
+                        ? `↓ ${String(item.change).replace('-', '')}`
+                        : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
+                        ? item.change
+                        : `↑ ${String(item.change).replace('+', '')}`
 
-                    return (
-                      <tr key={item.name}>
-                        <td className="reports-top10-rank">#{rankNum}</td>
-                        <td className="reports-top10-name">{item.name}</td>
-                        <td className="reports-top10-category">{category}</td>
-                        <td className="reports-top10-units">{item.units} units</td>
-                        <td>
-                          <span className={`reports-trend-badge ${isTrendDown ? 'down' : 'up'}`}>
-                            {trendDisplay}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                      return (
+                        <tr key={item.id || item.name}>
+                          <td className="reports-top10-rank">#{rankNum}</td>
+                          <td className="reports-top10-name">{item.name}</td>
+                          <td className="reports-top10-category">{category}</td>
+                          <td className="reports-top10-units">{item.units ?? item.units_sold ?? 0} units</td>
+                          <td>
+                            <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
+                              {trendDisplay}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1325,16 +1248,45 @@ export default function RecordsReports() {
               <button
                 type="button"
                 className="reports-btn-primary"
-                onClick={() => {
+                onClick={async () => {
                   const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
                   const reportRows = topItems.slice(0, 10).map((item, i) => [
                     `#${i + 1}`,
                     item.name,
                     item.category || getItemCategory(item.name),
-                    `${item.units} units`,
-                    item.change,
+                    `${item.units ?? item.units_sold ?? 0} units`,
+                    item.change || '—',
                   ])
-                  exportCsv('Top_10_Selling_Items_Full_List.csv', headers, reportRows)
+                  const fileName = 'Top_10_Selling_Items_Full_List.csv'
+                  const blob = exportCsv(fileName, headers, reportRows)
+                  try {
+                    const sizeStr = blob?.size ? formatBytes(blob.size) : '1.0 KB'
+                    const { data } = await reportsApi.logExport({
+                      name: fileName,
+                      format: 'CSV',
+                      size: sizeStr,
+                      type: 'Top Selling Items',
+                    })
+                    const report = data?.data || data
+                    setExportsList((prev) => [
+                      {
+                        id: report?.id || Date.now(),
+                        name: fileName,
+                        date: report?.date || new Date().toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        }),
+                        size: report?.size || sizeStr,
+                        format: 'CSV',
+                        type: 'Top Selling Items',
+                        created_at: report?.created_at || new Date().toISOString(),
+                      },
+                      ...prev,
+                    ])
+                  } catch (e) {
+                    console.warn('Failed to log top selling items export:', e)
+                  }
                 }}
               >
                 Export This List
@@ -1412,8 +1364,14 @@ export default function RecordsReports() {
                 {filteredExports.length === 0 ? (
                   <div className="reports-empty-state">
                     <span className="reports-empty-pill">Exported Reports</span>
-                    <div className="reports-empty-title">No exported reports found</div>
-                    <div className="reports-empty-subtext">Try changing your search query or format filter.</div>
+                    <div className="reports-empty-title">
+                      {exportsList.length === 0 ? 'No reports exported yet' : 'No exported reports found'}
+                    </div>
+                    <div className="reports-empty-subtext">
+                      {exportsList.length === 0
+                        ? 'Generated PDF, CSV, and Excel exports will appear here.'
+                        : 'Try changing your search query or format filter.'}
+                    </div>
                   </div>
                 ) : (
                   filteredExports.map((file) => {

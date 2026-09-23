@@ -51,6 +51,30 @@ class TopSellingService
             ->orderByDesc('units_sold')
             ->get();
 
+        $priorStart = Carbon::now()->subDays(60);
+        $priorEnd = Carbon::now()->subDays(30);
+
+        $priorSalesRows = OrderItem::query()
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', function ($join) {
+                $join->on('menu_items.id', '=', 'order_items.menu_item_id')
+                    ->orWhere(function ($q) {
+                        $q->whereNull('order_items.menu_item_id')
+                            ->whereColumn('menu_items.name', 'order_items.name');
+                    });
+            })
+            ->where('menu_items.archived', false)
+            ->where('orders.status', '!=', 'Cancelled')
+            ->whereRaw("{$dateExpr} >= ? AND {$dateExpr} < ?", [$priorStart, $priorEnd])
+            ->select(
+                'menu_items.id',
+                DB::raw('SUM(order_items.qty) as units_sold')
+            )
+            ->groupBy('menu_items.id')
+            ->get();
+
+        $priorUnitsMap = $priorSalesRows->pluck('units_sold', 'id')->all();
+
         // If at least 3 distinct products have recorded sales within the 30-day window
         if ($salesRows->count() >= 3) {
             $unitsMap = $salesRows->pluck('units_sold', 'id')->all();
@@ -63,7 +87,7 @@ class TopSellingService
                 ->sortBy(fn ($m) => array_search($m->id, $itemIds))
                 ->values();
 
-            return $this->formatItems($items, $unitsMap);
+            return $this->formatItems($items, $unitsMap, $priorUnitsMap);
         }
 
         // 2. Fallback Tier 1: Return menu items where is_featured is true
@@ -75,7 +99,7 @@ class TopSellingService
             ->get();
 
         if ($featuredItems->count() > 0) {
-            return $this->formatItems($featuredItems);
+            return $this->formatItems($featuredItems, [], $priorUnitsMap);
         }
 
         // 3. Fallback Tier 2: Return most recently created active menu items, newest first
@@ -88,13 +112,13 @@ class TopSellingService
             ->take($limit)
             ->get();
 
-        return $this->formatItems($newestItems);
+        return $this->formatItems($newestItems, [], $priorUnitsMap);
     }
 
     /**
      * Format menu items into standard consumer payload.
      */
-    private function formatItems(Collection $items, array $unitsMap = []): Collection
+    private function formatItems(Collection $items, array $unitsMap = [], array $priorUnitsMap = []): Collection
     {
         $itemIds = $items->pluck('id')->filter()->all();
 
@@ -111,7 +135,7 @@ class TopSellingService
             ->get()
             ->keyBy('menu_item_id');
 
-        return $items->map(function (MenuItem $m) use ($unitsMap, $ratingStats) {
+        return $items->map(function (MenuItem $m) use ($unitsMap, $priorUnitsMap, $ratingStats) {
             $stockOk = $this->inventoryService->canServe($m);
             $stockReason = $stockOk ? '' : $this->inventoryService->outOfStockReason($m);
             $isAvailable = (bool) $m->available && ! (bool) $m->archived && $stockOk;
@@ -133,6 +157,23 @@ class TopSellingService
             $rating = $stat ? (float) $stat->avg_rating : null;
             $reviewCount = $stat ? (int) $stat->review_count : 0;
             $units = isset($unitsMap[$m->id]) ? (int) $unitsMap[$m->id] : 0;
+
+            $hasPrior = array_key_exists($m->id, $priorUnitsMap) && $priorUnitsMap[$m->id] !== null;
+            $priorUnits = $hasPrior ? (int) $priorUnitsMap[$m->id] : 0;
+
+            if (! $hasPrior || $priorUnits === 0) {
+                $change = '—';
+            } else {
+                $diff = $units - $priorUnits;
+                $pct = (int) round(($diff / $priorUnits) * 100);
+                if ($pct > 0) {
+                    $change = '↑ '.$pct.'%';
+                } elseif ($pct < 0) {
+                    $change = '↓ '.abs($pct).'%';
+                } else {
+                    $change = '0%';
+                }
+            }
 
             return [
                 'id' => (string) $m->id,
@@ -158,7 +199,7 @@ class TopSellingService
                 'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
                 'units' => $units,
                 'units_sold' => $units,
-                'change' => '+1.0%',
+                'change' => $change,
             ];
         });
     }

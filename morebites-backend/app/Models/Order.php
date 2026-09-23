@@ -61,6 +61,20 @@ class Order extends Model
         return '#ORD-'.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
     }
 
+    /**
+     * Scope to filter only real generated system orders (#ORD-XXXXX format with digits),
+     * excluding non-standard test codes like #ORD-PRIOR-1, #ORD-CUR-1, etc.
+     */
+    public function scopeRealOrderCodes($query)
+    {
+        $driver = \Illuminate\Support\Facades\DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            return $query->whereRaw("order_code GLOB '#ORD-[0-9]*' AND order_code NOT GLOB '#ORD-*[A-Za-z]*'");
+        }
+
+        return $query->whereRaw("order_code REGEXP '^#ORD-[0-9]+$'");
+    }
+
     public function resolveRouteBinding($value, $field = null)
     {
         if ($field) {

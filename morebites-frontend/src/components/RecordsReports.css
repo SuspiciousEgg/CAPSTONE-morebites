@@ -595,6 +595,10 @@
   color: #EF4444;
 }
 
+.reports-trend-badge.neutral {
+  color: #9CA3AF;
+}
+
 /* Recent Exported Reports List */
 .reports-recent-list {
   display: flex;

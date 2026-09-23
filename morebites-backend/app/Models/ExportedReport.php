@@ -6,5 +6,5 @@ use Illuminate\Database\Eloquent\Model;
 
 class ExportedReport extends Model
 {
-    protected $fillable = ['name', 'format', 'size'];
+    protected $fillable = ['name', 'format', 'size', 'role', 'type'];
 }

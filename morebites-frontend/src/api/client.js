@@ -152,7 +152,9 @@ export const deliveryRatesApi = {
 
 export const reportsApi = {
   get: (params) => api.get('/reports', { params }),
+  customers: (params) => api.get('/reports/customers', { params }),
   generate: (payload) => api.post('/reports/generate', payload),
+  logExport: (payload) => api.post('/reports/log-export', payload),
   delete: (id) => api.delete(`/reports/${id}`),
 }
 

@@ -8,6 +8,7 @@ use App\Models\ExportedReport;
 use App\Models\Order;
 use App\Models\OrderItem;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
@@ -39,8 +40,8 @@ class ReportController extends Controller
 
             return [
                 'id' => $o->order_code,
-                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'John Customer'),
-                'items_sold' => $itemsSummary ?: '2x Burger Combo',
+                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
+                'items_sold' => $itemsSummary ?: 'No items listed',
                 'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
                 'type' => $o->order_type ?: 'Online Order',
                 'amount' => (float) $o->total,
@@ -56,7 +57,7 @@ class ReportController extends Controller
             ->get()
             ->map(fn (Order $o) => [
                 'id' => $o->order_code,
-                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'John Customer'),
+                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
                 'driver' => $o->driver?->name ?? 'Unassigned',
                 'rider' => $o->driver?->name ?? 'Unassigned',
                 'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
@@ -66,24 +67,31 @@ class ReportController extends Controller
             ]);
 
         $customers = Customer::query()
-            ->withCount('orders')
-            ->withSum('orders', 'total')
-            ->latest()
+            ->withCount(['orders as completed_orders_count' => function ($q) {
+                $q->whereIn('status', ['Completed', 'Delivered']);
+            }])
+            ->withSum(['orders as completed_orders_sum' => function ($q) {
+                $q->whereIn('status', ['Completed', 'Delivered']);
+            }], 'total')
+            ->withMax('orders as last_order_date', 'created_at')
+            ->latest('id')
+            ->take(50)
             ->get()
             ->map(function (Customer $c) {
-                $last = $c->orders()->latest()->first();
-                $count = $c->orders_count ?: 0;
-                $spent = (float) ($c->orders_sum_total ?: 0);
-                $pts = $c->points ?? (int) round($spent / 2);
-                $freq = $count >= 18 ? 'Frequent' : ($count >= 10 ? 'Regular' : 'New');
+                $count = (int) ($c->completed_orders_count ?? 0);
+                $spent = (float) ($c->completed_orders_sum ?? 0);
+                $pts = (int) round($spent / 2);
+                $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
+                $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
 
                 return [
+                    'id' => $c->id,
                     'name' => $c->full_name,
                     'orders' => $count.' orders',
                     'orders_count' => $count,
                     'spent' => $spent,
                     'points' => $pts.' pts',
-                    'last' => $last?->created_at?->format('Y-m-d') ?? '2026-05-25',
+                    'last' => $lastDate,
                     'freq' => $freq,
                 ];
             });
@@ -96,15 +104,18 @@ class ReportController extends Controller
             'units_sold' => $i['units_sold'],
             'price' => $i['price'],
             'image' => $i['image'],
-            'change' => $i['change'] ?? '+1.0%',
+            'change' => $i['change'] ?? '—',
         ])->values();
 
-        $exports = ExportedReport::query()->latest()->take(10)->get()->map(fn ($e) => [
+        $exports = ExportedReport::query()->latest('created_at')->take(10)->get()->map(fn ($e) => [
             'id' => $e->id,
             'name' => $e->name,
             'date' => $e->created_at?->format('M d, Y'),
-            'size' => $e->size,
+            'size' => $e->size ?: '1.0 MB',
             'format' => $e->format,
+            'type' => $e->type ?? $e->format,
+            'role' => $e->role ?? 'admin',
+            'created_at' => $e->created_at?->toISOString(),
         ]);
 
         return response()->json([
@@ -120,12 +131,82 @@ class ReportController extends Controller
         ]);
     }
 
+    public function customers(Request $request)
+    {
+        $perPage = (int) $request->query('per_page', 5);
+        $search = trim((string) $request->query('search', ''));
+        $statusFilter = trim((string) $request->query('status', ''));
+
+        $query = Customer::query()
+            ->withCount(['orders as completed_orders_count' => function ($q) {
+                $q->whereIn('status', ['Completed', 'Delivered']);
+            }])
+            ->withSum(['orders as completed_orders_sum' => function ($q) {
+                $q->whereIn('status', ['Completed', 'Delivered']);
+            }], 'total')
+            ->withMax('orders as last_order_date', 'created_at');
+
+        if ($search !== '') {
+            $query->where('full_name', 'like', "%{$search}%");
+        }
+
+        if ($statusFilter !== '' && strtolower($statusFilter) !== 'all' && strtolower($statusFilter) !== 'all customers') {
+            $norm = strtolower($statusFilter);
+            if ($norm === 'frequent') {
+                $query->whereHas('orders', function ($q) {
+                    $q->whereIn('status', ['Completed', 'Delivered']);
+                }, '>=', 15);
+            } elseif ($norm === 'regular') {
+                $query->whereHas('orders', function ($q) {
+                    $q->whereIn('status', ['Completed', 'Delivered']);
+                }, '>=', 5)
+                ->whereHas('orders', function ($q) {
+                    $q->whereIn('status', ['Completed', 'Delivered']);
+                }, '<', 15);
+            } elseif ($norm === 'new') {
+                $query->whereHas('orders', function ($q) {
+                    $q->whereIn('status', ['Completed', 'Delivered']);
+                }, '<', 5);
+            }
+        }
+
+        $paginated = $query->latest('id')->paginate($perPage);
+
+        $items = collect($paginated->items())->map(function (Customer $c) {
+            $count = (int) ($c->completed_orders_count ?? 0);
+            $spent = (float) ($c->completed_orders_sum ?? 0);
+            $pts = (int) round($spent / 2);
+            $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
+            $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
+
+            return [
+                'id' => $c->id,
+                'name' => $c->full_name,
+                'orders' => $count.' orders',
+                'orders_count' => $count,
+                'spent' => $spent,
+                'points' => $pts.' pts',
+                'last' => $lastDate,
+                'freq' => $freq,
+            ];
+        });
+
+        return response()->json([
+            'data' => $items,
+            'current_page' => $paginated->currentPage(),
+            'last_page' => $paginated->lastPage(),
+            'per_page' => $paginated->perPage(),
+            'total' => $paginated->total(),
+        ]);
+    }
+
     public function generate(Request $request)
     {
         $data = $request->validate([
             'period' => ['required', 'string'],
             'format_type' => ['required', 'string'],
             'export_as' => ['required', 'string'],
+            'size' => ['nullable', 'string'],
         ]);
 
         $ext = match (strtolower($data['export_as'])) {
@@ -135,11 +216,59 @@ class ReportController extends Controller
         };
         $report = ExportedReport::query()->create([
             'name' => str_replace(' ', '_', $data['format_type']).'_'.$data['period'].'.'.$ext,
-            'format' => $data['export_as'],
-            'size' => '1.2 MB',
+            'format' => strtoupper($data['export_as']),
+            'size' => $data['size'] ?? '1.2 MB',
+            'type' => $data['format_type'],
+            'role' => $request->user()?->role ?? 'admin',
         ]);
 
-        return response()->json(['data' => $report], 201);
+        return response()->json([
+            'data' => [
+                'id' => $report->id,
+                'name' => $report->name,
+                'date' => $report->created_at?->format('M d, Y'),
+                'size' => $report->size,
+                'format' => $report->format,
+                'type' => $report->type,
+                'role' => $report->role,
+                'created_at' => $report->created_at?->toISOString(),
+            ],
+        ], 201);
+    }
+
+    public function logExport(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string'],
+            'format' => ['nullable', 'string'],
+            'size' => ['nullable', 'string'],
+            'type' => ['nullable', 'string'],
+        ]);
+
+        $role = $request->user()?->role ?? 'admin';
+        $format = strtoupper($data['format'] ?? pathinfo($data['name'], PATHINFO_EXTENSION) ?: 'PDF');
+
+        $report = ExportedReport::query()->create([
+            'name' => $data['name'],
+            'format' => $format,
+            'size' => $data['size'] ?? '1.0 MB',
+            'type' => $data['type'] ?? $format,
+            'role' => $role,
+        ]);
+
+        return response()->json([
+            'message' => 'Export logged successfully',
+            'data' => [
+                'id' => $report->id,
+                'name' => $report->name,
+                'date' => $report->created_at?->format('M d, Y'),
+                'size' => $report->size,
+                'format' => $report->format,
+                'type' => $report->type,
+                'role' => $report->role,
+                'created_at' => $report->created_at?->toISOString(),
+            ],
+        ], 201);
     }
 
     public function destroy(ExportedReport $report)
