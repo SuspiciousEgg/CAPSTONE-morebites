@@ -1155,13 +1155,12 @@
 }
 
 .ac-empty-box {
-  background: #F8FAFC;
-  border: 1.5px dashed #CBD5E1;
-  border-radius: 12px;
-  padding: 36px 20px;
+  background: transparent;
+  border: none;
+  padding: 16px;
   text-align: center;
   max-width: 440px;
-  margin: 12px auto;
+  margin: 0 auto;
 }
 
 .ac-empty-pill {

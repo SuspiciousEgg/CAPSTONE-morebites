@@ -11,6 +11,7 @@ import {
 } from 'react-icons/lu'
 import { IconCheck, IconTrash } from './Icons'
 import { archiveApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './ArchivePage.css'
 
 const PAGE_SIZE = 5
@@ -176,11 +177,11 @@ export default function ArchivePage({ embedded = false }) {
               {admins.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="ar-empty">
-                    <div className="ar-empty-box">
-                      <span className="ar-empty-pill">Archived Accounts</span>
-                      <div className="ar-empty-title">No archived admins</div>
-                      <p className="ar-empty-subtext">Archived administrator accounts will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="archive"
+                      title="No archived admins"
+                      subtitle="Archived administrator accounts will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -259,11 +260,11 @@ export default function ArchivePage({ embedded = false }) {
               {drivers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="ar-empty">
-                    <div className="ar-empty-box">
-                      <span className="ar-empty-pill">Archived Accounts</span>
-                      <div className="ar-empty-title">No archived drivers</div>
-                      <p className="ar-empty-subtext">Archived driver accounts will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="archive"
+                      title="No archived drivers"
+                      subtitle="Archived driver accounts will appear here."
+                    />
                   </td>
                 </tr>
               ) : (

@@ -15,6 +15,7 @@ import {
   LuCheck,
 } from 'react-icons/lu'
 import { customersApi, mediaUrl } from '../api/client'
+import EmptyState from './EmptyState'
 import './CustomerManagement.css'
 
 const PAGE_SIZE = 8
@@ -280,13 +281,15 @@ export default function CustomerManagement() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} style={{ padding: '24px 16px', borderBottom: 'none' }}>
-                    <div className="cm-table-empty-box">
-                      <span className="cm-empty-pill">Customers</span>
-                      <div className="cm-empty-title">No customer records found</div>
-                      <p className="cm-empty-subtext">
-                        {search ? 'No customers match your search query.' : 'Registered customers will appear here.'}
-                      </p>
-                    </div>
+                    <EmptyState
+                      icon="users"
+                      title="No customer records found"
+                      subtitle={
+                        search
+                          ? 'No customers match your active search query.'
+                          : 'Registered customer profiles will appear here.'
+                      }
+                    />
                   </td>
                 </tr>
               ) : (
@@ -479,11 +482,12 @@ export default function CustomerManagement() {
                       {orderHistory.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="cm-history-empty">
-                            <div className="cm-table-empty-box" style={{ margin: '8px auto', padding: '28px 16px' }}>
-                              <span className="cm-empty-pill">Order History</span>
-                              <div className="cm-empty-title">No orders recorded yet</div>
-                              <p className="cm-empty-subtext">Customer purchase history will be displayed here.</p>
-                            </div>
+                            <EmptyState
+                              icon="receipt"
+                              title="No orders recorded yet"
+                              subtitle="Customer purchase history will appear here."
+                              style={{ padding: '20px 16px' }}
+                            />
                           </td>
                         </tr>
                       ) : (

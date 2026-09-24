@@ -14,6 +14,7 @@ import {
   LuTriangleAlert,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './MenuManagement.css'
 
 const CATEGORIES = ['Pizza', 'Pasta', 'Sides', 'Beverages', 'Desserts']
@@ -769,28 +770,30 @@ export default function MenuManagement() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 0 }}>
-                    <div className="menu-empty-state">
-                      <span className="menu-empty-badge">Menu Catalog</span>
-                      <div className="menu-empty-title">No menu items found</div>
-                      <p className="menu-empty-subtext">
-                        {search || category !== 'All Categories'
-                          ? 'No menu items match your search query or selected category.'
-                          : 'Get started by creating the first item in your menu catalog.'}
-                      </p>
-                      {Boolean(search || category !== 'All Categories') && (
-                        <button
-                          type="button"
-                          className="menu-empty-btn-secondary"
-                          onClick={() => {
-                            setSearch('')
-                            setCategory('All Categories')
-                            setPage(1)
-                          }}
-                        >
-                          Clear Filters
-                        </button>
-                      )}
-                    </div>
+                    <EmptyState
+                      icon="utensils"
+                      title="No menu items found"
+                      subtitle={
+                        search || category !== 'All Categories'
+                          ? 'No items match your active search filters.'
+                          : 'Catalog is currently empty.'
+                      }
+                      action={
+                        Boolean(search || category !== 'All Categories') && (
+                          <button
+                            type="button"
+                            className="menu-empty-btn-secondary"
+                            onClick={() => {
+                              setSearch('')
+                              setCategory('All Categories')
+                              setPage(1)
+                            }}
+                          >
+                            Clear Filters
+                          </button>
+                        )
+                      }
+                    />
                   </td>
                 </tr>
               ) : (

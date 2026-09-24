@@ -27,6 +27,7 @@ import {
   IconUser,
 } from './Icons'
 import { driversApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './DriverManagement.css'
 
 function Stars({ value }) {
@@ -246,11 +247,11 @@ export default function DriverManagement({ embedded = false }) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="dm-empty">
-                    <div className="dm-empty-box">
-                      <span className="dm-empty-pill">Drivers</span>
-                      <div className="dm-empty-title">No drivers found</div>
-                      <p className="dm-empty-subtext">Registered delivery drivers will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="driver"
+                      title="No drivers found"
+                      subtitle="Registered delivery drivers will appear here."
+                    />
                   </td>
                 </tr>
               ) : (

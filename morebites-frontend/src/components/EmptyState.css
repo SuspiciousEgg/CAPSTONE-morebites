@@ -1,0 +1,52 @@
+/* Shared Clean Empty State Component Styles */
+.mb-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 36px 20px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.mb-empty-icon {
+  width: 44px;
+  height: 44px;
+  color: #94A3B8;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mb-empty-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: #94A3B8;
+}
+
+.mb-empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+}
+
+.mb-empty-subtitle {
+  font-size: 13px;
+  color: #64748B;
+  margin: 0;
+  line-height: 1.45;
+  max-width: 380px;
+}
+
+.mb-empty-action {
+  margin-top: 14px;
+}
+

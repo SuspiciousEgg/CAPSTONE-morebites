@@ -19,6 +19,7 @@ import {
   IconUser,
 } from './Icons'
 import { blacklistApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './BlacklistDrivers.css'
 
 export default function BlacklistDrivers({ embedded = false }) {
@@ -111,11 +112,11 @@ export default function BlacklistDrivers({ embedded = false }) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="bl-empty">
-                    <div className="bl-empty-box">
-                      <span className="bl-empty-pill">Blacklist</span>
-                      <div className="bl-empty-title">No blacklisted drivers</div>
-                      <p className="bl-empty-subtext">Drivers restricted from accepting deliveries will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="shield"
+                      title="No blacklisted drivers"
+                      subtitle="Drivers restricted from deliveries will appear here."
+                    />
                   </td>
                 </tr>
               ) : (

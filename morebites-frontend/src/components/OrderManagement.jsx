@@ -15,6 +15,7 @@ import {
 } from 'react-icons/lu'
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
+import EmptyState from './EmptyState'
 import './OrderManagement.css'
 
 const STATUS_OPTIONS = [
@@ -289,11 +290,12 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
 
             <div className="om-cart">
               {cart.length === 0 ? (
-                <div className="om-cart-empty">
-                  <span className="om-cart-empty-pill">Cart Empty</span>
-                  <div className="om-cart-empty-text">No items added yet</div>
-                  <p className="om-cart-empty-sub">Select items from the menu to build the order</p>
-                </div>
+                <EmptyState
+                  icon="cart"
+                  title="No items added yet"
+                  subtitle="Select items from menu to build order."
+                  style={{ padding: '24px 12px' }}
+                />
               ) : (
                 <ul className="om-cart-list">
                   {cart.map((line) => (
@@ -624,33 +626,35 @@ export default function OrderManagement() {
       <section className="om-main-card">
         {pageRows.length === 0 ? (
           <div className="om-empty-state">
-            <div className="om-empty-box">
-              <span className="om-empty-badge">Orders Queue</span>
-              <h3 className="om-empty-title">
-                {search || status !== 'All Status' || type !== 'All Types'
+            <EmptyState
+              icon="receipt"
+              title={
+                search || status !== 'All Status' || type !== 'All Types'
                   ? 'No matching orders found'
-                  : 'No orders yet'}
-              </h3>
-              <p className="om-empty-subtitle">
-                {search || status !== 'All Status' || type !== 'All Types'
-                  ? 'No orders match your current search query or active filter settings.'
-                  : 'Orders will appear here once customers place them or you create one from POS.'}
-              </p>
-              {Boolean(search || status !== 'All Status' || type !== 'All Types') && (
-                <button
-                  type="button"
-                  className="om-empty-btn-secondary"
-                  onClick={() => {
-                    setSearch('')
-                    setStatus('All Status')
-                    setType('All Types')
-                    setPage(1)
-                  }}
-                >
-                  Clear Filters
-                </button>
-              )}
-            </div>
+                  : 'Queue is clear'
+              }
+              subtitle={
+                search || status !== 'All Status' || type !== 'All Types'
+                  ? 'Try adjusting your search query or filter settings.'
+                  : 'New orders will appear here once received.'
+              }
+              action={
+                Boolean(search || status !== 'All Status' || type !== 'All Types') && (
+                  <button
+                    type="button"
+                    className="om-empty-btn-secondary"
+                    onClick={() => {
+                      setSearch('')
+                      setStatus('All Status')
+                      setType('All Types')
+                      setPage(1)
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                )
+              }
+            />
           </div>
         ) : (
           <>

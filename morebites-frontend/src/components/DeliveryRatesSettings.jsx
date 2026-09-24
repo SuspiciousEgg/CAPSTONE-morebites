@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { LuPencil, LuX, LuCalculator } from 'react-icons/lu'
 import { IconClose, IconEdit } from './Icons'
 import { deliveryRatesApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './DeliveryRatesSettings.css'
 
 const EMPTY = {
@@ -112,11 +113,11 @@ export default function DeliveryRatesSettings() {
               ) : rates.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dr-empty">
-                    <div className="dr-empty-box">
-                      <span className="dr-empty-pill">Delivery Rates</span>
-                      <div className="dr-empty-title">No delivery rate tiers</div>
-                      <p className="dr-empty-subtext">Configured distance tiers and fee rules will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="pin"
+                      title="No delivery rate tiers"
+                      subtitle="Configured distance tiers and fee rules will appear here."
+                    />
                   </td>
                 </tr>
               ) : (

@@ -40,6 +40,7 @@ import {
   IconWarning,
 } from './Icons'
 import { inventoryApi, reportsApi } from '../api/client'
+import EmptyState from './EmptyState'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
@@ -1114,19 +1115,19 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="inv-empty">
-                    <div className="inv-empty-box">
-                      <span className="inv-empty-pill">Inventory</span>
-                      <div className="inv-empty-title">
-                        {currentTab === 'archived'
-                          ? 'No archived inventory items found'
-                          : 'No inventory items found'}
-                      </div>
-                      <p className="inv-empty-subtext">
-                        {search
-                          ? 'No items match your search query or filters.'
-                          : 'Raw materials, ingredients, and tracked inventory will appear here.'}
-                      </p>
-                    </div>
+                    <EmptyState
+                      icon="box"
+                      title={
+                        currentTab === 'archived'
+                          ? 'No archived inventory items'
+                          : 'No inventory items found'
+                      }
+                      subtitle={
+                        search
+                          ? 'No items match your active search filters.'
+                          : 'Raw materials and ingredients will appear here.'
+                      }
+                    />
                   </td>
                 </tr>
               ) : (
@@ -1487,13 +1488,11 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     {logRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="inv-empty">
-                          <div className="inv-empty-box">
-                            <span className="inv-empty-pill">Stock History</span>
-                            <div className="inv-empty-title">No stock movements found</div>
-                            <p className="inv-empty-subtext">
-                              Stock additions, deductions, and batch adjustments will be logged here.
-                            </p>
-                          </div>
+                          <EmptyState
+                            icon="clock"
+                            title="No stock movements found"
+                            subtitle="Stock additions and deductions will be logged here."
+                          />
                         </td>
                       </tr>
                     ) : (

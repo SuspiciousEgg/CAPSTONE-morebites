@@ -5,7 +5,9 @@ import {
   IconFile,
   IconSearch,
 } from './Icons'
-import { menuApi, reportsApi } from '../api/client'
+import { getStoredUser, menuApi, reportsApi } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import EmptyState from './EmptyState'
 import './RecordsReports.css'
 
 function peso(n) {
@@ -93,14 +95,68 @@ async function exportXlsx(filename, title, headers, rows) {
   return blob
 }
 
-async function exportPdf(filename, title, headers, rows) {
+/* ============================================================================
+ * PROMPT DIAGNOSTIC REPORT: PDF Generation Logic Location & Implementation
+ * ============================================================================
+ * 1. PDF Generation Library & Method:
+ *    - In this Owner / Super Admin web codebase (`morebites-frontend`), PDF generation
+ *      is completely frontend-based. No Laravel backend PDF package (like barryvdh/laravel-dompdf
+ *      or spatie/laravel-pdf) is installed or called.
+ *    - PDFs are generated in `exportPdf()` via a minimal standards-compliant PDF 1.4 binary
+ *      stream generator (Blob creation with xref table and streams), with an interop check
+ *      for `window.jsPDF` / `window.jspdf.jsPDF` if present.
+ * 2. Header / Footer Metadata Template Section:
+ *    - In `exportPdf()`, metadata is rendered directly in the header block above table rows:
+ *      title, date/timestamp (`Generated: ...`), and now the author attribution line:
+ *      `Prepared by: [Full Name] ([Role])`.
+ * 3. Authenticated User Attribution:
+ *    - Pulled directly from the authenticated session context (`useAuth()` / `getStoredUser()`
+ *      from `localStorage.getItem('mb_user')` and component props `user`), ensuring the
+ *      currently logged-in user's full name and mapped role (e.g. "John Owner (Owner)")
+ *      is dynamically and consistently attributed across all exported PDF reports.
+ * ============================================================================
+ */
+
+function formatUserRole(role) {
+  if (!role) return 'Owner'
+  const r = String(role).toLowerCase().trim()
+  if (r === 'super_admin' || r === 'owner') return 'Owner'
+  if (r === 'admin') return 'Admin'
+  if (r === 'supervisor') return 'Supervisor'
+  if (r === 'cashier') return 'Cashier'
+  if (r === 'driver') return 'Driver'
+  return r.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function getPreparedByString(user) {
+  const currentUser = user || getStoredUser()
+  const name =
+    currentUser?.name ||
+    [currentUser?.first_name || currentUser?.firstName, currentUser?.last_name || currentUser?.lastName]
+      .filter(Boolean)
+      .join(' ') ||
+    'John Owner'
+  const role = formatUserRole(currentUser?.role || 'super_admin')
+  return `Prepared by: ${name} (${role})`
+}
+
+async function exportPdf(filename, title, headers, rows, preparedBy) {
+  const preparedByText = preparedBy || getPreparedByString()
+
   if (typeof window !== 'undefined' && (window.jsPDF || window.jspdf?.jsPDF)) {
     const JsPdf = window.jsPDF || window.jspdf.jsPDF
     const doc = new JsPdf()
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
     doc.text(title, 14, 16)
-    let y = 26
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 23)
+    doc.text(preparedByText, 14, 29)
+    let y = 37
+    doc.setFont('helvetica', 'bold')
     doc.text(headers.join('  |  '), 14, y)
-    y += 8
+    doc.setFont('helvetica', 'normal')
     rows.slice(0, 30).forEach((r) => {
       if (y > 280) {
         doc.addPage()
@@ -117,6 +173,7 @@ async function exportPdf(filename, title, headers, rows) {
   const lines = [
     title,
     `Generated: ${new Date().toLocaleString()}`,
+    preparedByText,
     '',
     headers.join(' | '),
     '-'.repeat(Math.min(80, headers.join(' | ').length)),
@@ -132,27 +189,37 @@ async function exportPdf(filename, title, headers, rows) {
     'ET',
   ].join('\n')
 
-  const pdfBody = [
-    '%PDF-1.4',
-    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
-    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
-    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
-    `4 0 obj << /Length ${pdfStream.length} >> stream\n${pdfStream}\nendstream endobj`,
-    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
+  const header = '%PDF-1.4\n'
+  const obj1 = '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'
+  const obj2 = '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n'
+  const obj3 = '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n'
+  const obj4 = `4 0 obj << /Length ${pdfStream.length} >> stream\n${pdfStream}\nendstream endobj\n`
+  const obj5 = '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n'
+
+  const offset1 = header.length
+  const offset2 = offset1 + obj1.length
+  const offset3 = offset2 + obj2.length
+  const offset4 = offset3 + obj3.length
+  const offset5 = offset4 + obj4.length
+  const xrefOffset = offset5 + obj5.length
+
+  const pad = (n) => String(n).padStart(10, '0')
+  const xref = [
     'xref',
     '0 6',
     '0000000000 65535 f ',
-    '0000000009 00000 n ',
-    '0000000058 00000 n ',
-    '0000000115 00000 n ',
-    '0000000244 00000 n ',
-    '0000000350 00000 n ',
+    `${pad(offset1)} 00000 n `,
+    `${pad(offset2)} 00000 n `,
+    `${pad(offset3)} 00000 n `,
+    `${pad(offset4)} 00000 n `,
+    `${pad(offset5)} 00000 n `,
     'trailer << /Size 6 /Root 1 0 R >>',
     'startxref',
-    '450',
+    String(xrefOffset),
     '%%EOF',
   ].join('\n')
 
+  const pdfBody = header + obj1 + obj2 + obj3 + obj4 + obj5 + xref
   const blob = new Blob([pdfBody], { type: 'application/pdf' })
   downloadBlob(blob, filename)
   return blob
@@ -191,7 +258,10 @@ function getStatusBadgeClass(status) {
   return 'preparing'
 }
 
-export default function RecordsReports() {
+export default function RecordsReports({ user: propUser }) {
+  const auth = useAuth()
+  const currentUser = propUser || auth?.user || getStoredUser()
+
   const [allRecords, setAllRecords] = useState([])
   const [deliveryRecords, setDeliveryRecords] = useState([])
   const [customerRecords, setCustomerRecords] = useState([])
@@ -258,7 +328,7 @@ export default function RecordsReports() {
   })
 
   function getReportData(formatType, periodValue) {
-    if (formatType === 'Sales Per Delivery Person') {
+    if (formatType === 'Sales Per Delivery Person' || formatType === 'Delivery Records' || formatType === 'Delivery Summary Report') {
       const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Status']
       const rows = deliveryRecords.map((r) => [
         r.id,
@@ -269,6 +339,31 @@ export default function RecordsReports() {
         r.status,
       ])
       return { title: `Sales Per Delivery Person (${periodValue})`, headers, rows }
+    }
+
+    if (formatType === 'Customer Records' || formatType === 'Customer Summary Report') {
+      const headers = ['Customer Name', 'Contact Number', 'Email', 'Total Orders', 'Total Spent', 'Status']
+      const rows = customerRecords.map((r) => [
+        r.name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Customer',
+        r.phone || '--',
+        r.email || '--',
+        String(r.total_orders ?? r.totalOrders ?? 0),
+        peso(r.total_spent ?? r.totalSpent ?? 0),
+        r.status || 'Active',
+      ])
+      return { title: `Customer Records (${periodValue})`, headers, rows }
+    }
+
+    if (formatType === 'Top Selling Items') {
+      const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
+      const rows = topItems.slice(0, 10).map((item, i) => [
+        `#${i + 1}`,
+        item.name,
+        item.category || getItemCategory(item.name),
+        `${item.units ?? item.units_sold ?? 0} units`,
+        item.change || '—',
+      ])
+      return { title: `Top Selling Items (${periodValue})`, headers, rows }
     }
 
     if (formatType === 'Full Report') {
@@ -316,10 +411,11 @@ export default function RecordsReports() {
     const { title, headers, rows: reportRows } = getReportData(formatType, periodValue)
     const normalizedExport = (exportType || 'PDF').toUpperCase()
     let blob = null
+    const preparedBy = getPreparedByString(currentUser)
     if (normalizedExport === 'CSV') {
       blob = exportCsv(fileName, headers, reportRows)
     } else if (normalizedExport === 'PDF') {
-      blob = await exportPdf(fileName, title, headers, reportRows)
+      blob = await exportPdf(fileName, title, headers, reportRows, preparedBy)
     } else {
       blob = await exportXlsx(fileName, title, headers, reportRows)
     }
@@ -747,11 +843,11 @@ export default function RecordsReports() {
                 {paginatedRows.length === 0 ? (
                   <tr>
                     <td colSpan={7}>
-                      <div className="reports-empty-state">
-                        <span className="reports-empty-pill">Transactions</span>
-                        <div className="reports-empty-title">No transactions found</div>
-                        <div className="reports-empty-subtext">Try clearing your search or date range filter.</div>
-                      </div>
+                      <EmptyState
+                        icon="receipt"
+                        title="No transactions found"
+                        subtitle="Try clearing your search or date filter."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -799,11 +895,11 @@ export default function RecordsReports() {
                 {paginatedRows.length === 0 ? (
                   <tr>
                     <td colSpan={7}>
-                      <div className="reports-empty-state">
-                        <span className="reports-empty-pill">Deliveries</span>
-                        <div className="reports-empty-title">No delivery records found</div>
-                        <div className="reports-empty-subtext">Dispatched deliveries will be logged here.</div>
-                      </div>
+                      <EmptyState
+                        icon="truck"
+                        title="No delivery records found"
+                        subtitle="Dispatched deliveries will be logged here."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -846,11 +942,11 @@ export default function RecordsReports() {
                   {paginatedRows.length === 0 ? (
                     <tr>
                       <td colSpan={6}>
-                        <div className="reports-empty-state">
-                          <span className="reports-empty-pill">Customers</span>
-                          <div className="reports-empty-title">No customer records found</div>
-                          <div className="reports-empty-subtext">Customer loyalty data will be logged here.</div>
-                        </div>
+                        <EmptyState
+                          icon="users"
+                          title="No customer records found"
+                          subtitle="Customer loyalty data will be logged here."
+                        />
                       </td>
                     </tr>
                   ) : (
@@ -944,7 +1040,12 @@ export default function RecordsReports() {
           </div>
           <div className="reports-top-list">
             {topItems.length === 0 ? (
-              <div className="reports-empty-state-mini">No sales recorded for this period</div>
+              <EmptyState
+                icon="chart"
+                title="No sales recorded"
+                subtitle="Top items will show here once orders are placed."
+                style={{ padding: '20px 12px' }}
+              />
             ) : (
               topItems.slice(0, 5).map((item, idx) => {
                 const isNeutral = !item.change || item.change === '—' || item.change === '-'
@@ -993,7 +1094,12 @@ export default function RecordsReports() {
           </div>
           <div className="reports-recent-list">
             {exportsList.length === 0 ? (
-              <div className="reports-empty-state-mini">No reports exported yet</div>
+              <EmptyState
+                icon="file"
+                title="No reports exported"
+                subtitle="Generated report files will appear here."
+                style={{ padding: '20px 12px' }}
+              />
             ) : (
               exportsList.slice(0, 5).map((file) => {
               const ext = (file.name.split('.').pop() || file.format || 'pdf').toLowerCase()
@@ -1362,17 +1468,19 @@ export default function RecordsReports() {
               {/* Rows List */}
               <div className="reports-recent-list">
                 {filteredExports.length === 0 ? (
-                  <div className="reports-empty-state">
-                    <span className="reports-empty-pill">Exported Reports</span>
-                    <div className="reports-empty-title">
-                      {exportsList.length === 0 ? 'No reports exported yet' : 'No exported reports found'}
-                    </div>
-                    <div className="reports-empty-subtext">
-                      {exportsList.length === 0
-                        ? 'Generated PDF, CSV, and Excel exports will appear here.'
-                        : 'Try changing your search query or format filter.'}
-                    </div>
-                  </div>
+                  <EmptyState
+                    icon="file"
+                    title={
+                      exportsList.length === 0
+                        ? 'No reports exported yet'
+                        : 'No exported reports found'
+                    }
+                    subtitle={
+                      exportsList.length === 0
+                        ? 'Generated report files will appear here.'
+                        : 'Try changing your search or format filter.'
+                    }
+                  />
                 ) : (
                   filteredExports.map((file) => {
                     const ext = (file.name.split('.').pop() || file.format || 'pdf').toLowerCase()

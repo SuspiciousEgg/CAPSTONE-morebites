@@ -133,51 +133,22 @@
 }
 
 .dp-empty-box {
-  background: #F8FAFC;
-  border: 1.5px dashed #CBD5E1;
-  border-radius: 12px;
-  padding: 36px 20px;
+  background: transparent;
+  border: none;
+  padding: 16px;
   text-align: center;
   max-width: 440px;
-  margin: 12px auto;
-}
-
-.dp-empty-pill {
-  display: inline-block;
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748B;
-  background: #E2E8F0;
-  padding: 2.5px 9px;
-  border-radius: 9999px;
-  margin-bottom: 8px;
-}
-
-.dp-empty-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1E293B;
-  margin: 0 0 4px;
-}
-
-.dp-empty-subtext {
-  font-size: 13px;
-  color: #64748B;
-  line-height: 1.45;
-  margin: 0;
+  margin: 0 auto;
 }
 
 .dp-empty-riders {
   text-align: center;
-  padding: 28px 16px;
-  background: #F8FAFC;
-  border: 1.5px dashed #CBD5E1;
-  border-radius: 12px;
+  padding: 16px;
+  background: transparent;
+  border: none;
   color: #64748B;
   font-size: 13px;
-  margin: 10px 0;
+  margin: 0;
 }
 
 /* Status Pills */

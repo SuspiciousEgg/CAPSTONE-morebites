@@ -12,6 +12,7 @@ import {
 } from 'react-icons/lu'
 import { dispatchApi } from '../api/client'
 import FleetMap from './FleetMap'
+import EmptyState from './EmptyState'
 import './DispatchManagement.css'
 
 function badgeClass(status) {
@@ -178,11 +179,11 @@ export default function DispatchManagement() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dp-empty-row">
-                    <div className="dp-empty-box">
-                      <span className="dp-empty-pill">Dispatch Queue</span>
-                      <div className="dp-empty-title">No pending deliveries</div>
-                      <p className="dp-empty-subtext">Orders ready for rider assignment will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="truck"
+                      title="No pending deliveries"
+                      subtitle="Orders ready for rider assignment will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -336,11 +337,11 @@ export default function DispatchManagement() {
                 {monitoring.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="dp-empty-row">
-                      <div className="dp-empty-box">
-                        <span className="dp-empty-pill">Live Tracking</span>
-                        <div className="dp-empty-title">No active deliveries</div>
-                        <p className="dp-empty-subtext">Dispatched deliveries currently in transit will appear here.</p>
-                      </div>
+                      <EmptyState
+                        icon="pin"
+                        title="No active deliveries"
+                        subtitle="Dispatched deliveries in transit will appear here."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -446,10 +447,12 @@ export default function DispatchManagement() {
               <div className="dp-section-header-label">Available Riders</div>
               <div className="dp-rider-cards-list">
                 {riders.length === 0 ? (
-                  <div className="dp-empty-riders">
-                    <div style={{ fontWeight: 700, color: '#1E293B', marginBottom: 4 }}>No riders available</div>
-                    <div>All riders are currently on delivery or offline.</div>
-                  </div>
+                  <EmptyState
+                    icon="driver"
+                    title="No riders available"
+                    subtitle="All riders are currently on delivery or offline."
+                    style={{ padding: '24px 16px' }}
+                  />
                 ) : (
                   riders.map((r) => {
                     const rObj =

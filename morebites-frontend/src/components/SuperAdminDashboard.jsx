@@ -53,6 +53,7 @@ import CustomerManagement from './CustomerManagement'
 import AccountManagement from './AccountManagement'
 import DeliveryRatesSettings from './DeliveryRatesSettings'
 import DriverManagement from './DriverManagement'
+import EmptyState from './EmptyState'
 import { dashboardApi, notificationsApi } from '../api/client'
 import './SuperAdminDashboard.css'
 
@@ -585,13 +586,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
             <div className="sa-all-notifs-list">
               {filteredModalNotifs.length === 0 ? (
-                <div className="sa-notif-empty" style={{ padding: '48px 20px' }}>
-                  <span className="sa-empty-pill">Notifications</span>
-                  <div style={{ fontWeight: 700, color: '#1E293B', fontSize: 15, marginTop: 4 }}>No notifications found</div>
-                  <div style={{ color: '#64748B', fontSize: 13, marginTop: 4 }}>
-                    {modalSearch ? 'Try a different search keyword' : 'New orders, inventory alerts, and dispatch updates will appear here.'}
-                  </div>
-                </div>
+                <EmptyState
+                  icon="bell"
+                  title="No notifications found"
+                  subtitle={modalSearch ? 'Try a different search keyword.' : 'New alerts and updates will appear here.'}
+                  style={{ padding: '48px 20px' }}
+                />
               ) : (
                 filteredModalNotifs.map((n) => {
                   const meta = getNotifMeta(n)
@@ -669,11 +669,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
               <div className="sa-notif-list">
                 {filteredNotifs.length === 0 ? (
-                  <div className="sa-notif-empty">
-                    <span className="sa-empty-pill">Notifications</span>
-                    <div style={{ fontWeight: 600, color: '#1E293B', fontSize: 13, marginTop: 4 }}>No notifications yet</div>
-                    <div style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>You're all caught up!</div>
-                  </div>
+                  <EmptyState
+                    icon="bell"
+                    title="No notifications yet"
+                    subtitle="You're all caught up for now."
+                    style={{ padding: '28px 16px' }}
+                  />
                 ) : (
                   filteredNotifs.map((n) => {
                     const meta = getNotifMeta(n)
@@ -730,7 +731,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         ) : activeNav === 'Dispatch' ? (
           <DispatchManagement />
         ) : activeNav === 'Reports' ? (
-          <RecordsReports />
+          <RecordsReports user={user} />
         ) : activeNav === 'Driver' ? (
           <DriverManagement />
         ) : !isCashier && activeNav === 'Customers' ? (
@@ -870,17 +871,15 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </ResponsiveContainer>
               {!hasSales && (
                 <div className="sa-chart-empty-overlay">
-                  <div className="sa-chart-empty-card">
-                    <span className="sa-chart-empty-pill">Sales Overview</span>
-                    <div className="sa-chart-empty-title">
-                      {salesPeriod === 'Daily'
-                        ? 'No sales recorded yet for today'
-                        : `No sales recorded yet for this ${salesPeriod.toLowerCase().replace('ly', '')}`}
-                    </div>
-                    <p className="sa-chart-empty-subtext">
-                      Sales data will dynamically graph here as orders are processed throughout the {salesPeriod === 'Daily' ? 'day' : salesPeriod === 'Weekly' ? 'week' : 'month'}.
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon="chart"
+                    title={
+                      salesPeriod === 'Daily'
+                        ? 'No sales yet today'
+                        : `No sales this ${salesPeriod.toLowerCase().replace('ly', '')}`
+                    }
+                    subtitle="Sales activity will appear once orders are placed."
+                  />
                 </div>
               )}
             </div>
@@ -906,13 +905,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   {displayActivityLog.length === 0 ? (
                     <tr>
                       <td colSpan={4} style={{ padding: '24px 16px', borderBottom: 'none' }}>
-                        <div className="sa-table-empty-box">
-                          <span className="sa-empty-pill">Activity Log</span>
-                          <div className="sa-table-empty-title">No activity recorded today</div>
-                          <p className="sa-table-empty-subtext">
-                            System events, staff actions, and order status changes will be logged here.
-                          </p>
-                        </div>
+                        <EmptyState
+                          icon="clock"
+                          title="No activity recorded today"
+                          subtitle="Staff actions and system events will appear here."
+                        />
                       </td>
                     </tr>
                   ) : (
@@ -946,7 +943,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         <section className="sa-row-bottom">
           <article className="sa-bottom-card">
             <div className="sa-card-header">
-              <h2 className="sa-card-heading">Order Status (Today)</h2>
+              <h2 className="sa-card-heading">Order Breakdown</h2>
             </div>
             <div className="sa-donut-container">
               <div className="sa-donut-chart-wrap">
@@ -991,7 +988,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
           <article className="sa-bottom-card">
             <div className="sa-card-header">
-              <h2 className="sa-card-heading">Order Status (Today)</h2>
+              <h2 className="sa-card-heading">Live Orders Queue</h2>
               <button
                 type="button"
                 className="sa-card-link"
@@ -1001,11 +998,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {orders.length === 0 ? (
-              <div className="sa-bottom-empty-card">
-                <span className="sa-empty-pill">Orders Queue</span>
-                <div className="sa-bottom-empty-title">No orders today</div>
-                <p className="sa-bottom-empty-subtext">New orders placed today will appear here as they are received.</p>
-              </div>
+              <EmptyState
+                icon="receipt"
+                title="Queue is clear"
+                subtitle="New orders placed today will appear here."
+              />
             ) : (
               <div className="sa-activity-table-wrap">
                 <table className="sa-activity-table">
@@ -1046,11 +1043,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {lowStocks.length === 0 ? (
-              <div className="sa-healthy-card">
-                <span className="sa-empty-pill sa-empty-pill-success">Inventory Status</span>
-                <div className="sa-healthy-title">All stocks healthy</div>
-                <p className="sa-healthy-subtext">All inventory items are currently above their minimum reorder level.</p>
-              </div>
+              <EmptyState
+                icon="box"
+                title="All stocks healthy"
+                subtitle="All inventory items are above minimum reorder levels."
+              />
             ) : (
               lowStocks.map((item) => {
                 const tone = stockTone(item.level)

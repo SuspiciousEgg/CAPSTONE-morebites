@@ -29,6 +29,7 @@ import { MoreButton, RowActionMenuPopup, useRowActionMenu } from './RowActionMen
 import ArchivePage from './ArchivePage'
 import DriverManagement from './DriverManagement'
 import BlacklistDrivers from './BlacklistDrivers'
+import EmptyState from './EmptyState'
 import './AccountManagement.css'
 
 const INITIAL_ADMINS = []
@@ -747,11 +748,11 @@ export default function AccountManagement() {
               {admins.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="ac-empty">
-                    <div className="ac-empty-box">
-                      <span className="ac-empty-pill">Admin Accounts</span>
-                      <div className="ac-empty-title">No admin accounts found</div>
-                      <p className="ac-empty-subtext">Registered administrators will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="users"
+                      title="No admin accounts found"
+                      subtitle="Registered administrators will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -806,11 +807,11 @@ export default function AccountManagement() {
               {drivers.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="ac-empty">
-                    <div className="ac-empty-box">
-                      <span className="ac-empty-pill">Driver Accounts</span>
-                      <div className="ac-empty-title">No driver accounts found</div>
-                      <p className="ac-empty-subtext">Registered driver logins will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="driver"
+                      title="No driver accounts found"
+                      subtitle="Registered driver logins will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -866,11 +867,11 @@ export default function AccountManagement() {
               {cashiers.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="ac-empty">
-                    <div className="ac-empty-box">
-                      <span className="ac-empty-pill">Cashier Accounts</span>
-                      <div className="ac-empty-title">No cashier accounts found</div>
-                      <p className="ac-empty-subtext">Registered cashier logins will appear here.</p>
-                    </div>
+                    <EmptyState
+                      icon="user"
+                      title="No cashier accounts found"
+                      subtitle="Registered cashier logins will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
