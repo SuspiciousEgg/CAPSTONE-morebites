@@ -50,8 +50,8 @@ function emptyForm() {
   }
 }
 
-function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
-  const [form, setForm] = useState(() => ({
+function buildInitialForm(initial) {
+  return {
     ...emptyForm(),
     ...initial,
     description: initial?.description || '',
@@ -63,11 +63,26 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         : [{ name: '', price: '' }],
     ingredients: (initial?.ingredients || []).map((row) => ({
       inventory_item_id: String(row.inventory_item_id || ''),
-      qty_per_serving: row.qty_per_serving != null ? String(row.qty_per_serving) : '',
+      qty_per_serving:
+        row.qty_per_serving != null && row.qty_per_serving !== ''
+          ? String(Number(row.qty_per_serving))
+          : '1',
+      name: row.name || '',
+      unit: row.unit || '',
+      stock: row.stock ?? '',
     })),
-  }))
+  }
+}
+
+function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
+  const [form, setForm] = useState(() => buildInitialForm(initial))
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    setForm(buildInitialForm(initial))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id])
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -124,6 +139,32 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }))
   }
 
+  function hasIngredientChanges() {
+    const normalize = (list) =>
+      (list || [])
+        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+        .map((row) => ({
+          inventory_item_id: Number(row.inventory_item_id),
+          qty_per_serving:
+            row.qty_per_serving === '' || row.qty_per_serving == null
+              ? 1
+              : Number(row.qty_per_serving),
+        }))
+    return (
+      JSON.stringify(normalize(form.ingredients)) !==
+      JSON.stringify(normalize(initial?.ingredients))
+    )
+  }
+
+  async function handleDismiss() {
+    if (saving) return
+    if (mode === 'edit' && hasIngredientChanges()) {
+      await submit()
+      return
+    }
+    onClose()
+  }
+
   async function submit(e) {
     e?.preventDefault()
     if (!String(form.name || '').trim()) {
@@ -135,16 +176,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       return
     }
 
-    const recipeRows = form.ingredients.filter(
-      (row) => row.inventory_item_id && row.qty_per_serving !== '',
-    )
+    const recipeRows = form.ingredients
+      .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+      .map((row) => ({
+        ...row,
+        qty_per_serving:
+          row.qty_per_serving === '' || row.qty_per_serving == null
+            ? '1'
+            : String(row.qty_per_serving).trim(),
+      }))
     for (const row of recipeRows) {
       if (Number(row.qty_per_serving) <= 0 || Number.isNaN(Number(row.qty_per_serving))) {
         alert('Each linked ingredient needs a quantity greater than 0.')
         return
       }
     }
-    const ids = recipeRows.map((r) => r.inventory_item_id)
+    const ids = recipeRows.map((r) => String(r.inventory_item_id))
     if (new Set(ids).size !== ids.length) {
       alert('Each inventory item can only be linked once.')
       return
@@ -201,7 +248,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
       <div
         className="menu-modal-content"
         role="dialog"
@@ -213,7 +260,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           <button
             type="button"
             className="menu-modal-close"
-            onClick={onClose}
+            onClick={handleDismiss}
             aria-label="Close modal"
           >
             <LuX size={18} />
@@ -385,47 +432,60 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               Connect inventory stock used per serving. Orders deduct these amounts automatically.
             </p>
             <div className="menu-recipe-list">
-              {form.ingredients.map((row, i) => (
-                <div key={i} className="menu-recipe-row">
-                  <select
-                    value={row.inventory_item_id}
-                    onChange={(e) =>
-                      updateIngredient(i, 'inventory_item_id', e.target.value)
-                    }
-                  >
-                    <option value="">Select ingredient</option>
-                    {inventoryOptions.map((opt) => {
-                      const taken =
-                        selectedIds.has(String(opt.id)) &&
-                        String(opt.id) !== String(row.inventory_item_id)
-                      return (
-                        <option key={opt.id} value={opt.id} disabled={taken}>
-                          {opt.name} ({opt.stock} {opt.unit})
+              {form.ingredients.map((row, i) => {
+                const currentId = String(row.inventory_item_id || '')
+                const hasCurrentInOptions = inventoryOptions.some(
+                  (opt) => String(opt.id) === currentId,
+                )
+                return (
+                  <div key={i} className="menu-recipe-row">
+                    <select
+                      value={currentId}
+                      onChange={(e) =>
+                        updateIngredient(i, 'inventory_item_id', e.target.value)
+                      }
+                    >
+                      <option value="">Select ingredient</option>
+                      {currentId && !hasCurrentInOptions && (
+                        <option value={currentId}>
+                          {row.name || `Ingredient #${currentId}`}
+                          {row.unit ? ` (${row.stock ?? 0} ${row.unit})` : ''}
                         </option>
-                      )
-                    })}
-                  </select>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    className="menu-recipe-qty-input"
-                    placeholder="Qty/serving"
-                    value={row.qty_per_serving}
-                    onChange={(e) =>
-                      updateIngredient(i, 'qty_per_serving', e.target.value)
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="menu-remove-size-btn"
-                    onClick={() => removeIngredientRow(i)}
-                    aria-label="Remove ingredient"
-                  >
-                    <LuTrash2 size={16} />
-                  </button>
-                </div>
-              ))}
+                      )}
+                      {inventoryOptions.map((opt) => {
+                        const optId = String(opt.id)
+                        const taken =
+                          selectedIds.has(optId) && optId !== currentId
+                        return (
+                          <option key={optId} value={optId} disabled={taken}>
+                            {opt.name} ({opt.stock} {opt.unit})
+                          </option>
+                        )
+                      })}
+                    </select>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      className="menu-recipe-qty-input"
+                      placeholder="Qty/serving"
+                      value={row.qty_per_serving}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) =>
+                        updateIngredient(i, 'qty_per_serving', e.target.value)
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="menu-remove-size-btn"
+                      onClick={() => removeIngredientRow(i)}
+                      aria-label="Remove ingredient"
+                    >
+                      <LuTrash2 size={16} />
+                    </button>
+                  </div>
+                )
+              })}
               <button
                 type="button"
                 className="menu-add-size-row-btn"
@@ -617,7 +677,9 @@ export default function MenuManagement() {
       if (formState?.mode === 'edit') {
         const { data: res } = await menuApi.update(data.id, payload)
         const updated = res?.data || res
-        setItems((prev) => prev.map((item) => (item.id === data.id ? updated : item)))
+        setItems((prev) =>
+          prev.map((item) => (Number(item.id) === Number(data.id) ? updated : item)),
+        )
       } else {
         const { data: res } = await menuApi.create(payload)
         const created = res?.data || res
@@ -898,7 +960,9 @@ export default function MenuManagement() {
                             className="menu-action-btn"
                             onClick={() => {
                               reloadInventory()
-                              setFormState({ mode: 'edit', item })
+                              const latest =
+                                items.find((i) => Number(i.id) === Number(item.id)) || item
+                              setFormState({ mode: 'edit', item: latest })
                             }}
                             aria-label={`Edit ${item.name}`}
                             title="Edit"
@@ -997,6 +1061,7 @@ export default function MenuManagement() {
       {/* Add / Edit Modal */}
       {formState && (
         <ItemFormModal
+          key={formState.mode === 'edit' ? `edit-${formState.item?.id}` : 'add'}
           mode={formState.mode}
           initial={formState.item}
           inventoryOptions={inventoryOptions}

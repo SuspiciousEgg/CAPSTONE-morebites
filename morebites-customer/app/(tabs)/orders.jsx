@@ -51,13 +51,24 @@ const PRIMARY = "#F97000";
 
 const STATUS_ICONS = {
   "Out for Delivery": "bicycle",
+  "Picked Up": "bicycle",
   Assigned: "bicycle",
+  Ready: "cube-outline",
   Delivered: "checkmark-circle-outline",
   Completed: "checkmark-circle-outline",
   Preparing: "flame-outline",
   Pending: "time-outline",
   Cancelled: "close-circle-outline",
 };
+
+const TRACKABLE_STATUSES = [
+  "Out for Delivery",
+  "Picked Up",
+  "Assigned",
+  "Ready",
+  "Preparing",
+  "Pending",
+];
 
 function StatusIndicator({ status }) {
   const icon = STATUS_ICONS[status] || "time-outline";
@@ -70,8 +81,9 @@ function StatusIndicator({ status }) {
 }
 
 function OrderCard({ order, onViewDetails }) {
-  // Only the "Out for Delivery" status displays the "Track" button
-  const isOutForDelivery = order.status === "Out for Delivery";
+  const canTrack =
+    TRACKABLE_STATUSES.includes(order.status) ||
+    (!["Delivered", "Completed", "Cancelled"].includes(order.status) && Boolean(order.status));
 
   return (
     <View style={styles.orderCard}>
@@ -83,11 +95,14 @@ function OrderCard({ order, onViewDetails }) {
         <StatusIndicator status={order.status} />
       </View>
 
-      <Text style={styles.itemsText}>{order.itemsLabel}</Text>
-
-      <View style={styles.dateRow}>
-        <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
-        <Text style={styles.dateText}>{order.dateLabel}</Text>
+      <View style={styles.itemSummaryWrap}>
+        <View style={styles.itemInfoCol}>
+          <Text style={styles.itemsText}>{order.itemsLabel}</Text>
+          <View style={styles.dateRow}>
+            <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
+            <Text style={styles.dateText}>{order.dateLabel}</Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.totalRow}>
@@ -97,18 +112,22 @@ function OrderCard({ order, onViewDetails }) {
 
       <View style={styles.actionRow}>
         <Pressable
-          style={[styles.detailsButton, isOutForDelivery && styles.detailsButtonHalf]}
+          style={[styles.detailsButton, canTrack && styles.detailsButtonHalf]}
           onPress={() => onViewDetails(order)}
         >
           <Text style={styles.detailsButtonText}>View Details</Text>
         </Pressable>
-        {isOutForDelivery ? (
+        {canTrack ? (
           <Pressable
             style={styles.trackButton}
             onPress={() =>
               router.push({
                 pathname: "/order-tracking",
-                params: { orderId: order.id, dbId: String(order.db_id || "") },
+                params: {
+                  orderId: order.id,
+                  dbId: String(order.db_id || ""),
+                  order: JSON.stringify(order),
+                },
               })
             }
           >
@@ -400,6 +419,14 @@ export default function OrdersScreen() {
 
       const interval = setInterval(async () => {
         loadUnreadCount();
+        try {
+          const ordersRes = await customerApi.orders();
+          if (ordersRes?.data) {
+            setOrders(ordersRes.data);
+          }
+        } catch {
+          // offline / ignore
+        }
         if (notificationsVisibleRef.current) {
           try {
             const res = await customerApi.notifications();
@@ -447,7 +474,11 @@ export default function OrdersScreen() {
     const orderData = item.data || {};
     const orderStatus = orderData.status;
 
-    if (orderStatus === "Out for Delivery" || item.message?.includes("out for delivery")) {
+    if (
+      TRACKABLE_STATUSES.includes(orderStatus) ||
+      item.message?.toLowerCase().includes("out for delivery") ||
+      item.message?.toLowerCase().includes("track")
+    ) {
       setNotificationsVisible(false);
       router.push({
         pathname: "/order-tracking",
@@ -631,15 +662,32 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statusText: { color: "#121212", fontFamily: FONT, fontSize: 13, fontWeight: "700" },
+  itemSummaryWrap: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+    marginTop: 10,
+  },
+  itemIconBox: {
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  itemInfoCol: {
+    flex: 1,
+  },
   itemsText: {
     color: "#121212",
     fontFamily: FONT,
     fontSize: 14,
     fontWeight: "700",
-    marginBottom: 6,
-    marginTop: 8,
+    marginBottom: 5,
   },
-  dateRow: { alignItems: "center", flexDirection: "row", gap: 6, marginBottom: 12 },
+  dateRow: { alignItems: "center", flexDirection: "row", gap: 6 },
   dateText: { color: "#9CA3AF", fontFamily: FONT, fontSize: 12, fontWeight: "500" },
   totalRow: {
     alignItems: "center",

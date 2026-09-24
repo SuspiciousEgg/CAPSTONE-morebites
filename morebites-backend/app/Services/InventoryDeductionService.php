@@ -17,6 +17,11 @@ class InventoryDeductionService
         return $this->unserviceableReason($item, $qty) === null;
     }
 
+    public function outOfStockReason(MenuItem $item, int $qty = 1): string
+    {
+        return (string) ($this->unserviceableReason($item, $qty) ?? '');
+    }
+
     public function unserviceableReason(MenuItem $item, int $qty = 1): ?string
     {
         $item->loadMissing(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])]);

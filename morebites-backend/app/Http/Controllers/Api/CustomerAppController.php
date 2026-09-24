@@ -569,7 +569,11 @@ class CustomerAppController extends Controller
 
     private function orderPayload(Order $o): array
     {
-        $displayStatus = $o->status === 'Completed' ? 'Delivered' : $o->status;
+        $displayStatus = match ($o->status) {
+            'Completed' => 'Delivered',
+            'Picked Up' => 'Out for Delivery',
+            default => $o->status,
+        };
         $date = $o->created_at;
         $firstItem = $o->items->first();
 
@@ -577,6 +581,7 @@ class CustomerAppController extends Controller
             'id' => $o->order_code,
             'db_id' => $o->id,
             'status' => $displayStatus,
+            'raw_status' => $o->status,
             'date' => $date?->toIso8601String(),
             'dateLabel' => $date?->format('M j, Y · g:i A'),
             'total' => (float) $o->total,
