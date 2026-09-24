@@ -28,10 +28,9 @@ class DeliveryRate extends Model
     public function label(): string
     {
         $min = number_format((float) $this->min_km, $this->min_km == (int) $this->min_km ? 0 : 1);
-        if ($this->max_km === null) {
-            return "{$min}+ km";
-        }
-        $max = number_format((float) $this->max_km, $this->max_km == (int) $this->max_km ? 0 : 1);
+        $max = $this->max_km !== null
+            ? number_format((float) $this->max_km, $this->max_km == (int) $this->max_km ? 0 : 1)
+            : '10';
 
         return "{$min} – {$max} km";
     }

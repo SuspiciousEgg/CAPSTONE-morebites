@@ -105,6 +105,7 @@ function toMenuFormData(payload) {
 
 export const menuApi = {
   list: (params) => api.get('/menu', { params }),
+  topSelling: () => api.get('/menu/top-selling'),
   create: (payload) => api.post('/menu', toMenuFormData(payload)),
   update: (id, payload) => api.post(`/menu/${id}`, toMenuFormData(payload)),
   toggleAvailability: (id) => api.patch(`/menu/${id}/availability`),
@@ -117,6 +118,8 @@ export const inventoryApi = {
   create: (payload) => api.post('/inventory', payload),
   update: (id, payload) => api.put(`/inventory/${id}`, payload),
   restock: (id, quantity) => api.post(`/inventory/${id}/restock`, { quantity }),
+  archive: (id) => api.patch(`/inventory/${id}/archive`),
+  restore: (id) => api.patch(`/inventory/${id}/restore`),
   remove: (id) => api.delete(`/inventory/${id}`),
   logs: (params) => api.get('/inventory/logs', { params }),
 }
@@ -149,7 +152,9 @@ export const deliveryRatesApi = {
 
 export const reportsApi = {
   get: (params) => api.get('/reports', { params }),
+  customers: (params) => api.get('/reports/customers', { params }),
   generate: (payload) => api.post('/reports/generate', payload),
+  logExport: (payload) => api.post('/reports/log-export', payload),
   delete: (id) => api.delete(`/reports/${id}`),
 }
 
@@ -178,12 +183,21 @@ export const driversApi = {
   list: (params) => api.get('/drivers', { params }),
   show: (id) => api.get(`/drivers/${id}`),
   suspend: (id) => api.post(`/drivers/${id}/suspend`),
+  reactivate: (id) => api.post(`/drivers/${id}/reactivate`),
+  blacklist: (id, reason) => api.post(`/drivers/${id}/blacklist`, { reason }),
 }
 
 export const blacklistApi = {
   list: (params) => api.get('/blacklist', { params }),
   show: (id) => api.get(`/blacklist/${id}`),
   updateNotes: (id, notes) => api.patch(`/blacklist/${id}/notes`, { notes }),
+}
+
+export const notificationsApi = {
+  unreadCount: () => api.get('/notifications/unread-count'),
+  list: (params) => api.get('/notifications', { params }),
+  markAsRead: (id) => api.patch(`/notifications/${id}/read`),
+  markAllAsRead: () => api.post('/notifications/mark-all-read'),
 }
 
 export default api

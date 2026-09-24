@@ -6,7 +6,19 @@ import {
   LuChevronRight,
   LuX,
   LuEye,
+  LuShieldAlert,
+  LuCircleCheck,
+  LuBan,
 } from 'react-icons/lu'
+
+const BLACKLIST_REASONS = [
+  'Broken inventory',
+  'Repeated tardiness',
+  'Unfair behavior',
+  'Misconduct / Policy Violation',
+  'Failure to complete deliveries',
+  'Other',
+]
 import {
   IconChevronDown,
   IconClose,
@@ -15,6 +27,7 @@ import {
   IconUser,
 } from './Icons'
 import { driversApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './DriverManagement.css'
 
 function Stars({ value }) {
@@ -50,9 +63,62 @@ export default function DriverManagement({ embedded = false }) {
   const [openFilter, setOpenFilter] = useState(null)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null)
+  const [blacklistModal, setBlacklistModal] = useState(null)
+  const [blacklistReason, setBlacklistReason] = useState(BLACKLIST_REASONS[0])
+  const [blacklistNotes, setBlacklistNotes] = useState('')
+  const [actionLoading, setActionLoading] = useState(false)
   const statusRef = useRef(null)
   const sortRef = useRef(null)
   const pageSize = 5
+
+  const handleConfirmStatus = async () => {
+    if (!confirmModal?.driver?.db_id) return
+    setActionLoading(true)
+    const isSuspend = confirmModal.type === 'suspend'
+    try {
+      const apiCall = isSuspend ? driversApi.suspend : driversApi.reactivate
+      const { data } = await apiCall(confirmModal.driver.db_id)
+      const updated = data?.data || data
+      setDrivers((prev) => prev.map((d) => (d.db_id === confirmModal.driver.db_id ? updated : d)))
+      if (selected?.db_id === confirmModal.driver.db_id) {
+        setSelected(updated)
+      }
+      setConfirmModal(null)
+    } catch (err) {
+      console.error(err)
+      alert(err.response?.data?.message || `Failed to ${isSuspend ? 'suspend' : 'reactivate'} driver.`)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleConfirmBlacklist = async () => {
+    if (!blacklistModal?.driver?.db_id) return
+    const reasonText =
+      blacklistReason === 'Other'
+        ? blacklistNotes.trim()
+        : (blacklistNotes.trim() ? `${blacklistReason}: ${blacklistNotes.trim()}` : blacklistReason)
+
+    if (!reasonText) {
+      alert('Please specify a reason for blacklisting.')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      await driversApi.blacklist(blacklistModal.driver.db_id, reasonText)
+      // Driver moved to Blacklist view; remove from active Drivers table
+      setDrivers((prev) => prev.filter((d) => d.db_id !== blacklistModal.driver.db_id))
+      setBlacklistModal(null)
+      setSelected(null)
+    } catch (err) {
+      console.error(err)
+      alert(err.response?.data?.message || 'Failed to blacklist driver.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   useEffect(() => {
     function onDoc(e) {
@@ -178,7 +244,18 @@ export default function DriverManagement({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="dm-empty">
+                    <EmptyState
+                      icon="driver"
+                      title="No drivers found"
+                      subtitle="Registered delivery drivers will appear here."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                rows.map((d) => (
                 <tr key={d.id}>
                   <td className="dm-id">{d.id}</td>
                   <td>{d.name}</td>
@@ -198,7 +275,7 @@ export default function DriverManagement({ embedded = false }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -207,36 +284,38 @@ export default function DriverManagement({ embedded = false }) {
             Showing {(currentPage - 1) * pageSize + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} drivers
           </span>
-          <div className="dm-pages">
-            <button
-              type="button"
-              className="dm-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="dm-pages">
               <button
-                key={n}
                 type="button"
-                className={`dm-page-btn${n === currentPage ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="dm-page-btn arrow"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="dm-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dm-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -289,26 +368,174 @@ export default function DriverManagement({ embedded = false }) {
               ))}
             </ul>
 
-            <button
-              type="button"
-              className="dm-suspend"
-              onClick={async () => {
-                if (!selected?.db_id) return
-                try {
-                  const { data } = await driversApi.suspend(selected.db_id)
-                  const updated = data?.data || data
-                  setDrivers((prev) => prev.map((d) => (d.db_id === selected.db_id ? updated : d)))
-                  setSelected(updated)
-                } catch (err) {
-                  console.error(err)
-                  alert(err.response?.data?.message || 'Failed to suspend driver.')
-                }
-              }}
-            >
-              SUSPEND
-            </button>
+            <div className="dm-drawer-actions">
+              {selected.status === 'Active' ? (
+                <button
+                  type="button"
+                  className="dm-action-btn dm-btn-suspend"
+                  onClick={() => setConfirmModal({ type: 'suspend', driver: selected })}
+                >
+                  <LuShieldAlert size={16} />
+                  <span>SUSPEND</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="dm-action-btn dm-btn-reactivate"
+                  onClick={() => setConfirmModal({ type: 'reactivate', driver: selected })}
+                >
+                  <LuCircleCheck size={16} />
+                  <span>REACTIVATE</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="dm-action-btn dm-btn-blacklist"
+                onClick={() => {
+                  setBlacklistModal({ driver: selected })
+                  setBlacklistReason(BLACKLIST_REASONS[0])
+                  setBlacklistNotes('')
+                }}
+              >
+                <LuBan size={16} />
+                <span>BLACKLIST</span>
+              </button>
+            </div>
           </aside>
         </>
+      )}
+
+      {/* Confirmation Modal for Suspend / Reactivate */}
+      {confirmModal && (
+        <div
+          className="dm-modal-overlay"
+          onClick={() => !actionLoading && setConfirmModal(null)}
+          role="presentation"
+        >
+          <div className="dm-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className={`dm-modal-icon-wrap ${confirmModal.type}`}>
+              {confirmModal.type === 'suspend' ? (
+                <LuShieldAlert size={28} />
+              ) : (
+                <LuCircleCheck size={28} />
+              )}
+            </div>
+            <h3 className="dm-modal-title">
+              {confirmModal.type === 'suspend'
+                ? `Suspend Driver: ${confirmModal.driver.name}?`
+                : `Reactivate Driver: ${confirmModal.driver.name}?`}
+            </h3>
+            <p className="dm-modal-subtext">
+              {confirmModal.type === 'suspend'
+                ? `This will change ${confirmModal.driver.name}'s status to Inactive. They will not be able to accept delivery orders until reactivated.`
+                : `This will restore ${confirmModal.driver.name}'s status back to Active, allowing them to accept delivery orders again.`}
+            </p>
+            <div className="dm-modal-actions">
+              <button
+                type="button"
+                className="dm-modal-btn cancel"
+                onClick={() => setConfirmModal(null)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`dm-modal-btn confirm-${confirmModal.type}`}
+                onClick={handleConfirmStatus}
+                disabled={actionLoading}
+              >
+                {actionLoading
+                  ? 'Processing...'
+                  : confirmModal.type === 'suspend'
+                    ? 'Confirm Suspend'
+                    : 'Confirm Reactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Blacklist Modal */}
+      {blacklistModal && (
+        <div
+          className="dm-modal-overlay"
+          onClick={() => !actionLoading && setBlacklistModal(null)}
+          role="presentation"
+        >
+          <div className="dm-modal-card blacklist" onClick={(e) => e.stopPropagation()}>
+            <div className="dm-modal-icon-wrap blacklist">
+              <LuBan size={28} />
+            </div>
+            <h3 className="dm-modal-title">Blacklist Driver</h3>
+            <p className="dm-modal-subtext">
+              Blacklisting is a severe trust-and-safety decision. This driver will be moved to the Blacklist tab with this reason recorded.
+            </p>
+
+            <div className="dm-driver-summary-chip">
+              <div className="dm-driver-summary-name">{blacklistModal.driver.name}</div>
+              <div className="dm-driver-summary-meta">
+                <span>ID: {blacklistModal.driver.id}</span>
+                <span>•</span>
+                <span>Plate: {blacklistModal.driver.plate || 'N/A'}</span>
+              </div>
+            </div>
+
+            <div className="dm-form-group">
+              <label className="dm-form-label">Reason for Blacklist *</label>
+              <select
+                className="dm-form-select"
+                value={blacklistReason}
+                onChange={(e) => setBlacklistReason(e.target.value)}
+                disabled={actionLoading}
+              >
+                {BLACKLIST_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="dm-form-group">
+              <label className="dm-form-label">
+                {blacklistReason === 'Other' ? 'Specify Reason *' : 'Additional Notes (Optional)'}
+              </label>
+              <textarea
+                className="dm-form-textarea"
+                rows={3}
+                placeholder={
+                  blacklistReason === 'Other'
+                    ? 'Enter specific reason for blacklisting...'
+                    : 'Enter any additional details or context...'
+                }
+                value={blacklistNotes}
+                onChange={(e) => setBlacklistNotes(e.target.value)}
+                disabled={actionLoading}
+              />
+            </div>
+
+            <div className="dm-modal-actions">
+              <button
+                type="button"
+                className="dm-modal-btn cancel"
+                onClick={() => setBlacklistModal(null)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dm-modal-btn confirm-blacklist"
+                onClick={handleConfirmBlacklist}
+                disabled={actionLoading}
+              >
+                {actionLoading ? 'Blacklisting...' : 'Confirm Blacklist'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

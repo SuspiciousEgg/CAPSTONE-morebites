@@ -100,7 +100,7 @@ export default function DeliveredScreen() {
             <View key={order.db_id || order.id} style={styles.orderCard}>
               <View style={styles.orderTopRow}>
                 <View style={styles.orderNumberRow}>
-                  <Text style={styles.orderNumber}>Order #{order.id}</Text>
+                  <Text style={styles.orderNumber}>Order {String(order.id || '').startsWith('#') ? order.id : `#${order.id}`}</Text>
                   <Feather name="check-circle" size={20} color="#22C55E" />
                 </View>
                 <Text style={styles.orderAmount}>{formatPeso(order.amount)}</Text>

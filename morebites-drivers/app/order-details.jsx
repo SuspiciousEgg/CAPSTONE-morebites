@@ -71,7 +71,7 @@ export default function OrderDetailsScreen() {
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Order #{order?.id || orderId}</Text>
+          <Text style={styles.headerTitle}>Order {String(order?.id || orderId || '').startsWith('#') ? (order?.id || orderId) : `#${order?.id || orderId}`}</Text>
           <Text style={styles.headerSubtitle}>{order?.status || "Loading"}</Text>
         </View>
         <View style={styles.headerButton} />

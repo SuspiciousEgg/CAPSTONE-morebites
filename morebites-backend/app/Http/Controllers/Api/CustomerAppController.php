@@ -6,17 +6,20 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\MenuItem;
+use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\TrustedDevice;
 use App\Models\User;
 use App\Services\DeliveryRateService;
 use App\Services\InventoryDeductionService;
+use App\Services\TopSellingService;
 use App\Services\TrackingService;
 use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -26,17 +29,14 @@ class CustomerAppController extends Controller
     {
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:120'],
-            'phone' => ['required', 'string', 'max:20'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6', 'confirmed'],
             'email' => ['nullable', 'email'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
-        $phone = $this->normalizePhone($data['phone']);
-        if (strlen($phone) < 10) {
-            throw ValidationException::withMessages([
-                'phone' => ['Enter a valid phone number.'],
-            ]);
-        }
+        $phone = $data['phone'];
 
         $exists = User::query()
             ->where('role', 'customer')
@@ -74,7 +74,7 @@ class CustomerAppController extends Controller
 
             Customer::query()->create([
                 'user_id' => $user->id,
-                'customer_code' => 'C'.str_pad((string) (Customer::query()->count() + 1), 5, '0', STR_PAD_LEFT),
+                'customer_code' => Customer::generateCustomerCode(),
                 'full_name' => $data['full_name'],
                 'phone' => $phone,
                 'email' => $data['email'] ?? null,
@@ -96,9 +96,11 @@ class CustomerAppController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->validate([
-            'phone' => ['required', 'string'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string'],
             'device_id' => ['required', 'string'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $phone = $this->normalizePhone($credentials['phone']);
@@ -165,8 +167,11 @@ class CustomerAppController extends Controller
         $data = $request->validate([
             'full_name' => ['sometimes', 'string', 'max:120'],
             'email' => ['nullable', 'email'],
-            'phone' => ['sometimes', 'string'],
+            'phone' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['nullable', 'string'],
+            'photo' => ['nullable'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         if (isset($data['full_name'])) {
@@ -179,6 +184,32 @@ class CustomerAppController extends Controller
 
         if (isset($data['phone'])) {
             $data['phone'] = $this->normalizePhone($data['phone']);
+        }
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('avatars', 'public');
+            $data['photo'] = '/storage/'.$path;
+        } elseif ($request->has('photo')) {
+            $rawPhoto = $request->input('photo');
+            if (is_string($rawPhoto) && preg_match('/^data:image\/(\w+);base64,/', $rawPhoto, $type)) {
+                $raw = substr($rawPhoto, strpos($rawPhoto, ',') + 1);
+                $decoded = base64_decode($raw);
+                if ($decoded !== false) {
+                    $ext = strtolower($type[1]);
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'avatars/avatar_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $decoded);
+                    $data['photo'] = '/storage/'.$filename;
+                } else {
+                    $data['photo'] = $rawPhoto;
+                }
+            } elseif ($rawPhoto === null || $rawPhoto === '') {
+                $data['photo'] = null;
+            } elseif (is_string($rawPhoto)) {
+                $data['photo'] = $rawPhoto;
+            }
         }
 
         $deliveryAddress = $data['delivery_address'] ?? null;
@@ -202,18 +233,37 @@ class CustomerAppController extends Controller
         $service = app(InventoryDeductionService::class);
         $service->syncMenuAvailability();
 
+        // Prompt 23: Aggregate real food rating data per menu item from customer orders.
+        // When customers rate their orders, food ratings are stored in orders.food_rating.
+        // Each order links to menu items via order_items.menu_item_id.
+        $ratingStats = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->whereNotNull('orders.food_rating')
+            ->whereNotNull('order_items.menu_item_id')
+            ->select(
+                'order_items.menu_item_id',
+                DB::raw('ROUND(AVG(orders.food_rating), 1) as avg_rating'),
+                DB::raw('COUNT(DISTINCT orders.id) as review_count')
+            )
+            ->groupBy('order_items.menu_item_id')
+            ->get()
+            ->keyBy('menu_item_id');
+
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
-            ->where('available', true)
             ->orderBy('category')
             ->orderBy('name')
             ->get()
-            ->filter(fn (MenuItem $m) => $service->canServe($m))
-            ->map(fn (MenuItem $m) => $this->menuPayload($m))
+            ->map(fn (MenuItem $m) => $this->menuPayload($m, $service, $ratingStats->get($m->id)))
             ->values();
 
         return response()->json(['data' => $items]);
+    }
+
+    public function topSelling(TopSellingService $service)
+    {
+        return response()->json(['data' => $service->getTopSelling()]);
     }
 
     public function orders(Request $request)
@@ -299,15 +349,23 @@ class CustomerAppController extends Controller
 
         $data = $request->validate([
             'full_name' => ['required', 'string'],
-            'phone' => ['required', 'string'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['required', 'string'],
             'payment_method' => ['nullable', 'string'],
+            'latitude' => ['nullable', 'numeric'],
+            'dest_lat' => ['nullable', 'numeric'],
+            'lat' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'dest_lng' => ['nullable', 'numeric'],
+            'lng' => ['nullable', 'numeric'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.name' => ['required', 'string'],
             'items.*.size' => ['nullable', 'string'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $customer->update([
@@ -340,8 +398,25 @@ class CustomerAppController extends Controller
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $tracking = app(TrackingService::class);
             $rates = app(DeliveryRateService::class);
-            $dest = $tracking->geocode($data['delivery_address']);
+
+            $lat = $data['latitude'] ?? $data['dest_lat'] ?? $data['lat'] ?? null;
+            $lng = $data['longitude'] ?? $data['dest_lng'] ?? $data['lng'] ?? null;
+
+            if ($lat !== null && $lng !== null) {
+                $dest = [
+                    'latitude' => (float) $lat,
+                    'longitude' => (float) $lng,
+                ];
+            } else {
+                $dest = $tracking->geocode($data['delivery_address']);
+            }
+
             $distanceKm = $tracking->distanceKm($tracking->storePoint(), $dest);
+            if ($distanceKm !== null && $distanceKm > DeliveryRateService::MAX_DELIVERY_KM) {
+                throw ValidationException::withMessages([
+                    'delivery_address' => ['Delivery not available beyond 10km.'],
+                ]);
+            }
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
             $total = $subtotal + $deliveryFee + $serviceFee;
@@ -384,6 +459,8 @@ class CustomerAppController extends Controller
 
             app(InventoryDeductionService::class)->deductForOrder($order);
 
+            Notification::createOrderNotification($order);
+
             return $order->load(['items', 'driver']);
         });
 
@@ -407,7 +484,7 @@ class CustomerAppController extends Controller
 
         return Customer::query()->create([
             'user_id' => $user->id,
-            'customer_code' => 'C'.str_pad((string) (Customer::query()->count() + 1), 5, '0', STR_PAD_LEFT),
+            'customer_code' => Customer::generateCustomerCode(),
             'full_name' => $user->name,
             'phone' => $user->phone,
             'email' => $user->email && ! str_ends_with($user->email, '@customer.morebites.local') ? $user->email : null,
@@ -423,14 +500,7 @@ class CustomerAppController extends Controller
 
     private function nextOrderCode(): string
     {
-        $nextId = ((int) Order::query()->max('id')) + 100;
-
-        do {
-            $code = '#ORD-'.str_pad((string) $nextId, 5, '0', STR_PAD_LEFT);
-            $nextId++;
-        } while (Order::query()->where('order_code', $code)->exists());
-
-        return $code;
+        return Order::generateOrderCode();
     }
 
     private function userPayload(User $user): array
@@ -444,6 +514,7 @@ class CustomerAppController extends Controller
             'last_name' => $user->last_name,
             'email' => $user->email && ! str_ends_with($user->email, '@customer.morebites.local') ? $user->email : '',
             'phone' => $user->phone,
+            'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
             'delivery_address' => $customer?->delivery_address,
@@ -451,8 +522,13 @@ class CustomerAppController extends Controller
         ];
     }
 
-    private function menuPayload(MenuItem $m): array
+    private function menuPayload(MenuItem $m, ?InventoryDeductionService $service = null, $ratingStat = null): array
     {
+        $service ??= app(InventoryDeductionService::class);
+        $stockOk = $service->canServe($m);
+        $stockReason = $service->unserviceableReason($m);
+        $isAvailable = (bool) ($m->available && $stockOk);
+
         $sizes = $m->sizes->map(fn ($s) => [
             'sizeName' => $s->name,
             'price' => (float) $s->price,
@@ -463,6 +539,9 @@ class CustomerAppController extends Controller
         $priceLabel = $m->has_sizes && $sizes->count()
             ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
             : '₱'.number_format((float) $m->price, 0);
+
+        $rating = $ratingStat ? (float) $ratingStat->avg_rating : null;
+        $reviewCount = $ratingStat ? (int) $ratingStat->review_count : 0;
 
         return [
             'id' => (string) $m->id,
@@ -475,6 +554,13 @@ class CustomerAppController extends Controller
             'hasSizes' => (bool) $m->has_sizes,
             'sizes' => $sizes,
             'image' => Media::url($m->image),
+            'available' => $isAvailable,
+            'availability' => $isAvailable,
+            'stockOk' => $stockOk,
+            'stockReason' => $stockReason,
+            'rating' => $rating,
+            'reviewCount' => $reviewCount,
+            'reviews' => $reviewCount,
             'promoActive' => (bool) $m->promo_active,
             'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
             'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
@@ -483,7 +569,11 @@ class CustomerAppController extends Controller
 
     private function orderPayload(Order $o): array
     {
-        $displayStatus = $o->status === 'Completed' ? 'Delivered' : $o->status;
+        $displayStatus = match ($o->status) {
+            'Completed' => 'Delivered',
+            'Picked Up' => 'Out for Delivery',
+            default => $o->status,
+        };
         $date = $o->created_at;
         $firstItem = $o->items->first();
 
@@ -491,6 +581,7 @@ class CustomerAppController extends Controller
             'id' => $o->order_code,
             'db_id' => $o->id,
             'status' => $displayStatus,
+            'raw_status' => $o->status,
             'date' => $date?->toIso8601String(),
             'dateLabel' => $date?->format('M j, Y · g:i A'),
             'total' => (float) $o->total,

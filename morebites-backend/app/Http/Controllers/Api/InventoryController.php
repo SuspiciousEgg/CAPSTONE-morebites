@@ -14,7 +14,14 @@ class InventoryController extends Controller
 {
     public function index(Request $request)
     {
+        $tab = $request->query('tab', 'stock');
         $query = InventoryItem::query()->latest();
+
+        if ($tab === 'archived') {
+            $query->where('status', 'Archived');
+        } else {
+            $query->where('status', '!=', 'Archived');
+        }
 
         if ($category = $request->query('category')) {
             if ($category !== 'All Categories') {
@@ -30,7 +37,9 @@ class InventoryController extends Controller
         }
 
         $items = $query->get()->map(function (InventoryItem $i) {
-            $this->syncComputedStatus($i);
+            if ($i->status !== 'Archived') {
+                $this->syncComputedStatus($i);
+            }
 
             return $this->transform($i->fresh());
         });
@@ -41,7 +50,7 @@ class InventoryController extends Controller
             }
         }
 
-        $all = InventoryItem::query()->get();
+        $all = InventoryItem::query()->where('status', '!=', 'Archived')->get();
         $transformed = $all->map(function (InventoryItem $i) {
             $this->syncComputedStatus($i);
 
@@ -64,6 +73,7 @@ class InventoryController extends Controller
                     'expiring' => $transformed->whereIn('status', ['Expiring Soon', 'Expires Today'])->count(),
                     'ok' => $transformed->where('status', 'Sufficient')->count(),
                     'added_week' => $addedThisWeek,
+                    'archived' => InventoryItem::query()->where('status', 'Archived')->count(),
                 ],
             ],
         ]);
@@ -262,30 +272,62 @@ class InventoryController extends Controller
         return response()->json(['data' => $this->transform($inventory->fresh())]);
     }
 
-    public function destroy(Request $request, InventoryItem $inventory)
+    public function archive(Request $request, InventoryItem $inventory)
     {
         $menuItemIds = MenuItemIngredient::query()
             ->where('inventory_item_id', $inventory->id)
             ->pluck('menu_item_id');
 
-        $this->writeLog($request, $inventory, [
-            'quantity' => -(float) $inventory->stock,
-            'previous_stock' => (float) $inventory->stock,
-            'reason' => 'Item removed from inventory',
-            'action_label' => 'Removed',
-            'notes' => 'Inventory item soft-deleted. Linked menu items disabled.',
-            'log_type' => 'Removed',
-            'stock_level' => '0 '.$inventory->unit,
-            'status' => 'Out of Stock',
+        $inventory->update([
+            'status' => 'Archived',
         ]);
 
-        $inventory->delete();
+        $this->writeLog($request, $inventory->fresh(), [
+            'quantity' => 0,
+            'previous_stock' => (float) $inventory->stock,
+            'reason' => 'Item archived from inventory',
+            'action_label' => 'Archived',
+            'notes' => 'Inventory item archived. Linked menu items disabled.',
+            'log_type' => 'Updated',
+            'status' => 'Archived',
+        ]);
 
         $service = app(InventoryDeductionService::class);
         $service->disableMenuItems($menuItemIds);
-        $service->syncMenusUsingInventory($inventory->id);
 
-        return response()->json(['message' => 'Deleted']);
+        return response()->json(['data' => $this->transform($inventory->fresh())]);
+    }
+
+    public function restore(Request $request, InventoryItem $inventory)
+    {
+        $newStatus = InventoryItem::deriveStatus(
+            (float) $inventory->stock,
+            (float) $inventory->reorder_level,
+            $inventory->expiry_date
+        );
+
+        $inventory->update([
+            'status' => $newStatus,
+        ]);
+
+        $this->writeLog($request, $inventory->fresh(), [
+            'quantity' => 0,
+            'previous_stock' => (float) $inventory->stock,
+            'reason' => 'Item restored from archive',
+            'action_label' => 'Restored',
+            'notes' => 'Inventory item restored to active inventory. Linked menu items remain unavailable until supervisor decision.',
+            'log_type' => 'Updated',
+            'status' => $newStatus,
+        ]);
+
+        // Note: As required by business logic, restoring an ingredient does NOT automatically make linked menu items available again.
+
+        return response()->json(['data' => $this->transform($inventory->fresh())]);
+    }
+
+    public function destroy(Request $request, InventoryItem $inventory)
+    {
+        abort(403, 'Hard delete is disabled. Please archive the inventory item instead.');
     }
 
     public function logs(Request $request)
@@ -370,6 +412,10 @@ class InventoryController extends Controller
 
     private function syncComputedStatus(InventoryItem $item): void
     {
+        if ($item->status === 'Archived') {
+            return;
+        }
+
         $next = InventoryItem::deriveStatus(
             (float) $item->stock,
             (float) $item->reorder_level,
@@ -384,7 +430,7 @@ class InventoryController extends Controller
     private function transform(InventoryItem $i): array
     {
         $daysLeft = $i->daysLeft();
-        $status = InventoryItem::deriveStatus(
+        $status = $i->status === 'Archived' ? 'Archived' : InventoryItem::deriveStatus(
             (float) $i->stock,
             (float) $i->reorder_level,
             $i->expiry_date

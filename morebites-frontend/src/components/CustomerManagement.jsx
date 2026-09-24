@@ -14,22 +14,39 @@ import {
   LuCalendar,
   LuCheck,
 } from 'react-icons/lu'
-import {
-  IconCalendar,
-  IconCart,
-  IconCheck,
-  IconChevronDown,
-  IconClose,
-  IconCustomers,
-  IconEdit,
-  IconSearch,
-  IconStar,
-  IconUser,
-} from './Icons'
-import { customersApi } from '../api/client'
+import { customersApi, mediaUrl } from '../api/client'
+import EmptyState from './EmptyState'
 import './CustomerManagement.css'
 
 const PAGE_SIZE = 8
+
+function CustomerAvatar({ photo, name }) {
+  const [failed, setFailed] = useState(false)
+  const initials = name
+    ? name
+        .split(' ')
+        .filter(Boolean)
+        .map((n) => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'CU'
+
+  if (photo && !failed) {
+    return (
+      <div className="cm-avatar has-photo">
+        <img
+          src={mediaUrl(photo)}
+          alt={name || 'Customer'}
+          className="cm-avatar-img"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    )
+  }
+
+  return <div className="cm-avatar">{initials}</div>
+}
 
 function peso(n) {
   return `₱ ${Number(n).toLocaleString('en-PH')}`
@@ -100,6 +117,19 @@ export default function CustomerManagement() {
   const statusRef = useRef(null)
 
   useEffect(() => {
+    if (!selected?.db_id) {
+      setOrderHistory([])
+      return
+    }
+    customersApi
+      .show(selected.db_id)
+      .then((r) => {
+        setOrderHistory(r.data?.data?.order_history || [])
+      })
+      .catch(() => setOrderHistory([]))
+  }, [selected?.db_id])
+
+  useEffect(() => {
     function onDoc(e) {
       const refs = [sortRef, dateRef, statusRef]
       if (refs.every((r) => r.current && !r.current.contains(e.target))) setOpenFilter(null)
@@ -117,15 +147,16 @@ export default function CustomerManagement() {
     if (q) {
       list = list.filter(
         (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q) ||
-          c.id.toLowerCase().includes(q),
+          (c.name && c.name.toLowerCase().includes(q)) ||
+          (c.email && c.email.toLowerCase().includes(q)) ||
+          (c.phone && c.phone.toLowerCase().includes(q)) ||
+          (c.id && c.id.toLowerCase().includes(q)),
       )
     }
     if (sort === 'Highest Order') list.sort((a, b) => b.orders - a.orders)
     if (sort === 'Lowest Order') list.sort((a, b) => a.orders - b.orders)
-    if (dateSort.includes('Oldest')) list.sort((a, b) => a.registered.localeCompare(b.registered))
-    if (dateSort.includes('Newest')) list.sort((a, b) => b.registered.localeCompare(a.registered))
+    if (dateSort.includes('Oldest')) list.sort((a, b) => (a.registered || '').localeCompare(b.registered || ''))
+    if (dateSort.includes('Newest')) list.sort((a, b) => (b.registered || '').localeCompare(a.registered || ''))
     return list
   }, [customers, search, sort, dateSort, status])
 
@@ -247,14 +278,29 @@ export default function CustomerManagement() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '24px 16px', borderBottom: 'none' }}>
+                    <EmptyState
+                      icon="users"
+                      title="No customer records found"
+                      subtitle={
+                        search
+                          ? 'No customers match your active search query.'
+                          : 'Registered customer profiles will appear here.'
+                      }
+                    />
+                  </td>
+                </tr>
+              ) : (
+                rows.map((c) => (
                 <tr key={c.id}>
                   <td className="cm-id">{c.id}</td>
                   <td>{c.name}</td>
-                  <td>{c.phone}</td>
-                  <td>{c.email}</td>
-                  <td>{c.address}</td>
-                  <td>{c.registered}</td>
+                  <td>{c.phone ? c.phone : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.email ? c.email : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.address ? c.address : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td>{c.registered || <span className="cm-empty">—</span>}</td>
                   <td>{c.orders}</td>
                   <td>
                     <span className={`cm-badge ${c.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
@@ -268,7 +314,7 @@ export default function CustomerManagement() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -277,36 +323,38 @@ export default function CustomerManagement() {
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} customers
           </span>
-          <div className="cm-pages">
-            <button
-              type="button"
-              className="cm-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="cm-pages">
               <button
-                key={n}
                 type="button"
-                className={`cm-page-btn${n === currentPage ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="cm-page-btn arrow"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="cm-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`cm-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="cm-page-btn arrow"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -314,98 +362,157 @@ export default function CustomerManagement() {
         <div className="cm-backdrop" onClick={() => setSelected(null)} role="presentation">
           <div className="cm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="cm-modal-head">
-              <h2>Customer Details</h2>
-              <button type="button" className="cm-modal-close-circle" onClick={() => setSelected(null)} aria-label="Close">
+              <div className="cm-modal-title-wrap">
+                <h2>Customer Details</h2>
+                <span className="cm-modal-code">{selected.id}</span>
+              </div>
+              <button
+                type="button"
+                className="cm-modal-close-circle"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+              >
                 <LuX size={18} />
               </button>
             </div>
 
-            <div className="cm-profile">
-              <div className="cm-avatar">{selected.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</div>
-              <div>
-                <div className="cm-profile-name">
-                  {selected.name}
-                  <span className={`cm-badge ${selected.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
-                    {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+            <div className="cm-modal-body">
+              {/* Profile Card */}
+              <div className="cm-profile-card">
+                <CustomerAvatar photo={selected.photo} name={selected.name} />
+                <div className="cm-profile-info">
+                  <div className="cm-profile-name-row">
+                    <span className="cm-profile-name">{selected.name}</span>
+                    <span className={`cm-badge ${selected.status === 'ACTIVE' ? 'active' : 'inactive'}`}>
+                      {selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <div className="cm-profile-meta">
+                    Registered {selected.registeredFull || selected.registered || '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Mini Stats */}
+              <div className="cm-mini-stats">
+                <div className="cm-mini">
+                  <span className="cm-stat-icon yellow">
+                    <LuShoppingCart size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Total Orders</div>
+                    <strong>{selected.orders}</strong>
+                  </div>
+                </div>
+                <div className="cm-mini">
+                  <span className="cm-stat-icon green">
+                    <LuCheck size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Total Spent</div>
+                    <strong>{peso(selected.spent)}</strong>
+                  </div>
+                </div>
+                <div className="cm-mini">
+                  <span className="cm-stat-icon purple">
+                    <LuCalendar size={18} />
+                  </span>
+                  <div>
+                    <div className="cm-stat-label">Last Order</div>
+                    <strong>{selected.lastOrder}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Customer Information */}
+              <div className="cm-modal-section">
+                <div className="cm-section-head">
+                  <h3>Customer Information</h3>
+                </div>
+                <div className="cm-info-grid">
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Full Name</span>
+                    <span className="cm-info-value">{selected.name || '—'}</span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Contact Number</span>
+                    <span className={`cm-info-value${!selected.phone ? ' cm-empty' : ''}`}>
+                      {selected.phone || 'Not provided yet'}
+                    </span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Email Address</span>
+                    <span className={`cm-info-value${!selected.email ? ' cm-empty' : ''}`}>
+                      {selected.email || 'Not provided yet'}
+                    </span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Date Registered</span>
+                    <span className="cm-info-value">{selected.registered || '—'}</span>
+                  </div>
+                  <div className="cm-info-card cm-span-2">
+                    <span className="cm-info-label">Delivery Address</span>
+                    <span className={`cm-info-value${!selected.address ? ' cm-empty' : ''}`}>
+                      {selected.address || 'Not provided yet'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order History */}
+              <div className="cm-modal-section">
+                <div className="cm-section-head">
+                  <h3>Order History</h3>
+                  <span className="cm-count-badge">
+                    {orderHistory.length} {orderHistory.length === 1 ? 'order' : 'orders'}
                   </span>
                 </div>
-                <div className="cm-profile-meta">{selected.id} · Registered {selected.registeredFull}</div>
-              </div>
-            </div>
-
-            <div className="cm-mini-stats">
-              <div className="cm-mini">
-                <span className="cm-stat-icon yellow"><IconCart /></span>
-                <div>
-                  <div className="cm-stat-label">Total Orders</div>
-                  <strong>{selected.orders}</strong>
-                </div>
-              </div>
-              <div className="cm-mini">
-                <span className="cm-stat-icon green"><IconCheck /></span>
-                <div>
-                  <div className="cm-stat-label">Total Spent</div>
-                  <strong>{peso(selected.spent)}</strong>
-                </div>
-              </div>
-              <div className="cm-mini">
-                <span className="cm-stat-icon purple"><IconCalendar /></span>
-                <div>
-                  <div className="cm-stat-label">Last Order</div>
-                  <strong>{selected.lastOrder}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="cm-details-grid">
-              <div>
-                <h3>Customer Information</h3>
-                <dl className="cm-info">
-                  <div><dt>Full Name</dt><dd>{selected.name}</dd></div>
-                  <div><dt>Contact Number</dt><dd>{selected.phone}</dd></div>
-                  <div><dt>Email Address</dt><dd>{selected.email}</dd></div>
-                  <div><dt>Delivery Address</dt><dd>{selected.address}</dd></div>
-                  <div><dt>Date Registered</dt><dd>{selected.registered}</dd></div>
-                  <div>
-                    <dt>Account Status</dt>
-                    <dd className={selected.status === 'ACTIVE' ? 'ok' : ''}>{selected.status === 'ACTIVE' ? 'Active' : 'Inactive'}</dd>
-                  </div>
-                </dl>
-              </div>
-              <div>
-                <h3>Order History</h3>
-                <table className="cm-history">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Date & Time</th>
-                      <th>Items</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderHistory.map((o) => (
-                      <tr key={o.id}>
-                        <td className="cm-id">{o.id}</td>
-                        <td>{o.datetime}</td>
-                        <td>{o.items}</td>
-                        <td>{peso(o.total)}</td>
-                        <td><span className="cm-badge active">{o.status}</span></td>
+                <div className="cm-history-wrap">
+                  <table className="cm-history-table">
+                    <thead>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>Date &amp; Time</th>
+                        <th>Items</th>
+                        <th>Total</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {orderHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="cm-history-empty">
+                            <EmptyState
+                              icon="receipt"
+                              title="No orders recorded yet"
+                              subtitle="Customer purchase history will appear here."
+                              style={{ padding: '20px 16px' }}
+                            />
+                          </td>
+                        </tr>
+                      ) : (
+                        orderHistory.map((o) => (
+                          <tr key={o.id}>
+                            <td className="cm-history-id">{o.id}</td>
+                            <td className="cm-history-date">{o.datetime}</td>
+                            <td className="cm-history-items">{o.items}</td>
+                            <td className="cm-history-total">{peso(o.total)}</td>
+                            <td>
+                              <span
+                                className={`cm-status-pill status-${(o.status || '')
+                                  .toLowerCase()
+                                  .replace(/\s+/g, '-')}`}
+                              >
+                                {o.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-
-            <div className="cm-modal-foot">
-              <button type="button" className="cm-btn-cancel" onClick={() => setSelected(null)}>
-                CLOSE
-              </button>
-              <button type="button" className="cm-btn-primary">
-                <IconEdit /> Edit Customer
-              </button>
             </div>
           </div>
         </div>

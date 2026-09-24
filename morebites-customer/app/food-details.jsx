@@ -12,11 +12,26 @@ import {
   View,
 } from "react-native";
 import { useCart } from "../src/context/CartContext";
+import { mediaUrl } from "../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
-const REVIEWS = 76;
-const RATING = 4.9;
+
+/**
+ * Ratings Investigation Report (Prompt 23):
+ * - Does a real ratings data source exist?
+ *   YES. When customers rate their delivery order via the Rate Order screen (`customerApi.rateOrder`),
+ *   the rating is saved to the backend database on the `orders` table as `food_rating` (1 to 5 integer)
+ *   and `food_comment`, along with `rider_rating`, `rider_comment`, and `rated_at`.
+ * - How is it aggregated per menu item?
+ *   Each order has items in the `order_items` table linking `order_id` to `menu_item_id`.
+ *   The backend endpoint `/api/customer/menu` computes the real average food rating and review count
+ *   for each product across all rated customer orders (`AVG(orders.food_rating)` and `COUNT(DISTINCT orders.id)`).
+ * - Honest state for unrated items:
+ *   If a menu item has zero ratings yet (`reviewCount === 0` or `rating == null`), it honestly displays
+ *   "No ratings yet" with an outline star rather than showing fabricated numbers (replacing the previous
+ *   hardcoded 4.9 stars and "76 reviews" placeholder).
+ */
 
 function parseJson(value, fallback) {
   if (typeof value !== "string") return value ?? fallback;
@@ -38,22 +53,32 @@ function getItem(params) {
     hasSizes: params.hasSizes,
     sizes: params.sizes,
     image: params.image,
+    rating: params.rating,
+    reviewCount: params.reviewCount,
+    reviews: params.reviews,
   };
 
   const item = { ...serializedItem, ...Object.fromEntries(Object.entries(routeItem).filter(([, value]) => value != null)) };
   const sizes = parseJson(item.sizes, []);
+  const reviewCount = Number(item.reviewCount ?? item.reviews) || 0;
+  const rating = item.rating != null && !isNaN(Number(item.rating)) && reviewCount > 0
+    ? Number(item.rating)
+    : null;
 
   return {
     ...item,
     price: Number(item.price) || 0,
     hasSizes: item.hasSizes === true || item.hasSizes === "true",
     sizes: Array.isArray(sizes) ? sizes : [],
+    rating,
+    reviewCount,
   };
 }
 
 export default function FoodDetailsScreen() {
   const params = useLocalSearchParams();
   const item = getItem(params);
+  const isAvailable = item.availability !== false && item.available !== false;
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
   const [selectedSize, setSelectedSize] = useState(item.hasSizes ? item.sizes[0] ?? null : null);
@@ -68,6 +93,11 @@ export default function FoodDetailsScreen() {
   const selectedPrice = selectedSize ? Number(selectedSize.price) : item.price;
 
   const handleAddToCart = () => {
+    if (!isAvailable) {
+      Alert.alert("This item is currently unavailable");
+      return;
+    }
+
     if (item.hasSizes && !selectedSize) {
       Alert.alert("Please select a size");
       return;
@@ -92,7 +122,7 @@ export default function FoodDetailsScreen() {
   return (
     <View style={styles.screen}>
       {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.foodImage} />
+        <Image source={{ uri: mediaUrl(item.image) }} style={styles.foodImage} />
       ) : (
         <View style={styles.imagePlaceholder}>
           <Ionicons name="fast-food-outline" size={64} color="#8A8A8A" />
@@ -112,9 +142,20 @@ export default function FoodDetailsScreen() {
         <Text style={styles.foodName}>{item.name}</Text>
 
         <View style={styles.ratingRow}>
-          <Ionicons name="star" size={16} color={PRIMARY} />
-          <Text style={styles.rating}>{RATING}</Text>
-          <Text style={styles.reviews}>({REVIEWS} reviews)</Text>
+          {item.rating != null && item.reviewCount > 0 ? (
+            <>
+              <Ionicons name="star" size={16} color={PRIMARY} />
+              <Text style={styles.rating}>{Number(item.rating).toFixed(1)}</Text>
+              <Text style={styles.reviews}>
+                ({item.reviewCount} {item.reviewCount === 1 ? "review" : "reviews"})
+              </Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="star-outline" size={15} color="#9CA3AF" />
+              <Text style={styles.noRatingText}>No ratings yet</Text>
+            </>
+          )}
         </View>
 
         <Text style={styles.description}>{item.description}</Text>
@@ -181,9 +222,15 @@ export default function FoodDetailsScreen() {
       ) : null}
 
       <View style={styles.footer}>
-        <Pressable style={styles.addButton} onPress={handleAddToCart}>
+        <Pressable
+          style={[styles.addButton, !isAvailable && styles.addButtonDisabled]}
+          onPress={handleAddToCart}
+          disabled={!isAvailable}
+        >
           <Ionicons name="cart-outline" size={24} color="#FFFFFF" />
-          <Text style={styles.addButtonText}>Add to Cart</Text>
+          <Text style={styles.addButtonText}>
+            {isAvailable ? "Add to Cart" : "Unavailable"}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -256,6 +303,13 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 13,
     marginLeft: 6,
+  },
+  noRatingText: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "500",
+    marginLeft: 5,
   },
   description: {
     color: "#6B7280",
@@ -382,6 +436,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: PRIMARY,
     borderRadius: 9,
+  },
+  addButtonDisabled: {
+    backgroundColor: "#9CA3AF",
   },
   addButtonText: {
     color: "#FFFFFF",

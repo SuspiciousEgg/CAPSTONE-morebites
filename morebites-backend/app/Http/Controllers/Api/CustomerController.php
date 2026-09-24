@@ -4,13 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Support\Media;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Customer::query()->withCount('orders')->withSum('orders', 'total')->latest('registered_at');
+        $query = Customer::query()
+            ->whereNotNull('user_id')
+            ->with('user')
+            ->withCount('orders')
+            ->withSum('orders', 'total')
+            ->latest('registered_at');
 
         if ($status = $request->query('status')) {
             if ($status !== 'All Status') {
@@ -27,14 +33,16 @@ class CustomerController extends Controller
 
         $customers = $query->get()->map(fn (Customer $c) => $this->transform($c));
 
+        $base = Customer::query()->whereNotNull('user_id');
+
         return response()->json([
             'data' => $customers,
             'meta' => [
                 'stats' => [
-                    'total' => Customer::query()->count(),
-                    'active' => Customer::query()->where('status', 'ACTIVE')->count(),
-                    'new_month' => Customer::query()->where('registered_at', '>=', now()->copy()->startOfMonth())->count(),
-                    'frequent' => Customer::query()->withCount('orders')->get()->filter(fn ($c) => $c->orders_count >= 15)->count(),
+                    'total' => (clone $base)->count(),
+                    'active' => (clone $base)->where('status', 'ACTIVE')->count(),
+                    'new_month' => (clone $base)->where('registered_at', '>=', now()->copy()->startOfMonth())->count(),
+                    'frequent' => (clone $base)->withCount('orders')->get()->filter(fn ($c) => $c->orders_count >= 15)->count(),
                 ],
             ],
         ]);
@@ -42,7 +50,9 @@ class CustomerController extends Controller
 
     public function show(Customer $customer)
     {
-        $customer->load(['orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
+        abort_unless($customer->user_id !== null, 404);
+
+        $customer->load(['user', 'orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
         $customer->loadCount('orders');
         $customer->loadSum('orders', 'total');
 
@@ -68,12 +78,15 @@ class CustomerController extends Controller
             ? $c->orders->first()
             : $c->orders()->latest()->first();
 
+        $user = $c->relationLoaded('user') ? $c->user : ($c->user_id ? $c->user()->first() : null);
+
         return [
             'id' => $c->customer_code,
             'db_id' => $c->id,
             'name' => $c->full_name,
             'phone' => $c->phone,
             'email' => $c->email,
+            'photo' => $user?->photo ? Media::url($user->photo) : null,
             'address' => $c->delivery_address,
             'registered' => $c->registered_at?->format('M d, Y'),
             'registeredFull' => $c->registered_at?->format('M d, Y h:i A'),

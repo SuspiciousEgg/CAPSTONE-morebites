@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchDeliveryFees } from "../src/api/fees";
 import { useCart } from "../src/context/CartContext";
+import { mediaUrl } from "../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -29,11 +30,14 @@ function SummaryRow({ label, value, isTotal }) {
 }
 
 // A single cart item with image, details, and quantity controls
-function CartItemCard({ item, onRemove, onIncrease }) {
+function CartItemCard({ item, onRemove, onDecrease, onIncrease }) {
+  const imageUrl = mediaUrl(item.image);
+  const isQuantityOne = Number(item.quantity) <= 1;
+
   return (
     <View style={styles.card}>
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.itemImage} />
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.itemImage} />
       ) : (
         <View style={styles.itemImagePlaceholder}>
           <Ionicons name="fast-food-outline" size={28} color="#8A8A8A" />
@@ -47,11 +51,17 @@ function CartItemCard({ item, onRemove, onIncrease }) {
       </View>
 
       <View style={styles.quantityRow}>
-        <Pressable onPress={() => onRemove(item)} hitSlop={8}>
-          <Ionicons name="trash-outline" size={18} color="#D94343" />
-        </Pressable>
+        {isQuantityOne ? (
+          <Pressable onPress={() => onRemove(item)} hitSlop={8} accessibilityLabel="Remove item">
+            <Ionicons name="trash-outline" size={18} color="#D94343" />
+          </Pressable>
+        ) : (
+          <Pressable onPress={() => onDecrease(item)} hitSlop={8} accessibilityLabel="Decrease quantity">
+            <Ionicons name="remove" size={18} color="#121212" />
+          </Pressable>
+        )}
         <Text style={styles.quantityText}>{item.quantity}</Text>
-        <Pressable style={styles.increaseButton} onPress={() => onIncrease(item)} hitSlop={8}>
+        <Pressable style={styles.increaseButton} onPress={() => onIncrease(item)} hitSlop={8} accessibilityLabel="Increase quantity">
           <Ionicons name="add" size={15} color="#FFFFFF" />
         </Pressable>
       </View>
@@ -72,6 +82,13 @@ export default function CartScreen() {
   }, []);
 
   const removeItem = (item) => removeFromCart(item.id, item.size);
+  const decreaseItem = (item) => {
+    if (Number(item.quantity) > 1) {
+      updateQuantity(item.id, item.size, item.quantity - 1);
+    } else {
+      removeFromCart(item.id, item.size);
+    }
+  };
   const increaseItem = (item) => updateQuantity(item.id, item.size, item.quantity + 1);
   const total = cartTotal + deliveryFee + serviceFee;
 
@@ -101,11 +118,12 @@ export default function CartScreen() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
           >
-            {cartItems.map((item) => (
+            {cartItems.map((item, index) => (
               <CartItemCard
-                key={`${item.id}-${item.size}`}
+                key={`${item.id}-${item.size || "reg"}-${index}`}
                 item={item}
                 onRemove={removeItem}
+                onDecrease={decreaseItem}
                 onIncrease={increaseItem}
               />
             ))}

@@ -9,7 +9,7 @@ class MenuItem extends Model
 {
     protected $fillable = [
         'name', 'description', 'category', 'image',
-        'has_sizes', 'price', 'available', 'archived',
+        'has_sizes', 'price', 'available', 'archived', 'is_featured',
         'promo_active', 'promo_discount_percent', 'promo_label',
     ];
 
@@ -19,6 +19,7 @@ class MenuItem extends Model
             'has_sizes' => 'boolean',
             'available' => 'boolean',
             'archived' => 'boolean',
+            'is_featured' => 'boolean',
             'promo_active' => 'boolean',
             'promo_discount_percent' => 'float',
             'price' => 'float',

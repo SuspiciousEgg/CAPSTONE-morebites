@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Notification;
 use App\Models\Order;
 use App\Models\User;
 use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -26,8 +28,10 @@ class DriverAppController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->validate([
-            'phone' => ['required', 'string'],
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         $phone = $this->normalizePhone($credentials['phone']);
@@ -138,6 +142,8 @@ class DriverAppController extends Controller
             $user->increment('completed_orders');
         }
 
+        Notification::createOrderNotification($order->fresh());
+
         return response()->json([
             'data' => $this->orderPayload($order->fresh()->load(['items', 'customer'])),
         ]);
@@ -151,13 +157,42 @@ class DriverAppController extends Controller
             'first_name' => ['sometimes', 'string'],
             'last_name' => ['sometimes', 'string'],
             'email' => ['sometimes', 'email'],
-            'phone' => ['sometimes', 'string'],
+            'phone' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
+            'photo' => ['nullable'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
         if (isset($data['first_name']) || isset($data['last_name'])) {
             $first = $data['first_name'] ?? $user->first_name;
             $last = $data['last_name'] ?? $user->last_name;
             $data['name'] = trim($first.' '.$last);
+        }
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('avatars', 'public');
+            $data['photo'] = '/storage/'.$path;
+        } elseif ($request->has('photo')) {
+            $rawPhoto = $request->input('photo');
+            if (is_string($rawPhoto) && preg_match('/^data:image\/(\w+);base64,/', $rawPhoto, $type)) {
+                $raw = substr($rawPhoto, strpos($rawPhoto, ',') + 1);
+                $decoded = base64_decode($raw);
+                if ($decoded !== false) {
+                    $ext = strtolower($type[1]);
+                    if ($ext === 'jpeg') {
+                        $ext = 'jpg';
+                    }
+                    $filename = 'avatars/avatar_'.$user->id.'_'.time().'.'.$ext;
+                    Storage::disk('public')->put($filename, $decoded);
+                    $data['photo'] = '/storage/'.$filename;
+                } else {
+                    $data['photo'] = $rawPhoto;
+                }
+            } elseif ($rawPhoto === null || $rawPhoto === '') {
+                $data['photo'] = null;
+            } elseif (is_string($rawPhoto)) {
+                $data['photo'] = $rawPhoto;
+            }
         }
 
         $user->update($data);
@@ -207,10 +242,11 @@ class DriverAppController extends Controller
             ->first();
 
         if ($active) {
-            app(\App\Services\TrackingService::class)->ensureRoute($active, [
-                'latitude' => (float) $data['latitude'],
-                'longitude' => (float) $data['longitude'],
-            ]);
+            app(\App\Services\TrackingService::class)->updateLivePosition(
+                $active,
+                (float) $data['latitude'],
+                (float) $data['longitude']
+            );
         }
 
         return response()->json([
@@ -265,6 +301,7 @@ class DriverAppController extends Controller
             'last_name' => $user->last_name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
             'rating' => (float) $user->rating,

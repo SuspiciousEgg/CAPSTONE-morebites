@@ -20,7 +20,7 @@ class MenuController extends Controller
 
         if ($tab === 'archived') {
             $query->where('archived', true);
-        } else {
+        } elseif ($tab !== 'all') {
             $query->where('archived', false);
         }
 
@@ -84,13 +84,21 @@ class MenuController extends Controller
                 'action' => 'Added menu item "'.$item->name.'"',
             ]);
 
-            return $item->load(['sizes', 'ingredients.inventoryItem']);
+            return $item->fresh()->load([
+                'sizes',
+                'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+            ]);
         });
 
         $item->update(['available' => $service->canServe($item)]);
 
+        $fresh = $item->fresh()->load([
+            'sizes',
+            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+        ]);
+
         return response()->json([
-            'data' => $this->transform($item->fresh()->load(['sizes', 'ingredients.inventoryItem']), $service),
+            'data' => $this->transform($fresh, $service),
         ], 201);
     }
 
@@ -122,15 +130,23 @@ class MenuController extends Controller
 
             $this->syncIngredients($menu, $data['ingredients'] ?? []);
 
-            return $menu->load(['sizes', 'ingredients.inventoryItem']);
+            return $menu->fresh()->load([
+                'sizes',
+                'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+            ]);
         });
 
         if (! $item->archived) {
             $item->update(['available' => $service->canServe($item)]);
         }
 
+        $fresh = $item->fresh()->load([
+            'sizes',
+            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+        ]);
+
         return response()->json([
-            'data' => $this->transform($item->fresh()->load(['sizes', 'ingredients.inventoryItem']), $service),
+            'data' => $this->transform($fresh, $service),
         ]);
     }
 
@@ -187,6 +203,20 @@ class MenuController extends Controller
             }
         }
 
+        if (is_array($request->input('ingredients'))) {
+            $normalizedIngredients = collect($request->input('ingredients'))
+                ->filter(fn ($row) => is_array($row) && ! empty($row['inventory_item_id']))
+                ->map(fn ($row) => [
+                    'inventory_item_id' => (int) $row['inventory_item_id'],
+                    'qty_per_serving' => isset($row['qty_per_serving']) && $row['qty_per_serving'] !== '' && (float) $row['qty_per_serving'] > 0
+                        ? (float) $row['qty_per_serving']
+                        : 1.0,
+                ])
+                ->values()
+                ->all();
+            $request->merge(['ingredients' => $normalizedIngredients]);
+        }
+
         if ($request->exists('has_sizes')) {
             $request->merge([
                 'has_sizes' => filter_var($request->input('has_sizes'), FILTER_VALIDATE_BOOLEAN),
@@ -217,7 +247,7 @@ class MenuController extends Controller
                 'integer',
                 Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
             ],
-            'ingredients.*.qty_per_serving' => ['required', 'numeric', 'gt:0'],
+            'ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
         ]);
     }
 
@@ -250,15 +280,22 @@ class MenuController extends Controller
 
         $seen = [];
         foreach ($ingredients as $row) {
+            if (empty($row['inventory_item_id'])) {
+                continue;
+            }
             $inventoryId = (int) $row['inventory_item_id'];
             if (isset($seen[$inventoryId])) {
                 continue;
             }
             $seen[$inventoryId] = true;
 
+            $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
+                ? (float) $row['qty_per_serving']
+                : 1.0;
+
             $item->ingredients()->create([
                 'inventory_item_id' => $inventoryId,
-                'qty_per_serving' => $row['qty_per_serving'],
+                'qty_per_serving' => $qty,
             ]);
         }
     }

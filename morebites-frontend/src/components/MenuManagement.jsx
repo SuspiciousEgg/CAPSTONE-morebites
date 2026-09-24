@@ -4,7 +4,6 @@ import {
   LuPlus,
   LuPencil,
   LuArchive,
-  LuUtensils,
   LuRotateCcw,
   LuChevronDown,
   LuChevronLeft,
@@ -12,8 +11,10 @@ import {
   LuX,
   LuImage,
   LuTrash2,
+  LuTriangleAlert,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './MenuManagement.css'
 
 const CATEGORIES = ['Pizza', 'Pasta', 'Sides', 'Beverages', 'Desserts']
@@ -49,8 +50,8 @@ function emptyForm() {
   }
 }
 
-function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
-  const [form, setForm] = useState(() => ({
+function buildInitialForm(initial) {
+  return {
     ...emptyForm(),
     ...initial,
     description: initial?.description || '',
@@ -62,11 +63,26 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         : [{ name: '', price: '' }],
     ingredients: (initial?.ingredients || []).map((row) => ({
       inventory_item_id: String(row.inventory_item_id || ''),
-      qty_per_serving: row.qty_per_serving != null ? String(row.qty_per_serving) : '',
+      qty_per_serving:
+        row.qty_per_serving != null && row.qty_per_serving !== ''
+          ? String(Number(row.qty_per_serving))
+          : '1',
+      name: row.name || '',
+      unit: row.unit || '',
+      stock: row.stock ?? '',
     })),
-  }))
+  }
+}
+
+function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
+  const [form, setForm] = useState(() => buildInitialForm(initial))
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    setForm(buildInitialForm(initial))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id])
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -123,6 +139,32 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }))
   }
 
+  function hasIngredientChanges() {
+    const normalize = (list) =>
+      (list || [])
+        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+        .map((row) => ({
+          inventory_item_id: Number(row.inventory_item_id),
+          qty_per_serving:
+            row.qty_per_serving === '' || row.qty_per_serving == null
+              ? 1
+              : Number(row.qty_per_serving),
+        }))
+    return (
+      JSON.stringify(normalize(form.ingredients)) !==
+      JSON.stringify(normalize(initial?.ingredients))
+    )
+  }
+
+  async function handleDismiss() {
+    if (saving) return
+    if (mode === 'edit' && hasIngredientChanges()) {
+      await submit()
+      return
+    }
+    onClose()
+  }
+
   async function submit(e) {
     e?.preventDefault()
     if (!String(form.name || '').trim()) {
@@ -134,16 +176,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       return
     }
 
-    const recipeRows = form.ingredients.filter(
-      (row) => row.inventory_item_id && row.qty_per_serving !== '',
-    )
+    const recipeRows = form.ingredients
+      .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+      .map((row) => ({
+        ...row,
+        qty_per_serving:
+          row.qty_per_serving === '' || row.qty_per_serving == null
+            ? '1'
+            : String(row.qty_per_serving).trim(),
+      }))
     for (const row of recipeRows) {
       if (Number(row.qty_per_serving) <= 0 || Number.isNaN(Number(row.qty_per_serving))) {
         alert('Each linked ingredient needs a quantity greater than 0.')
         return
       }
     }
-    const ids = recipeRows.map((r) => r.inventory_item_id)
+    const ids = recipeRows.map((r) => String(r.inventory_item_id))
     if (new Set(ids).size !== ids.length) {
       alert('Each inventory item can only be linked once.')
       return
@@ -200,7 +248,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
       <div
         className="menu-modal-content"
         role="dialog"
@@ -212,7 +260,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           <button
             type="button"
             className="menu-modal-close"
-            onClick={onClose}
+            onClick={handleDismiss}
             aria-label="Close modal"
           >
             <LuX size={18} />
@@ -384,47 +432,60 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               Connect inventory stock used per serving. Orders deduct these amounts automatically.
             </p>
             <div className="menu-recipe-list">
-              {form.ingredients.map((row, i) => (
-                <div key={i} className="menu-recipe-row">
-                  <select
-                    value={row.inventory_item_id}
-                    onChange={(e) =>
-                      updateIngredient(i, 'inventory_item_id', e.target.value)
-                    }
-                  >
-                    <option value="">Select ingredient</option>
-                    {inventoryOptions.map((opt) => {
-                      const taken =
-                        selectedIds.has(String(opt.id)) &&
-                        String(opt.id) !== String(row.inventory_item_id)
-                      return (
-                        <option key={opt.id} value={opt.id} disabled={taken}>
-                          {opt.name} ({opt.stock} {opt.unit})
+              {form.ingredients.map((row, i) => {
+                const currentId = String(row.inventory_item_id || '')
+                const hasCurrentInOptions = inventoryOptions.some(
+                  (opt) => String(opt.id) === currentId,
+                )
+                return (
+                  <div key={i} className="menu-recipe-row">
+                    <select
+                      value={currentId}
+                      onChange={(e) =>
+                        updateIngredient(i, 'inventory_item_id', e.target.value)
+                      }
+                    >
+                      <option value="">Select ingredient</option>
+                      {currentId && !hasCurrentInOptions && (
+                        <option value={currentId}>
+                          {row.name || `Ingredient #${currentId}`}
+                          {row.unit ? ` (${row.stock ?? 0} ${row.unit})` : ''}
                         </option>
-                      )
-                    })}
-                  </select>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    className="menu-recipe-qty-input"
-                    placeholder="Qty/serving"
-                    value={row.qty_per_serving}
-                    onChange={(e) =>
-                      updateIngredient(i, 'qty_per_serving', e.target.value)
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="menu-remove-size-btn"
-                    onClick={() => removeIngredientRow(i)}
-                    aria-label="Remove ingredient"
-                  >
-                    <LuTrash2 size={16} />
-                  </button>
-                </div>
-              ))}
+                      )}
+                      {inventoryOptions.map((opt) => {
+                        const optId = String(opt.id)
+                        const taken =
+                          selectedIds.has(optId) && optId !== currentId
+                        return (
+                          <option key={optId} value={optId} disabled={taken}>
+                            {opt.name} ({opt.stock} {opt.unit})
+                          </option>
+                        )
+                      })}
+                    </select>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      className="menu-recipe-qty-input"
+                      placeholder="Qty/serving"
+                      value={row.qty_per_serving}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) =>
+                        updateIngredient(i, 'qty_per_serving', e.target.value)
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="menu-remove-size-btn"
+                      onClick={() => removeIngredientRow(i)}
+                      aria-label="Remove ingredient"
+                    >
+                      <LuTrash2 size={16} />
+                    </button>
+                  </div>
+                )
+              })}
               <button
                 type="button"
                 className="menu-add-size-row-btn"
@@ -458,7 +519,10 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 }
 
-function ConfirmModal({ type, title, message, confirmLabel, onClose, onConfirm }) {
+function ConfirmModal({ type, item, onClose, onConfirm }) {
+  const [step, setStep] = useState(1)
+  const name = item?.name || 'this item'
+
   return (
     <div className="menu-modal-overlay" onClick={onClose} role="presentation">
       <div
@@ -467,22 +531,52 @@ function ConfirmModal({ type, title, message, confirmLabel, onClose, onConfirm }
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={`menu-confirm-icon-wrap ${type}`}>
-          {type === 'restore' ? <LuRotateCcw size={26} /> : <LuArchive size={26} />}
+        <div className={`menu-confirm-icon-wrap ${step === 2 && type === 'archive' ? 'warn' : type}`}>
+          {step === 2 && type === 'archive' ? (
+            <LuTriangleAlert size={28} />
+          ) : type === 'restore' ? (
+            <LuRotateCcw size={26} />
+          ) : (
+            <LuArchive size={26} />
+          )}
         </div>
-        <h2 className="menu-confirm-title">{title}</h2>
-        <p className="menu-confirm-subtext">{message}</p>
+        <h2 className="menu-confirm-title">
+          {step === 2
+            ? 'Are you sure?'
+            : type === 'archive'
+              ? 'Archive Item'
+              : 'Restore Menu Item'}
+        </h2>
+        <p className="menu-confirm-subtext">
+          {step === 1
+            ? type === 'archive'
+              ? `Archive "${name}"? This action can be undone by restoring it from the Archived tab later.`
+              : `Restore "${name}"? This item will be moved back to Active Menu and visible to customers again.`
+            : type === 'archive'
+              ? `Are you sure you really want to archive "${name}"? This action can be undone by restoring it from the Archived tab later.`
+              : `Are you sure you really want to restore "${name}" back to the active menu?`}
+        </p>
         <div className="menu-confirm-actions">
           <button type="button" className="menu-modal-btn cancel" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="button"
-            className={`menu-modal-btn confirm-${type}`}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </button>
+          {step === 1 ? (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={() => setStep(2)}
+            >
+              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={onConfirm}
+            >
+              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -583,7 +677,9 @@ export default function MenuManagement() {
       if (formState?.mode === 'edit') {
         const { data: res } = await menuApi.update(data.id, payload)
         const updated = res?.data || res
-        setItems((prev) => prev.map((item) => (item.id === data.id ? updated : item)))
+        setItems((prev) =>
+          prev.map((item) => (Number(item.id) === Number(data.id) ? updated : item)),
+        )
       } else {
         const { data: res } = await menuApi.create(payload)
         const created = res?.data || res
@@ -736,17 +832,30 @@ export default function MenuManagement() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 0 }}>
-                    <div className="menu-empty-state">
-                      <div className="menu-empty-icon-circle">
-                        <LuUtensils size={32} />
-                      </div>
-                      <div className="menu-empty-title">No menu items found</div>
-                      <p className="menu-empty-subtext">
-                        {search || category !== 'All Categories'
-                          ? 'Try adjusting your search query or category filter.'
-                          : 'Click "+ Add New Item" above to add your first menu item.'}
-                      </p>
-                    </div>
+                    <EmptyState
+                      icon="utensils"
+                      title="No menu items found"
+                      subtitle={
+                        search || category !== 'All Categories'
+                          ? 'No items match your active search filters.'
+                          : 'Catalog is currently empty.'
+                      }
+                      action={
+                        Boolean(search || category !== 'All Categories') && (
+                          <button
+                            type="button"
+                            className="menu-empty-btn-secondary"
+                            onClick={() => {
+                              setSearch('')
+                              setCategory('All Categories')
+                              setPage(1)
+                            }}
+                          >
+                            Clear Filters
+                          </button>
+                        )
+                      }
+                    />
                   </td>
                 </tr>
               ) : (
@@ -851,7 +960,9 @@ export default function MenuManagement() {
                             className="menu-action-btn"
                             onClick={() => {
                               reloadInventory()
-                              setFormState({ mode: 'edit', item })
+                              const latest =
+                                items.find((i) => Number(i.id) === Number(item.id)) || item
+                              setFormState({ mode: 'edit', item: latest })
                             }}
                             aria-label={`Edit ${item.name}`}
                             title="Edit"
@@ -886,8 +997,8 @@ export default function MenuManagement() {
                                   type: 'archive',
                                   item,
                                   title: 'Archive Item',
-                                  message: `Are you sure you want to archive "${item.name}"? It will be removed from the active menu and moved to Archived.`,
-                                  confirmLabel: 'Archive',
+                                  message: `Archive "${item.name}"? This action can be undone by restoring it from the Archived tab later.`,
+                                  confirmLabel: 'Confirm Archive',
                                 })
                               }
                               aria-label={`Archive ${item.name}`}
@@ -912,42 +1023,45 @@ export default function MenuManagement() {
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} items
           </span>
-          <div className="menu-pagination-controls">
-            <button
-              type="button"
-              className="menu-page-btn"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="menu-pagination-controls">
               <button
-                key={n}
                 type="button"
-                className={`menu-page-btn${n === currentPage ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="menu-page-btn"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="menu-page-btn"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`menu-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="menu-page-btn"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Add / Edit Modal */}
       {formState && (
         <ItemFormModal
+          key={formState.mode === 'edit' ? `edit-${formState.item?.id}` : 'add'}
           mode={formState.mode}
           initial={formState.item}
           inventoryOptions={inventoryOptions}
@@ -960,6 +1074,7 @@ export default function MenuManagement() {
       {confirm && (
         <ConfirmModal
           type={confirm.type}
+          item={confirm.item}
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}

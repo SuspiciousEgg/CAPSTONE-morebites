@@ -193,10 +193,10 @@ export const authStorage = {
 };
 
 export const driverApi = {
-  login: (phone, password) =>
+  login: (phone, password, deviceId) =>
     request("/driver/login", {
       method: "POST",
-      body: { phone, password },
+      body: { phone, password, ...(deviceId ? { device_id: deviceId } : {}) },
       auth: false,
     }),
   me: () => request("/driver/me"),
@@ -258,7 +258,17 @@ export const driverApi = {
       method: "PATCH",
       body: { latitude, longitude },
     }),
+  updateDeliveryLocation: (deliveryId, latitude, longitude) =>
+    request(`/deliveries/${deliveryId}/location`, {
+      method: "PATCH",
+      body: { latitude, longitude },
+    }),
+  deliveryLocation: (deliveryId) => request(`/deliveries/${deliveryId}/location`),
   tracking: (dbId) => request(`/driver/orders/${dbId}/tracking`),
+  unreadNotificationsCount: () => request("/notifications/unread-count"),
+  notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
     try {
       await request("/logout", { method: "POST" });

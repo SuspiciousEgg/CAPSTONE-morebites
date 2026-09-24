@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -59,14 +59,17 @@ export default function EditAddressScreen() {
   const initialAddress = Object.keys(returnedDraft).length > 0 ? returnedDraft : originalAddress;
   const paramLatitude = Number(firstParam(params.latitude));
   const paramLongitude = Number(firstParam(params.longitude));
+  const paramStreet = firstParam(params.street);
+  const paramBarangay = firstParam(params.barangay);
+  const paramCity = firstParam(params.city);
 
   const [form, setForm] = useState({
     id: initialAddress.id,
     isDefault: Boolean(initialAddress.isDefault),
     label: initialAddress.label || "",
-    street: initialAddress.street || "",
-    barangay: initialAddress.barangay || "",
-    city: initialAddress.city || "",
+    street: (paramStreet !== undefined && paramStreet !== "") ? paramStreet : initialAddress.street || "",
+    barangay: (paramBarangay !== undefined && paramBarangay !== "") ? paramBarangay : initialAddress.barangay || "",
+    city: (paramCity !== undefined && paramCity !== "") ? paramCity : initialAddress.city || "",
     landmark: initialAddress.landmark || "",
     latitude: Number.isFinite(paramLatitude) ? paramLatitude : initialAddress.latitude ?? null,
     longitude: Number.isFinite(paramLongitude) ? paramLongitude : initialAddress.longitude ?? null,
@@ -74,6 +77,27 @@ export default function EditAddressScreen() {
   const [focusedField, setFocusedField] = useState("");
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (paramStreet !== undefined || paramBarangay !== undefined || paramCity !== undefined || Number.isFinite(paramLatitude)) {
+      setForm((current) => ({
+        ...current,
+        ...(paramStreet !== undefined && paramStreet !== "" ? { street: paramStreet } : {}),
+        ...(paramBarangay !== undefined && paramBarangay !== "" ? { barangay: paramBarangay } : {}),
+        ...(paramCity !== undefined && paramCity !== "" ? { city: paramCity } : {}),
+        ...(Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
+          ? { latitude: paramLatitude, longitude: paramLongitude }
+          : {}),
+      }));
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (paramStreet) delete next.street;
+        if (paramBarangay) delete next.barangay;
+        if (paramCity) delete next.city;
+        return next;
+      });
+    }
+  }, [paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
 
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));

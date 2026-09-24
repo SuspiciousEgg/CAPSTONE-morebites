@@ -14,10 +14,12 @@ import {
   LuCalendar,
   LuCircleCheck,
   LuRotateCcw,
-  LuTrash2,
+  LuArchive,
   LuShoppingCart,
   LuSlidersHorizontal,
   LuPackage,
+  LuUpload,
+  LuTrash2,
 } from 'react-icons/lu'
 import {
   IconBox,
@@ -37,12 +39,15 @@ import {
   IconUpload,
   IconWarning,
 } from './Icons'
-import { inventoryApi } from '../api/client'
+import { inventoryApi, reportsApi } from '../api/client'
+import EmptyState from './EmptyState'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
   INVENTORY_CATEGORY_LIST,
   formatInventoryCategory,
+  getCustomCategories,
+  saveCustomCategory,
 } from '../data/inventoryCategories'
 import './InventoryStock.css'
 
@@ -80,6 +85,7 @@ const PAGE_SIZE = 5
 const LOG_PAGE_SIZE = 7
 
 function statusClass(s) {
+  if (s === 'Archived') return 'archived'
   if (s === 'Out of Stock') return 'out'
   if (s === 'Expired' || s === 'Expires Today') return 'expired'
   if (s === 'Expiring Soon' || s === 'Low Stock') return 'expiring'
@@ -166,6 +172,78 @@ function UnitInput({ value, onChange, unit = 'pcs', min = '0', placeholder }) {
   )
 }
 
+function InventoryConfirmModal({ type, item, saving, onClose, onConfirm }) {
+  const [step, setStep] = useState(1)
+  const name = item?.name || 'this item'
+
+  return (
+    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="menu-modal-confirm-card"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`menu-confirm-icon-wrap ${step === 2 && type === 'archive' ? 'warn' : type}`}>
+          {step === 2 && type === 'archive' ? (
+            <LuTriangleAlert size={28} />
+          ) : type === 'restore' ? (
+            <LuRotateCcw size={26} />
+          ) : (
+            <LuArchive size={26} />
+          )}
+        </div>
+        <h2 className="menu-confirm-title">
+          {step === 2
+            ? 'Are you sure?'
+            : type === 'archive'
+              ? 'Archive Inventory Item'
+              : 'Restore Inventory Item'}
+        </h2>
+        <p className="menu-confirm-subtext">
+          {step === 1
+            ? type === 'archive'
+              ? `Archive "${name}"? Linked menu items using this ingredient will be marked unavailable until restored. This action can be undone by restoring it from the Archived tab later.`
+              : `Restore "${name}" to active inventory? Its status will return to being calculated normally based on current stock.`
+            : type === 'archive'
+              ? `Are you sure you really want to archive "${name}"? Linked menu items using this ingredient will be marked unavailable until restored.`
+              : `Are you sure you really want to restore "${name}" back to active inventory?`}
+        </p>
+        <div className="menu-confirm-actions">
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          {step === 1 ? (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={() => setStep(2)}
+              disabled={saving}
+            >
+              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`menu-modal-btn confirm-${type}`}
+              onClick={onConfirm}
+              disabled={saving}
+            >
+              {saving
+                ? type === 'archive'
+                  ? 'Archiving…'
+                  : 'Restoring…'
+                : type === 'archive'
+                  ? 'Confirm Archive'
+                  : 'Confirm Restore'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const EMPTY_FORM = {
   category: '',
   subcategory: '',
@@ -186,7 +264,7 @@ const EMPTY_LOG_STATS = {
   total_today: 0,
 }
 
-export default function InventoryStock({ onOpenExpiring }) {
+export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' }) {
   const [items, setItems] = useState([])
   const [logs, setLogs] = useState([])
   const [logStats, setLogStats] = useState(EMPTY_LOG_STATS)
@@ -200,6 +278,8 @@ export default function InventoryStock({ onOpenExpiring }) {
   const [editItem, setEditItem] = useState(null)
   const [restockItem, setRestockItem] = useState(null)
   const [restockQty, setRestockQty] = useState('')
+  const [archiveItem, setArchiveItem] = useState(null)
+  const [restoreItem, setRestoreItem] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedLog, setSelectedLog] = useState(null)
   const [logSearch, setLogSearch] = useState('')
@@ -209,6 +289,16 @@ export default function InventoryStock({ onOpenExpiring }) {
   const [logPage, setLogPage] = useState(1)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [customCategories, setCustomCategories] = useState(() => getCustomCategories())
+  const [showNewCatInput, setShowNewCatInput] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatError, setNewCatError] = useState('')
+
+  const categoryList = useMemo(() => {
+    const itemCats = items.map((i) => i.category).filter(Boolean)
+    const set = new Set([...INVENTORY_CATEGORY_LIST, ...customCategories, ...itemCats])
+    return Array.from(set)
+  }, [customCategories, items])
 
   const catRef = useRef(null)
   const statusRef = useRef(null)
@@ -217,12 +307,19 @@ export default function InventoryStock({ onOpenExpiring }) {
   const logRangeRef = useRef(null)
 
   const reload = useCallback(async () => {
-    const [i, l] = await Promise.all([inventoryApi.list(), inventoryApi.logs({ range: 'all' })])
+    const [i, l] = await Promise.all([
+      inventoryApi.list({ tab: currentTab }),
+      inventoryApi.logs({ range: 'all' }),
+    ])
     setItems(i.data?.data || i.data || [])
     setLogs(l.data?.data || l.data || [])
     setLogStats(l.data?.meta?.stats || EMPTY_LOG_STATS)
     setPageStats(i.data?.meta?.stats || null)
-  }, [])
+  }, [currentTab])
+
+  useEffect(() => {
+    setPage(1)
+  }, [currentTab])
 
   useEffect(() => {
     reload().catch(console.error)
@@ -242,7 +339,7 @@ export default function InventoryStock({ onOpenExpiring }) {
     const q = search.trim().toLowerCase()
     return items.filter((item) => {
       if (category !== 'All Categories' && item.category !== category) return false
-      if (status !== 'All Status' && item.status !== status) return false
+      if (currentTab !== 'archived' && status !== 'All Status' && item.status !== status) return false
       if (q) {
         const hay = [item.name, item.category, item.batch_no]
           .filter(Boolean)
@@ -252,7 +349,7 @@ export default function InventoryStock({ onOpenExpiring }) {
       }
       return true
     })
-  }, [items, search, category, status])
+  }, [items, search, category, status, currentTab])
 
   const filteredLogs = useMemo(() => {
     const q = logSearch.trim().toLowerCase()
@@ -366,15 +463,28 @@ export default function InventoryStock({ onOpenExpiring }) {
         .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
         .join(','),
     )
+    const filename = `inventory-activity-log-${new Date().toISOString().slice(0, 10)}.csv`
     const blob = new Blob([[header.join(','), ...lines].join('\n')], {
       type: 'text/csv;charset=utf-8;',
     })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `inventory-activity-log-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
+
+    try {
+      const sizeKB = `${(blob.size / 1024).toFixed(1)} KB`
+      reportsApi.logExport({
+        name: filename,
+        format: 'CSV',
+        size: sizeKB,
+        type: 'Inventory Activity Log',
+      }).catch(console.error)
+    } catch (e) {
+      console.warn('Failed to log inventory export:', e)
+    }
   }
 
   function buildPayload() {
@@ -396,7 +506,7 @@ export default function InventoryStock({ onOpenExpiring }) {
   }
 
   function validateForm() {
-    if (!form.category) {
+    if (!form.category || form.category === '__add_new__') {
       alert('Please select a category first.')
       return false
     }
@@ -479,16 +589,33 @@ export default function InventoryStock({ onOpenExpiring }) {
     }
   }
 
-  async function removeItem(id) {
-    if (!window.confirm('Delete this inventory item? Linked menu items will be disabled.')) {
-      return
-    }
+  async function confirmArchive() {
+    if (!archiveItem) return
+    setSaving(true)
     try {
-      await inventoryApi.remove(id)
+      await inventoryApi.archive(archiveItem.id)
+      setArchiveItem(null)
       await afterMutation()
     } catch (err) {
       console.error(err)
-      alert(err.response?.data?.message || 'Failed to delete item.')
+      alert(err.response?.data?.message || 'Failed to archive item.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmRestore() {
+    if (!restoreItem) return
+    setSaving(true)
+    try {
+      await inventoryApi.restore(restoreItem.id)
+      setRestoreItem(null)
+      await afterMutation()
+    } catch (err) {
+      console.error(err)
+      alert(err.response?.data?.message || 'Failed to restore item.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -509,12 +636,49 @@ export default function InventoryStock({ onOpenExpiring }) {
   }
 
   function handleCategoryChange(category) {
+    if (category === '__add_new__') {
+      setShowNewCatInput(true)
+      setNewCatError('')
+      return
+    }
+    setShowNewCatInput(false)
+    setNewCatError('')
     const config = getCategoryConfig(category)
     setForm({
       ...EMPTY_FORM,
       category,
+      subcategory: config?.subcategories?.length === 1 ? config.subcategories[0] : '',
       unit: config?.defaultUnit || 'pcs',
     })
+  }
+
+  function confirmNewCategory() {
+    const trimmed = newCatName.trim()
+    if (!trimmed) {
+      setNewCatError('Please enter a category name.')
+      return
+    }
+    saveCustomCategory(trimmed)
+    setCustomCategories((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
+    setShowNewCatInput(false)
+    setNewCatName('')
+    setNewCatError('')
+    const config = getCategoryConfig(trimmed)
+    setForm({
+      ...EMPTY_FORM,
+      category: trimmed,
+      subcategory: config?.subcategories?.length === 1 ? config.subcategories[0] : '',
+      unit: config?.defaultUnit || 'pcs',
+    })
+  }
+
+  function cancelNewCategory() {
+    setShowNewCatInput(false)
+    setNewCatName('')
+    setNewCatError('')
+    if (form.category === '__add_new__') {
+      setForm((f) => ({ ...f, category: '' }))
+    }
   }
 
   function openRestock(item) {
@@ -526,6 +690,9 @@ export default function InventoryStock({ onOpenExpiring }) {
     setAddOpen(false)
     setEditItem(null)
     setForm(EMPTY_FORM)
+    setShowNewCatInput(false)
+    setNewCatName('')
+    setNewCatError('')
   }
 
   function renderStockForm({ title, subtitle, submitLabel, onSubmit }) {
@@ -556,18 +723,92 @@ export default function InventoryStock({ onOpenExpiring }) {
           <div className="inv-modal-body inv-modal-body-form">
             <section className="inv-form-section">
               <h3 className="inv-form-section-title">CATEGORY</h3>
-              <label>
-                Category
-                <select value={form.category} onChange={(e) => handleCategoryChange(e.target.value)}>
+              <div>
+                <div className="inv-category-label-row">
+                  <label htmlFor="inv-category-select" style={{ margin: 0 }}>Category</label>
+                  {!showNewCatInput && (
+                    <button
+                      type="button"
+                      className="inv-btn-add-cat-link"
+                      onClick={() => {
+                        setShowNewCatInput(true)
+                        setNewCatError('')
+                      }}
+                    >
+                      + Add New Category
+                    </button>
+                  )}
+                </div>
+                <select
+                  id="inv-category-select"
+                  value={showNewCatInput ? '__add_new__' : form.category}
+                  onChange={(e) => {
+                    if (e.target.value === '__add_new__') {
+                      setShowNewCatInput(true)
+                      setNewCatError('')
+                    } else {
+                      setShowNewCatInput(false)
+                      handleCategoryChange(e.target.value)
+                    }
+                  }}
+                >
                   <option value="">Select category...</option>
-                  {CATEGORIES.map((c) => (
+                  {categoryList.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
                   ))}
+                  <option value="__add_new__">+ Add New Category</option>
                 </select>
-              </label>
-              {!showDetails ? (
+              </div>
+
+              {showNewCatInput && (
+                <div className="inv-new-cat-card">
+                  <div className="inv-new-cat-header">
+                    <span className="inv-new-cat-title">New Category Name</span>
+                  </div>
+                  <div className="inv-new-cat-row">
+                    <input
+                      type="text"
+                      className="inv-new-cat-input"
+                      placeholder="e.g. Spices & Seasonings"
+                      value={newCatName}
+                      onChange={(e) => {
+                        setNewCatName(e.target.value)
+                        if (newCatError) setNewCatError('')
+                      }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          confirmNewCategory()
+                        } else if (e.key === 'Escape') {
+                          cancelNewCategory()
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="inv-btn-primary"
+                      style={{ height: 38, padding: '0 16px', fontSize: 13, flexShrink: 0 }}
+                      onClick={confirmNewCategory}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      className="inv-btn-cancel"
+                      style={{ height: 38, padding: '0 12px', fontSize: 13, flexShrink: 0 }}
+                      onClick={cancelNewCategory}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {newCatError && <span className="inv-new-cat-error">{newCatError}</span>}
+                </div>
+              )}
+
+              {!showDetails && !showNewCatInput ? (
                 <p className="inv-field-hint">
                   Choose a category first to see the matching subcategories and item fields.
                 </p>
@@ -734,16 +975,18 @@ export default function InventoryStock({ onOpenExpiring }) {
           <button type="button" className="inv-btn-outline" onClick={openHistory}>
             <LuClock size={16} /> Stock History
           </button>
-          <button
-            type="button"
-            className="inv-btn-primary"
-            onClick={() => {
-              setForm(EMPTY_FORM)
-              setAddOpen(true)
-            }}
-          >
-            <LuPlus size={16} /> Add Stock
-          </button>
+          {currentTab !== 'archived' && (
+            <button
+              type="button"
+              className="inv-btn-primary"
+              onClick={() => {
+                setForm(EMPTY_FORM)
+                setAddOpen(true)
+              }}
+            >
+              <LuPlus size={16} /> Add Stock
+            </button>
+          )}
         </div>
       </header>
 
@@ -816,7 +1059,7 @@ export default function InventoryStock({ onOpenExpiring }) {
         </div>
         <FilterSelect
           value={category}
-          options={['All Categories', ...CATEGORIES]}
+          options={['All Categories', ...categoryList]}
           open={openFilter === 'cat'}
           onToggle={() => setOpenFilter((v) => (v === 'cat' ? null : 'cat'))}
           onSelect={(v) => {
@@ -826,18 +1069,20 @@ export default function InventoryStock({ onOpenExpiring }) {
           }}
           menuRef={catRef}
         />
-        <FilterSelect
-          value={status}
-          options={STATUSES}
-          open={openFilter === 'status'}
-          onToggle={() => setOpenFilter((v) => (v === 'status' ? null : 'status'))}
-          onSelect={(v) => {
-            setStatus(v)
-            setOpenFilter(null)
-            setPage(1)
-          }}
-          menuRef={statusRef}
-        />
+        {currentTab !== 'archived' && (
+          <FilterSelect
+            value={status}
+            options={STATUSES}
+            open={openFilter === 'status'}
+            onToggle={() => setOpenFilter((v) => (v === 'status' ? null : 'status'))}
+            onSelect={(v) => {
+              setStatus(v)
+              setOpenFilter(null)
+              setPage(1)
+            }}
+            menuRef={statusRef}
+          />
+        )}
         <button
           type="button"
           className="inv-btn-filter"
@@ -870,7 +1115,19 @@ export default function InventoryStock({ onOpenExpiring }) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="inv-empty">
-                    No inventory items found.
+                    <EmptyState
+                      icon="box"
+                      title={
+                        currentTab === 'archived'
+                          ? 'No archived inventory items'
+                          : 'No inventory items found'
+                      }
+                      subtitle={
+                        search
+                          ? 'No items match your active search filters.'
+                          : 'Raw materials and ingredients will appear here.'
+                      }
+                    />
                   </td>
                 </tr>
               ) : (
@@ -913,33 +1170,47 @@ export default function InventoryStock({ onOpenExpiring }) {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="inv-actions" style={{ justifyContent: 'flex-end' }}>
-                          <button
-                            type="button"
-                            className="inv-icon-btn restock"
-                            aria-label="Restock"
-                            title="Restock"
-                            onClick={() => openRestock(item)}
-                          >
-                            <LuRotateCcw size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            className="inv-icon-btn edit"
-                            aria-label="Edit"
-                            title="Edit"
-                            onClick={() => openEdit(item)}
-                          >
-                            <LuPencil size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            className="inv-icon-btn danger"
-                            aria-label="Delete"
-                            title="Delete"
-                            onClick={() => removeItem(item.id)}
-                          >
-                            <LuTrash2 size={15} />
-                          </button>
+                          {currentTab === 'archived' ? (
+                            <button
+                              type="button"
+                              className="inv-icon-btn restore"
+                              aria-label="Restore"
+                              title="Restore to active inventory"
+                              onClick={() => setRestoreItem(item)}
+                            >
+                              <LuRotateCcw size={15} />
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="inv-icon-btn restock"
+                                aria-label="Restock"
+                                title="Restock"
+                                onClick={() => openRestock(item)}
+                              >
+                                <LuRotateCcw size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                className="inv-icon-btn edit"
+                                aria-label="Edit"
+                                title="Edit"
+                                onClick={() => openEdit(item)}
+                              >
+                                <LuPencil size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                className="inv-icon-btn archive"
+                                aria-label="Archive"
+                                title="Archive"
+                                onClick={() => setArchiveItem(item)}
+                              >
+                                <LuArchive size={15} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -954,36 +1225,38 @@ export default function InventoryStock({ onOpenExpiring }) {
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} items
           </span>
-          <div className="inv-pages">
-            <button
-              type="button"
-              className="inv-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="inv-pages">
               <button
-                key={n}
                 type="button"
-                className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="inv-page-btn arrow"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="inv-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="inv-page-btn arrow"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1047,6 +1320,26 @@ export default function InventoryStock({ onOpenExpiring }) {
             </div>
           </div>
         </div>
+      )}
+
+      {archiveItem && (
+        <InventoryConfirmModal
+          type="archive"
+          item={archiveItem}
+          saving={saving}
+          onClose={() => setArchiveItem(null)}
+          onConfirm={confirmArchive}
+        />
+      )}
+
+      {restoreItem && (
+        <InventoryConfirmModal
+          type="restore"
+          item={restoreItem}
+          saving={saving}
+          onClose={() => setRestoreItem(null)}
+          onConfirm={confirmRestore}
+        />
       )}
 
       {historyOpen && (
@@ -1130,7 +1423,7 @@ export default function InventoryStock({ onOpenExpiring }) {
                 </div>
                 <FilterSelect
                   value={logCategory}
-                  options={['All Categories', ...CATEGORIES]}
+                  options={['All Categories', ...categoryList]}
                   open={openFilter === 'logCat'}
                   onToggle={() => setOpenFilter((v) => (v === 'logCat' ? null : 'logCat'))}
                   onSelect={(v) => {
@@ -1195,7 +1488,11 @@ export default function InventoryStock({ onOpenExpiring }) {
                     {logRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="inv-empty">
-                          No activity found for the selected filters.
+                          <EmptyState
+                            icon="clock"
+                            title="No stock movements found"
+                            subtitle="Stock additions and deductions will be logged here."
+                          />
                         </td>
                       </tr>
                     ) : (
@@ -1247,44 +1544,46 @@ export default function InventoryStock({ onOpenExpiring }) {
                   {Math.min(logCurrentPage * LOG_PAGE_SIZE, filteredLogs.length)} of{' '}
                   {filteredLogs.length} activities
                 </span>
-                <div className="inv-pages">
-                  <button
-                    type="button"
-                    disabled={logCurrentPage <= 1}
-                    onClick={() => setLogPage((p) => p - 1)}
-                  >
-                    {'<'}
-                  </button>
-                  {Array.from({ length: logTotalPages }, (_, i) => i + 1)
-                    .filter((n) => {
-                      if (logTotalPages <= 7) return true
-                      if (n === 1 || n === logTotalPages) return true
-                      return Math.abs(n - logCurrentPage) <= 1
-                    })
-                    .map((n, idx, arr) => {
-                      const prev = arr[idx - 1]
-                      const showEllipsis = prev != null && n - prev > 1
-                      return (
-                        <span key={n} className="inv-page-group">
-                          {showEllipsis && <span className="inv-ellipsis">…</span>}
-                          <button
-                            type="button"
-                            className={n === logCurrentPage ? 'active' : ''}
-                            onClick={() => setLogPage(n)}
-                          >
-                            {n}
-                          </button>
-                        </span>
-                      )
-                    })}
-                  <button
-                    type="button"
-                    disabled={logCurrentPage >= logTotalPages}
-                    onClick={() => setLogPage((p) => p + 1)}
-                  >
-                    {'>'}
-                  </button>
-                </div>
+                {logTotalPages > 1 && (
+                  <div className="inv-pages">
+                    <button
+                      type="button"
+                      disabled={logCurrentPage <= 1}
+                      onClick={() => setLogPage((p) => p - 1)}
+                    >
+                      {'<'}
+                    </button>
+                    {Array.from({ length: logTotalPages }, (_, i) => i + 1)
+                      .filter((n) => {
+                        if (logTotalPages <= 7) return true
+                        if (n === 1 || n === logTotalPages) return true
+                        return Math.abs(n - logCurrentPage) <= 1
+                      })
+                      .map((n, idx, arr) => {
+                        const prev = arr[idx - 1]
+                        const showEllipsis = prev != null && n - prev > 1
+                        return (
+                          <span key={n} className="inv-page-group">
+                            {showEllipsis && <span className="inv-ellipsis">…</span>}
+                            <button
+                              type="button"
+                              className={n === logCurrentPage ? 'active' : ''}
+                              onClick={() => setLogPage(n)}
+                            >
+                              {n}
+                            </button>
+                          </span>
+                        )
+                      })}
+                    <button
+                      type="button"
+                      disabled={logCurrentPage >= logTotalPages}
+                      onClick={() => setLogPage((p) => p + 1)}
+                    >
+                      {'>'}
+                    </button>
+                  </div>
+                )}
                 <button type="button" className="inv-btn-outline inv-btn-export" onClick={exportLogs}>
                   <LuUpload size={15} /> Export
                 </button>

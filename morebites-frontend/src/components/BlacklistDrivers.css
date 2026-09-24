@@ -376,3 +376,44 @@
 .bl-save-btn:hover {
   background: #E69500;
 }
+
+.bl-empty {
+  text-align: center;
+  padding: 24px 16px !important;
+}
+
+.bl-empty-box {
+  background: transparent;
+  border: none;
+  padding: 16px;
+  text-align: center;
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.bl-empty-pill {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748B;
+  background: #E2E8F0;
+  padding: 2.5px 9px;
+  border-radius: 9999px;
+  margin-bottom: 8px;
+}
+
+.bl-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px;
+}
+
+.bl-empty-subtext {
+  font-size: 13px;
+  color: #64748B;
+  line-height: 1.45;
+  margin: 0;
+}

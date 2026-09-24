@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,33 +13,50 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi } from "../src/api/client";
+import { customerApi, mediaUrl } from "../src/api/client";
+import { useCart } from "../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 const RECENT_SEARCHES_KEY = "recent_searches";
 
-function shuffleItems(items) {
-  return [...items].sort(() => Math.random() - 0.5).slice(0, 4);
-}
-
 function FoodCard({ item, compact = false }) {
+  const isAvailable = item.availability !== false && item.available !== false;
   const openDetails = () => {
+    if (!isAvailable) return;
     router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
   };
 
+  const imageUrl = mediaUrl(item.image);
+
   return (
-    <Pressable style={[styles.foodCard, compact && styles.compactFoodCard]} onPress={openDetails}>
-      <View style={styles.foodImage}>
-        <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
+    <Pressable
+      style={[
+        styles.foodCard,
+        compact && styles.compactFoodCard,
+        !isAvailable && styles.cardDisabled,
+      ]}
+      disabled={!isAvailable}
+      onPress={openDetails}
+    >
+      <View style={styles.imageWrap}>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.foodImageThumb} />
+        ) : (
+          <View style={styles.foodImage}>
+            <Ionicons name="fast-food-outline" size={34} color="#9CA3AF" />
+          </View>
+        )}
+        {!isAvailable && (
+          <View style={styles.unavailableBadge}>
+            <Text style={styles.unavailableBadgeText}>Unavailable</Text>
+          </View>
+        )}
       </View>
       <View style={styles.foodCardContent}>
         <Text style={styles.foodName} numberOfLines={2}>{item.name}</Text>
         <View style={styles.foodCardFooter}>
           <Text style={styles.foodPrice}>{item.priceLabel || `₱${item.price}`}</Text>
-          <Pressable style={styles.addButton} onPress={openDetails} hitSlop={6}>
-            <Ionicons name="add" size={16} color="#FFFFFF" />
-          </Pressable>
         </View>
       </View>
     </Pressable>
@@ -46,14 +64,32 @@ function FoodCard({ item, compact = false }) {
 }
 
 export default function SearchScreen() {
+  const { cartItems } = useCart();
   const [searchText, setSearchText] = useState("");
-  const [results, setResults] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(true);
   const [recentSearches, setRecentSearches] = useState([]);
   const [focused, setFocused] = useState(true);
-  const [suggestedItems, setSuggestedItems] = useState([]);
+  const [pastOrders, setPastOrders] = useState([]);
+  const [topSellingItems, setTopSellingItems] = useState([]);
+
+  // DIAGNOSIS & REFACTOR (Prompt 33):
+  // Active search state: when customer types any character into the search bar,
+  // isSearching is true. Both "Popular Searches" and "You Might Like" are hidden,
+  // and search results (or "No results found for '...'") are rendered.
+  // Note on "Recent Searches": It shares the same empty-state container as Popular Searches
+  // and You Might Like, meaning it is also appropriately hidden during active search
+  // and reappears when the search input is empty.
   const isSearching = searchText.trim().length > 0;
+  const trimmedSearch = searchText.trim();
+
+  const searchResults = useMemo(() => {
+    const term = trimmedSearch.toLowerCase();
+    if (!term) return [];
+    return menuItems.filter((item) =>
+      `${item.name} ${item.category || ""}`.toLowerCase().includes(term)
+    );
+  }, [trimmedSearch, menuItems]);
 
   const popularSearches = useMemo(() => {
     const cats = Array.from(new Set(menuItems.map((i) => i.category).filter(Boolean)));
@@ -64,18 +100,22 @@ export default function SearchScreen() {
     const load = async () => {
       setLoadingMenu(true);
       try {
-        const [stored, res] = await Promise.all([
+        const [stored, res, ordersRes, topRes] = await Promise.all([
           AsyncStorage.getItem(RECENT_SEARCHES_KEY),
           customerApi.menu(),
+          customerApi.orders().catch(() => ({ data: [] })),
+          customerApi.topSelling().catch(() => ({ data: [] })),
         ]);
         const searches = stored ? JSON.parse(stored) : [];
         setRecentSearches(Array.isArray(searches) ? searches.slice(0, 5) : []);
         const items = res.data || [];
         setMenuItems(items);
-        setSuggestedItems(shuffleItems(items));
+        setPastOrders(ordersRes?.data || []);
+        setTopSellingItems(topRes?.data || []);
       } catch {
         setMenuItems([]);
-        setSuggestedItems([]);
+        setPastOrders([]);
+        setTopSellingItems([]);
       } finally {
         setLoadingMenu(false);
       }
@@ -83,16 +123,72 @@ export default function SearchScreen() {
     load();
   }, []);
 
+  const suggestedItems = useMemo(() => {
+    if (!menuItems.length) return [];
+
+    // 1. Items currently in customer's cart
+    const cartItemIds = new Set((cartItems || []).map((c) => String(c.id || c.db_id || "")).filter(Boolean));
+    const cartItemNames = new Set((cartItems || []).map((c) => String(c.name || "").trim().toLowerCase()).filter(Boolean));
+
+    // 2. Items customer has already ordered before and categories they ordered from
+    const orderedItemIds = new Set();
+    const orderedItemNames = new Set();
+    const orderedCategories = new Set();
+
+    (pastOrders || []).forEach((order) => {
+      (order.items || []).forEach((item) => {
+        if (item.menu_item_id) orderedItemIds.add(String(item.menu_item_id));
+        if (item.id) orderedItemIds.add(String(item.id));
+        if (item.name) {
+          const normName = String(item.name).trim().toLowerCase();
+          orderedItemNames.add(normName);
+          const found = menuItems.find(
+            (m) => String(m.id) === String(item.menu_item_id) || String(m.name).trim().toLowerCase() === normName
+          );
+          if (found?.category) orderedCategories.add(found.category);
+        }
+      });
+    });
+
+    const isExcluded = (item) => {
+      const idStr = String(item.id || item.db_id || "");
+      const nameLower = String(item.name || "").trim().toLowerCase();
+      return (
+        (idStr && (cartItemIds.has(idStr) || orderedItemIds.has(idStr))) ||
+        (nameLower && (cartItemNames.has(nameLower) || orderedItemNames.has(nameLower)))
+      );
+    };
+
+    const hasOrderHistory = pastOrders.length > 0 && (orderedItemIds.size > 0 || orderedItemNames.size > 0);
+
+    if (hasOrderHistory) {
+      // Unpurchased items
+      const unpurchased = menuItems.filter((item) => !isExcluded(item));
+
+      // Prioritize unpurchased items belonging to categories customer previously ordered from
+      const preferred = unpurchased.filter((item) => item.category && orderedCategories.has(item.category));
+      const others = unpurchased.filter((item) => !item.category || !orderedCategories.has(item.category));
+
+      const combined = [...preferred, ...others];
+      if (combined.length > 0) {
+        return combined.slice(0, 8);
+      }
+    }
+
+    // Fallback: If customer has no order history at all, fall back to top-selling, excluding cart
+    const fallbackTop = (topSellingItems.length ? topSellingItems : menuItems).filter(
+      (item) => {
+        const idStr = String(item.id || item.db_id || "");
+        const nameLower = String(item.name || "").trim().toLowerCase();
+        return !cartItemIds.has(idStr) && !cartItemNames.has(nameLower);
+      }
+    );
+
+    return fallbackTop.slice(0, 8);
+  }, [menuItems, cartItems, pastOrders, topSellingItems]);
+
   const runSearch = (term) => {
     setSearchText(term);
-    const normalizedTerm = term.trim().toLowerCase();
-    setResults(
-      normalizedTerm
-        ? menuItems.filter((item) =>
-            `${item.name} ${item.category || ""}`.toLowerCase().includes(normalizedTerm),
-          )
-        : [],
-    );
   };
 
   const saveRecentSearch = async () => {
@@ -138,6 +234,11 @@ export default function SearchScreen() {
             returnKeyType="search"
             autoFocus
           />
+          {searchText.length > 0 ? (
+            <Pressable onPress={() => setSearchText("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            </Pressable>
+          ) : null}
         </View>
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={styles.cancelText}>Cancel</Text>
@@ -150,14 +251,14 @@ export default function SearchScreen() {
         showsVerticalScrollIndicator={false}
       >
         {isSearching ? (
-          results.length ? (
+          searchResults.length ? (
             <View style={styles.resultsGrid}>
-              {results.map((item) => <FoodCard key={item.id} item={item} />)}
+              {searchResults.map((item) => <FoodCard key={item.id} item={item} />)}
             </View>
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="search-outline" size={64} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No results for &apos;{searchText.trim()}&apos;</Text>
+              <Text style={styles.emptyTitle}>No results found for &apos;{trimmedSearch}&apos;</Text>
               <Text style={styles.emptySubtitle}>Try searching for something else</Text>
             </View>
           )
@@ -351,14 +452,42 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 2,
   },
+  cardDisabled: {
+    opacity: 0.5,
+  },
   compactFoodCard: {
     width: "100%",
+  },
+  imageWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  unavailableBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#4B5563",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+    zIndex: 10,
+  },
+  unavailableBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   foodImage: {
     height: 110,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#E5E7EB",
+  },
+  foodImageThumb: {
+    height: 110,
+    width: "100%",
+    resizeMode: "cover",
   },
   foodCardContent: {
     minHeight: 72,
@@ -390,6 +519,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 12,
     backgroundColor: PRIMARY,
+  },
+  addButtonDisabled: {
+    backgroundColor: "#9CA3AF",
   },
   emptyState: {
     minHeight: 420,

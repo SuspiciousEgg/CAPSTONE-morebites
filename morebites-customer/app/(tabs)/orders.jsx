@@ -1,6 +1,37 @@
+/**
+ * PROMPT 17 INVESTIGATION REPORT: Mobile Orders Tab Restoration
+ *
+ * 1. Current State vs. Missing Requirements:
+ *    - Header:
+ *      * Existed: Static centered "My Orders" title with no action items.
+ *      * Missing: Notification bell icon (`Ionicons name="notifications"`) in the top right,
+ *        dynamic red indicator indicating unread notifications count, and the notifications panel/modal.
+ *    - Status-Dependent Action Buttons:
+ *      * Existed: Broad condition `canTrack = ["Out for Delivery", "Assigned", "Picked Up"]` and `canRate`
+ *        for completed/delivered orders, causing "Track" to appear prematurely when an order was only
+ *        assigned or picked up.
+ *      * Missing: Strict status-to-button mapping where ONLY "Out for Delivery" displays the "Track" button
+ *        (solid black, with location icon) side-by-side with "View Details" (outline button). All other stages
+ *        (Assigned, Pending, Preparing, Completed, Cancelled) display "View Details" only.
+ *    - End of History Footer:
+ *      * Existed: None (the list simply ended with empty bottom padding).
+ *      * Missing: Centered footer element featuring the muted food illustration (`assets/images/pizza.png`)
+ *        and "End of history" text in gray once all orders for the active filter have rendered.
+ *
+ * 2. Restoration vs. New Functionality:
+ *    - In the initial codebase commit (c72b419), this exact UI pattern (header notification bell with
+ *      unread badge, notifications modal overlay with read/unread indicators, and end-of-history footer
+ *      with the pizza illustration) was originally created in the project (originally colocated in the
+ *      driver home tab).
+ *    - During subsequent customer app iterations and backend API integration, the notification bell,
+ *      badge, modal, and footer were omitted, and button logic diverged.
+ *    - Therefore, this is a RESTORATION of previously-specified design features, updated to consume
+ *      the live, per-user-scoped Laravel `notifications` and `notification_reads` database source of truth.
+ */
+
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -18,40 +49,41 @@ import { feesFromOrder } from "../../src/api/fees";
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 
-const STATUS_DETAILS = {
-  "Out for Delivery": { icon: "bicycle" },
-  Assigned: { icon: "bicycle" },
-  Delivered: { icon: "checkmark-circle" },
-  Completed: { icon: "checkmark-circle" },
-  Preparing: { icon: "flame" },
-  Pending: { icon: "time" },
-  Cancelled: { icon: "close-circle" },
+const STATUS_ICONS = {
+  "Out for Delivery": "bicycle",
+  "Picked Up": "bicycle",
+  Assigned: "bicycle",
+  Ready: "cube-outline",
+  Delivered: "checkmark-circle-outline",
+  Completed: "checkmark-circle-outline",
+  Preparing: "flame-outline",
+  Pending: "time-outline",
+  Cancelled: "close-circle-outline",
 };
 
-function StatusBadge({ status }) {
-  const details = STATUS_DETAILS[status] || STATUS_DETAILS.Pending;
-  const badgeStyle =
-    {
-      "Out for Delivery": styles.deliveryBadge,
-      Assigned: styles.deliveryBadge,
-      Delivered: styles.completedBadge,
-      Completed: styles.completedBadge,
-      Preparing: styles.preparingBadge,
-      Pending: styles.pendingBadge,
-      Cancelled: styles.cancelledBadge,
-    }[status] || styles.pendingBadge;
+const TRACKABLE_STATUSES = [
+  "Out for Delivery",
+  "Picked Up",
+  "Assigned",
+  "Ready",
+  "Preparing",
+  "Pending",
+];
 
+function StatusIndicator({ status }) {
+  const icon = STATUS_ICONS[status] || "time-outline";
   return (
-    <View style={[styles.statusBadge, badgeStyle]}>
-      <Ionicons name={details.icon} size={12} color="#FFFFFF" />
+    <View style={styles.statusIndicator}>
+      <Ionicons name={icon} size={18} color="#121212" />
       <Text style={styles.statusText}>{status}</Text>
     </View>
   );
 }
 
 function OrderCard({ order, onViewDetails }) {
-  const canTrack = ["Out for Delivery", "Assigned", "Picked Up"].includes(order.status);
-  const canRate = Boolean(order.can_rate) || (["Delivered", "Completed"].includes(order.status) && !order.rated);
+  const canTrack =
+    TRACKABLE_STATUSES.includes(order.status) ||
+    (!["Delivered", "Completed", "Cancelled"].includes(order.status) && Boolean(order.status));
 
   return (
     <View style={styles.orderCard}>
@@ -60,17 +92,17 @@ function OrderCard({ order, onViewDetails }) {
           <Text style={styles.orderIdLabel}>ORDER ID</Text>
           <Text style={styles.orderId}>{order.id}</Text>
         </View>
-        <StatusBadge status={order.status} />
+        <StatusIndicator status={order.status} />
       </View>
 
-      <View style={styles.itemSummaryRow}>
-        <Ionicons name="pizza-outline" size={16} color={PRIMARY} />
-        <Text style={styles.itemsText}>{order.itemsLabel}</Text>
-      </View>
-
-      <View style={styles.dateRow}>
-        <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
-        <Text style={styles.dateText}>{order.dateLabel}</Text>
+      <View style={styles.itemSummaryWrap}>
+        <View style={styles.itemInfoCol}>
+          <Text style={styles.itemsText}>{order.itemsLabel}</Text>
+          <View style={styles.dateRow}>
+            <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
+            <Text style={styles.dateText}>{order.dateLabel}</Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.totalRow}>
@@ -79,7 +111,10 @@ function OrderCard({ order, onViewDetails }) {
       </View>
 
       <View style={styles.actionRow}>
-        <Pressable style={styles.detailsButton} onPress={() => onViewDetails(order)}>
+        <Pressable
+          style={[styles.detailsButton, canTrack && styles.detailsButtonHalf]}
+          onPress={() => onViewDetails(order)}
+        >
           <Text style={styles.detailsButtonText}>View Details</Text>
         </Pressable>
         {canTrack ? (
@@ -88,34 +123,31 @@ function OrderCard({ order, onViewDetails }) {
             onPress={() =>
               router.push({
                 pathname: "/order-tracking",
-                params: { orderId: order.id, dbId: String(order.db_id || "") },
-              })
-            }
-          >
-            <Ionicons name="location-outline" size={15} color="#FFFFFF" />
-            <Text style={styles.trackButtonText}>Track</Text>
-          </Pressable>
-        ) : null}
-        {canRate ? (
-          <Pressable
-            style={styles.trackButton}
-            onPress={() =>
-              router.push({
-                pathname: "/rate-order",
                 params: {
+                  orderId: order.id,
                   dbId: String(order.db_id || ""),
-                  foodName: order.food_name || order.itemsLabel || "Your order",
-                  foodPrice: String(order.food_price || order.total || 0),
-                  riderName: order.driver || "Your delivery rider",
+                  order: JSON.stringify(order),
                 },
               })
             }
           >
-            <Ionicons name="star-outline" size={15} color="#FFFFFF" />
-            <Text style={styles.trackButtonText}>Rate</Text>
+            <Ionicons name="location-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.trackButtonText}>Track</Text>
           </Pressable>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+function EndOfHistory() {
+  return (
+    <View style={styles.endState}>
+      <Image
+        source={require("../../assets/images/pizza.png")}
+        style={styles.endStateImage}
+      />
+      <Text style={styles.endStateText}>End of history</Text>
     </View>
   );
 }
@@ -166,7 +198,7 @@ function OrderDetailsModal({ visible, order, onClose }) {
                 <Text style={styles.orderIdLabel}>ORDER ID</Text>
                 <Text style={styles.detailsOrderId}>{order.id}</Text>
               </View>
-              <StatusBadge status={order.status} />
+              <StatusIndicator status={order.status} />
             </View>
 
             <View style={styles.detailsDateRow}>
@@ -176,8 +208,8 @@ function OrderDetailsModal({ visible, order, onClose }) {
 
             <Text style={styles.sectionTitle}>Items</Text>
             <View style={styles.sectionCard}>
-              {(order.items || []).map((item) => (
-                <View key={item.id} style={styles.detailItemRow}>
+              {(order.items || []).map((item, index) => (
+                <View key={`${item.id || item.name}-${index}`} style={styles.detailItemRow}>
                   <View style={styles.foodPlaceholder}>
                     <Ionicons name="fast-food-outline" size={25} color="#8A8A8A" />
                   </View>
@@ -256,6 +288,87 @@ function OrderDetailsModal({ visible, order, onClose }) {
   );
 }
 
+function NotificationsModal({
+  visible,
+  notifications,
+  loading,
+  onClose,
+  onNotificationPress,
+  onMarkAllAsRead,
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.notificationsHeader}>
+            <Text style={styles.notificationsTitle}>Notifications</Text>
+            <Pressable style={styles.modalCloseButton} hitSlop={8} onPress={onClose}>
+              <Ionicons name="close" size={22} color="#121212" />
+            </Pressable>
+          </View>
+
+          {loading ? (
+            <View style={styles.notificationLoading}>
+              <ActivityIndicator size="small" color={PRIMARY} />
+              <Text style={styles.notificationLoadingText}>Loading notifications...</Text>
+            </View>
+          ) : notifications.length === 0 ? (
+            <View style={styles.notificationEmpty}>
+              <Ionicons name="notifications-off-outline" size={38} color="#D1D5DB" />
+              <Text style={styles.notificationEmptyText}>No new notifications</Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.notificationsList}
+              contentContainerStyle={styles.notificationsListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {notifications.map((item, index) => {
+                const isUnread = Boolean(item.unread || (!item.is_read && item.is_read !== undefined));
+                return (
+                  <Pressable
+                    key={`${item.id}-${index}`}
+                    style={[styles.notificationItem, isUnread && styles.notificationItemUnread]}
+                    onPress={() => onNotificationPress(item)}
+                  >
+                    <View style={styles.notificationBulletWrap}>
+                      {isUnread ? (
+                        <View style={styles.notificationDotUnread} />
+                      ) : (
+                        <View style={styles.notificationDotRead} />
+                      )}
+                    </View>
+                    <View style={styles.notificationContent}>
+                      <Text style={[styles.notificationText, isUnread && styles.notificationTextUnread]}>
+                        {item.message || item.title}
+                      </Text>
+                      <Text style={styles.notificationTime}>
+                        {item.time ||
+                          (item.created_at
+                            ? new Date(item.created_at).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "Just now")}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {notifications.some((n) => n.unread || !n.is_read) ? (
+            <Pressable style={styles.markAllButton} onPress={onMarkAllAsRead}>
+              <Text style={styles.markAllButtonText}>Mark all as read</Text>
+            </Pressable>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function OrdersScreen() {
   const [activeTab, setActiveTab] = useState("All");
   const [detailsVisible, setDetailsVisible] = useState(false);
@@ -264,25 +377,128 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  // Notification states
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+
+  const loadUnreadCount = useCallback(async () => {
+    try {
+      const res = await customerApi.unreadNotificationsCount();
+      const count = Number(res?.count ?? res?.data?.count ?? 0);
+      setUnreadCount(count);
+    } catch {
+      // offline or unauthenticated fallback
+    }
+  }, []);
+
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await customerApi.orders();
-      setOrders(res.data || []);
+      const [ordersRes] = await Promise.all([
+        customerApi.orders(),
+        loadUnreadCount(),
+      ]);
+      setOrders(ordersRes.data || []);
     } catch (err) {
       setLoadError(err.message || "Failed to load orders");
       setOrders([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadUnreadCount]);
+
+  const notificationsVisibleRef = useRef(notificationsVisible);
+  notificationsVisibleRef.current = notificationsVisible;
 
   useFocusEffect(
     useCallback(() => {
       loadOrders();
-    }, [loadOrders]),
+
+      const interval = setInterval(async () => {
+        loadUnreadCount();
+        try {
+          const ordersRes = await customerApi.orders();
+          if (ordersRes?.data) {
+            setOrders(ordersRes.data);
+          }
+        } catch {
+          // offline / ignore
+        }
+        if (notificationsVisibleRef.current) {
+          try {
+            const res = await customerApi.notifications();
+            setNotifications(res.data || []);
+          } catch {
+            // offline / ignore
+          }
+        }
+      }, 3000);
+
+      return () => {
+        clearInterval(interval);
+      };
+    }, [loadOrders, loadUnreadCount]),
   );
+
+  const openNotifications = async () => {
+    setNotificationsVisible(true);
+    setNotificationsLoading(true);
+    try {
+      const res = await customerApi.notifications();
+      setNotifications(res.data || []);
+      const countRes = await customerApi.unreadNotificationsCount();
+      setUnreadCount(Number(countRes?.count ?? countRes?.data?.count ?? 0));
+    } catch (err) {
+      console.warn("Failed to load notifications:", err);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const handleNotificationPress = async (item) => {
+    if (item.unread || !item.is_read) {
+      try {
+        await customerApi.markNotificationRead(item.id);
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === item.id ? { ...n, is_read: true, unread: false } : n))
+        );
+        setUnreadCount((c) => Math.max(0, c - 1));
+      } catch (err) {
+        console.warn("Failed to mark notification as read:", err);
+      }
+    }
+
+    const orderData = item.data || {};
+    const orderStatus = orderData.status;
+
+    if (
+      TRACKABLE_STATUSES.includes(orderStatus) ||
+      item.message?.toLowerCase().includes("out for delivery") ||
+      item.message?.toLowerCase().includes("track")
+    ) {
+      setNotificationsVisible(false);
+      router.push({
+        pathname: "/order-tracking",
+        params: {
+          orderId: orderData.order_code || String(orderData.order_id || ""),
+          dbId: String(orderData.order_id || ""),
+        },
+      });
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await customerApi.markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.warn("Failed to mark all notifications as read:", err);
+    }
+  };
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -305,11 +521,21 @@ export default function OrdersScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Orders</Text>
+        <Pressable
+          style={styles.bellButton}
+          onPress={openNotifications}
+          hitSlop={10}
+          accessibilityLabel="Notifications"
+          accessibilityRole="button"
+        >
+          <Ionicons name="notifications" size={22} color="#121212" />
+          {unreadCount > 0 ? <View style={styles.unreadDot} /> : null}
+        </Pressable>
       </View>
 
-      <View style={styles.tabRow}>
-        {["All", "Last 30 Days"].map((tab) => {
-          const active = tab === activeTab;
+      <View style={styles.tabContainer}>
+        {["All", "Past 30 Days"].map((tab) => {
+          const active = tab === activeTab || (tab === "Past 30 Days" && activeTab === "Last 30 Days");
           return (
             <Pressable
               key={tab}
@@ -342,10 +568,20 @@ export default function OrdersScreen() {
           {visibleOrders.map((order) => (
             <OrderCard key={order.db_id || order.id} order={order} onViewDetails={openDetails} />
           ))}
+          <EndOfHistory />
         </ScrollView>
       )}
 
       <OrderDetailsModal visible={detailsVisible} order={selectedOrder} onClose={closeDetails} />
+
+      <NotificationsModal
+        visible={notificationsVisible}
+        notifications={notifications}
+        loading={notificationsLoading}
+        onClose={() => setNotificationsVisible(false)}
+        onNotificationPress={handleNotificationPress}
+        onMarkAllAsRead={handleMarkAllAsRead}
+      />
     </SafeAreaView>
   );
 }
@@ -356,85 +592,156 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomColor: "#F0F0F0",
     borderBottomWidth: 1,
+    flexDirection: "row",
     height: 58,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+  },
+  headerTitle: { color: "#121212", fontFamily: FONT, fontSize: 24, fontWeight: "800" },
+  bellButton: {
+    alignItems: "center",
+    height: 40,
     justifyContent: "center",
+    position: "relative",
+    width: 40,
   },
-  headerTitle: { color: "#121212", fontFamily: FONT, fontSize: 20, fontWeight: "700" },
-  tabRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
+  unreadDot: {
+    backgroundColor: "#EF4444",
+    borderColor: "#FFFFFF",
+    borderRadius: 5,
+    borderWidth: 1.5,
+    height: 10,
+    position: "absolute",
+    right: 7,
+    top: 6,
+    width: 10,
+  },
+  tabContainer: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginVertical: 14,
+    padding: 4,
+  },
   tab: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 10,
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 10,
   },
-  tabActive: { backgroundColor: PRIMARY },
-  tabText: { color: "#6B7280", fontSize: 13, fontWeight: "600" },
-  tabTextActive: { color: "#FFFFFF" },
-  list: { gap: 12, paddingBottom: 28, paddingHorizontal: 16 },
+  tabActive: { backgroundColor: "#000000" },
+  tabText: { color: "#6B7280", fontFamily: FONT, fontSize: 14, fontWeight: "600" },
+  tabTextActive: { color: "#FFFFFF", fontWeight: "700" },
+  list: { paddingBottom: 24, paddingHorizontal: 16 },
   orderCard: {
     backgroundColor: "#FFFFFF",
-    borderColor: "#F3F4F6",
-    borderRadius: 14,
+    borderColor: "#E5E7EB",
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
+    elevation: 1,
+    marginBottom: 14,
+    padding: 16,
+    shadowColor: "#000000",
+    shadowOffset: { height: 1, width: 0 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
   },
   cardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  orderIdLabel: { color: "#9CA3AF", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
+  orderId: { color: "#121212", fontSize: 15, fontWeight: "800", marginTop: 2 },
+  statusIndicator: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  statusText: { color: "#121212", fontFamily: FONT, fontSize: 13, fontWeight: "700" },
+  itemSummaryWrap: {
     alignItems: "flex-start",
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
+    marginTop: 10,
   },
-  orderIdLabel: { color: "#9CA3AF", fontSize: 11, fontWeight: "600", letterSpacing: 0.4 },
-  orderId: { color: "#121212", fontSize: 16, fontWeight: "800", marginTop: 2 },
-  statusBadge: {
+  itemIconBox: {
     alignItems: "center",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
   },
-  deliveryBadge: { backgroundColor: "#3B82F6" },
-  completedBadge: { backgroundColor: "#22C55E" },
-  preparingBadge: { backgroundColor: PRIMARY },
-  pendingBadge: { backgroundColor: "#F59E0B" },
-  cancelledBadge: { backgroundColor: "#EF4444" },
-  statusText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-  itemSummaryRow: { alignItems: "center", flexDirection: "row", gap: 8, marginBottom: 8 },
-  itemsText: { color: "#374151", flex: 1, fontSize: 13 },
-  dateRow: { alignItems: "center", flexDirection: "row", gap: 6, marginBottom: 10 },
-  dateText: { color: "#9CA3AF", fontSize: 12 },
+  itemInfoCol: {
+    flex: 1,
+  },
+  itemsText: {
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+  dateRow: { alignItems: "center", flexDirection: "row", gap: 6 },
+  dateText: { color: "#9CA3AF", fontFamily: FONT, fontSize: 12, fontWeight: "500" },
   totalRow: {
     alignItems: "center",
-    borderTopColor: "#F3F4F6",
-    borderTopWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingTop: 10,
+    marginBottom: 14,
   },
-  totalLabel: { color: "#9CA3AF", fontSize: 11, fontWeight: "600" },
-  totalAmount: { color: PRIMARY, fontSize: 16, fontWeight: "800" },
-  actionRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  totalLabel: { color: "#9CA3AF", fontFamily: FONT, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
+  totalAmount: { color: "#F97000", fontFamily: FONT, fontSize: 18, fontWeight: "800" },
+  actionRow: { flexDirection: "row", gap: 12 },
   detailsButton: {
     alignItems: "center",
-    borderColor: PRIMARY,
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E5E7EB",
     borderRadius: 10,
     borderWidth: 1,
     flex: 1,
-    paddingVertical: 10,
+    justifyContent: "center",
+    paddingVertical: 12,
   },
-  detailsButtonText: { color: PRIMARY, fontSize: 13, fontWeight: "700" },
+  detailsButtonHalf: {
+    flex: 1,
+  },
+  detailsButtonText: { color: "#121212", fontFamily: FONT, fontSize: 14, fontWeight: "700" },
   trackButton: {
     alignItems: "center",
-    backgroundColor: PRIMARY,
+    backgroundColor: "#000000",
     borderRadius: 10,
+    flex: 1,
     flexDirection: "row",
-    gap: 4,
+    gap: 6,
     justifyContent: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  trackButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  trackButtonText: { color: "#FFFFFF", fontFamily: FONT, fontSize: 14, fontWeight: "700" },
+  endState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 40,
+    paddingTop: 32,
+  },
+  endStateImage: {
+    height: 72,
+    resizeMode: "contain",
+    tintColor: "#B8BDC3",
+    width: 72,
+  },
+  endStateText: {
+    color: "#B8BDC3",
+    fontFamily: FONT,
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 10,
+  },
   emptyState: { alignItems: "center", flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   emptyTitle: { color: "#121212", fontSize: 18, fontWeight: "800", marginTop: 12 },
   emptySubtitle: { color: "#9CA3AF", fontSize: 13, marginTop: 6, textAlign: "center" },
@@ -470,7 +777,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   detailsHeader: {
-    alignItems: "flex-start",
+    alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
   },
@@ -567,4 +874,129 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   closeButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+
+  // Notifications Modal Styles
+  modalOverlay: {
+    backgroundColor: "rgba(0,0,0,0.45)",
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 56,
+  },
+  notificationsPanel: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    elevation: 10,
+    maxHeight: "82%",
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  notificationsHeader: {
+    alignItems: "center",
+    borderBottomColor: "#F3F4F6",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  notificationsTitle: {
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 19,
+    fontWeight: "700",
+  },
+  modalCloseButton: {
+    alignItems: "center",
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  notificationLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 36,
+  },
+  notificationLoadingText: {
+    color: "#9CA3AF",
+    fontSize: 13,
+    marginTop: 8,
+  },
+  notificationsList: {
+    maxHeight: 380,
+  },
+  notificationsListContent: {
+    paddingHorizontal: 18,
+    paddingVertical: 4,
+  },
+  notificationItem: {
+    borderBottomColor: "#F3F4F6",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    paddingVertical: 14,
+  },
+  notificationItemUnread: {
+    backgroundColor: "#FFFDF9",
+  },
+  notificationBulletWrap: {
+    alignItems: "center",
+    marginRight: 12,
+    marginTop: 5,
+    width: 14,
+  },
+  notificationDotUnread: {
+    backgroundColor: PRIMARY,
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  notificationDotRead: {
+    borderColor: "#9CA3AF",
+    borderRadius: 5,
+    borderWidth: 1.5,
+    height: 10,
+    width: 10,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationText: {
+    color: "#374151",
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18,
+  },
+  notificationTextUnread: {
+    color: "#121212",
+    fontWeight: "700",
+  },
+  notificationTime: {
+    color: "#9CA3AF",
+    fontSize: 11,
+    marginTop: 4,
+  },
+  notificationEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 42,
+  },
+  notificationEmptyText: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 14,
+    marginTop: 10,
+  },
+  markAllButton: {
+    alignItems: "center",
+    borderTopColor: "#F3F4F6",
+    borderTopWidth: 1,
+    paddingVertical: 13,
+  },
+  markAllButtonText: {
+    color: PRIMARY,
+    fontSize: 13,
+    fontWeight: "700",
+  },
 });

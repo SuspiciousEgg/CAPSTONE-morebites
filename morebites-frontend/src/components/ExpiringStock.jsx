@@ -7,6 +7,7 @@ import {
   IconWarning,
 } from './Icons'
 import { expiringStockApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './ExpiringStock.css'
 
 const DISPOSITION_BADGE = {
@@ -207,7 +208,11 @@ export default function ExpiringStock() {
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="exp-empty">
-                    No expiring perishables in the queue right now.
+                    <EmptyState
+                      icon="box"
+                      title="All stocks fresh"
+                      subtitle="No inventory items are near their expiration thresholds."
+                    />
                   </td>
                 </tr>
               ) : (

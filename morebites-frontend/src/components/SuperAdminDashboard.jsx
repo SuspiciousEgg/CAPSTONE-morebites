@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -21,7 +21,6 @@ import {
   LuChevronRight,
   LuX,
   LuSearch,
-  LuBellOff,
 } from 'react-icons/lu'
 import { TbClipboardList } from 'react-icons/tb'
 import logo from '../assets/logo.png'
@@ -54,6 +53,7 @@ import CustomerManagement from './CustomerManagement'
 import AccountManagement from './AccountManagement'
 import DeliveryRatesSettings from './DeliveryRatesSettings'
 import DriverManagement from './DriverManagement'
+import EmptyState from './EmptyState'
 import { dashboardApi, notificationsApi } from '../api/client'
 import './SuperAdminDashboard.css'
 
@@ -170,56 +170,104 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     return NOTIF_CONFIG[n?.type] || NOTIF_CONFIG.system
   }
 
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => Boolean(n.unread)).length,
-    [notifications],
-  )
+  /**
+   * PROMPT 4 INVESTIGATION REPORT & PERSISTENCE ARCHITECTURE:
+   *
+   * 1. Notification Count Source Investigation:
+   *    Previously, the notification count was derived purely from local component state
+   *    (`notifications.filter(n => n.unread).length`) and an in-browser `localStorage` array of read IDs
+   *    (`morebites_read_notifs_${userId || 'admin'}`). In `src/api/client.js`, `notificationsApi.markAsRead` and
+   *    `markAllAsRead` were client mocks returning dummy resolved promises with no backend persistence.
+   *    On the backend, `DashboardController.php` dynamically synthesized notifications on every request
+   *    with hardcoded `'unread' => true`. Consequently, upon page refresh, re-login, or clearing local storage,
+   *    all notifications reverted to `unread = true`, resetting the unread count incorrectly.
+   *
+   * 2. Backend Persistence (Source of Truth):
+   *    A dedicated Laravel `notifications` database table and REST API endpoints are now the source of truth:
+   *    - GET /api/notifications/unread-count: returns persistent unread integer count.
+   *    - GET /api/notifications: returns notifications list with accurate `is_read` status.
+   *    - PATCH /api/notifications/:id/read: persists single notification read state to DB.
+   *    - POST /api/notifications/mark-all-read: persists batch read state to DB.
+   *
+   * 3. Real-Time Broadcasting Prerequisites (Laravel Reverb & Echo):
+   *    Neither Laravel Reverb nor Laravel Echo / pusher-js is currently installed or configured in this project.
+   *    Rather than attempting a partial implementation or silent fallback to polling, the system uses the
+   *    persistent backend API as the single source of truth. When the team is ready to add real-time websockets:
+   *    - Backend: composer require laravel/reverb, run `php artisan reverb:install`, set BROADCAST_CONNECTION=reverb in .env.
+   *    - Frontend: npm install laravel-echo pusher-js, initialize Echo in `src/api/echo.js`, and subscribe to
+   *      `Echo.private('admin-notifications').listen('NotificationCreated', (e) => { ... })`.
+   */
+  const [unreadCount, setUnreadCount] = useState(0)
 
-  const getReadNotifIds = (userId) => {
+  // Load per-user notifications and unread count from backend
+  const loadNotifications = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(`morebites_read_notifs_${userId || 'admin'}`)
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  }
-
-  const addReadNotifId = (userId, id) => {
-    try {
-      const ids = getReadNotifIds(userId)
-      if (!ids.includes(id)) {
-        ids.push(id)
-        localStorage.setItem(`morebites_read_notifs_${userId || 'admin'}`, JSON.stringify(ids))
+      const [countRes, listRes] = await Promise.all([
+        notificationsApi.unreadCount(),
+        notificationsApi.list(),
+      ])
+      const count = countRes.data?.count ?? countRes.data?.data?.count ?? 0
+      const list = listRes.data?.data || []
+      if (Array.isArray(list)) {
+        setNotifications(list)
+        // Strictly derive badge count and list unread status from identical backend data
+        setUnreadCount(list.filter((n) => Boolean(n.unread)).length)
+      } else {
+        setUnreadCount(Number(count) || 0)
       }
     } catch (err) {
-      console.error(err)
+      console.error('Failed to load notifications:', err)
     }
+  }, [])
+
+  // Fetch persistent unread count and notifications on Dashboard mount with 3-second polling
+  useEffect(() => {
+    loadNotifications()
+    const interval = setInterval(() => {
+      loadNotifications()
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [loadNotifications])
+
+  const handleToggleNotifPanel = () => {
+    setNotifOpen((prev) => {
+      const next = !prev
+      if (next) {
+        // Refetch on opening panel so display always reflects fresh per-user backend state
+        loadNotifications()
+      }
+      return next
+    })
   }
 
-  const addAllReadNotifIds = (userId, allIds) => {
+  const handleMarkAllAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false, is_read: true })))
+    setUnreadCount(0)
     try {
-      const current = getReadNotifIds(userId)
-      const merged = Array.from(new Set([...current, ...allIds]))
-      localStorage.setItem(`morebites_read_notifs_${userId || 'admin'}`, JSON.stringify(merged))
+      await notificationsApi.markAllAsRead()
+      await loadNotifications()
     } catch (err) {
-      console.error(err)
+      console.error('Failed to mark all notifications as read:', err)
+      loadNotifications()
     }
   }
 
-  const handleMarkAllAsRead = () => {
-    const ids = notifications.map((n) => n.id)
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
-    addAllReadNotifIds(user?.id, ids)
-    notificationsApi.markAllAsRead(ids).catch(console.error)
-  }
-
-  const handleNotificationClick = (n) => {
+  const handleNotificationClick = async (n) => {
     if (n.unread) {
       setNotifications((prev) =>
-        prev.map((item) => (item.id === n.id ? { ...item, unread: false } : item))
+        prev.map((item) => (item.id === n.id ? { ...item, unread: false, is_read: true } : item))
       )
-      addReadNotifId(user?.id, n.id)
-      notificationsApi.markAsRead(n.id).catch(console.error)
+      setUnreadCount((prev) => Math.max(0, prev - 1))
+      try {
+        await notificationsApi.markAsRead(n.id)
+        const res = await notificationsApi.unreadCount()
+        const count = res.data?.count ?? res.data?.data?.count ?? 0
+        setUnreadCount(Number(count) || 0)
+      } catch (err) {
+        console.error('Failed to mark notification as read:', err)
+        loadNotifications()
+      }
     }
     if (n.nav) {
       setActiveNav(n.nav)
@@ -245,7 +293,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   }, [notifications, modalNotifTab, modalSearch])
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [salesData, setSalesData] = useState([])
-  const [salesTotalLabel, setSalesTotalLabel] = useState('₱890.00')
+  const [salesTotalLabel, setSalesTotalLabel] = useState('₱0.00')
   const [totalOrdersToday, setTotalOrdersToday] = useState(0)
   const [activeOrders, setActiveOrders] = useState(0)
   const [activeDrivers, setActiveDrivers] = useState(0)
@@ -264,7 +312,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         if (cancelled) return
         const d = res.data?.data || {}
         const stats = d.stats || {}
-        setSalesTotalLabel(stats.total_sales_label || (stats.total_sales ? `₱${Number(stats.total_sales).toFixed(2)}` : '₱890.00'))
+        setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
         setTotalOrdersToday(stats.total_orders ?? 0)
         setActiveOrders(stats.active_orders ?? 0)
         setActiveDrivers(stats.active_drivers ?? 0)
@@ -290,12 +338,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         setActivityLog(d.activity_log || [])
         setLowStocks(d.low_stocks || [])
         if (d.notifications && Array.isArray(d.notifications)) {
-          const localReadIds = new Set(getReadNotifIds(user?.id))
-          const merged = d.notifications.map((n) => ({
-            ...n,
-            unread: localReadIds.has(n.id) ? false : Boolean(n.unread),
-          }))
-          setNotifications(merged)
+          setNotifications(d.notifications)
+          setUnreadCount(d.notifications.filter((n) => Boolean(n.unread)).length)
         }
       })
       .catch(console.error)
@@ -347,9 +391,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     return DEFAULT_HOURLY_SLOTS
   }, [salesData])
 
+  const hasSales = useMemo(() => {
+    return (displaySalesData || []).some((item) => Number(item.v) > 0)
+  }, [displaySalesData])
+
   const displayActivityLog = useMemo(() => {
-    if (activityLog && activityLog.length > 0) return activityLog
-    return DEFAULT_ACTIVITY_LOG
+    return activityLog || []
   }, [activityLog])
 
   const currentOrderStatus = useMemo(() => {
@@ -501,17 +548,19 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             </div>
 
             <div className="sa-all-notifs-filter-row">
-              <div className="sa-notif-tabs" style={{ padding: 0 }}>
-                {notifTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`sa-notif-tab${modalNotifTab === tab ? ' active' : ''}`}
-                    onClick={() => setModalNotifTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="sa-notif-tabs-scroll-wrap">
+                <div className="sa-notif-tabs" style={{ padding: 0 }}>
+                  {notifTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`sa-notif-tab${modalNotifTab === tab ? ' active' : ''}`}
+                      onClick={() => setModalNotifTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="sa-notif-search-wrap">
@@ -537,13 +586,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
             <div className="sa-all-notifs-list">
               {filteredModalNotifs.length === 0 ? (
-                <div className="sa-notif-empty" style={{ padding: '60px 20px' }}>
-                  <LuBellOff size={36} style={{ color: '#9CA3AF', marginBottom: 10 }} />
-                  <div style={{ fontWeight: 600, color: '#4B5563', fontSize: 15 }}>No notifications found</div>
-                  <div style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>
-                    {modalSearch ? 'Try a different search keyword' : 'New orders, inventory alerts, and dispatch updates will appear here.'}
-                  </div>
-                </div>
+                <EmptyState
+                  icon="bell"
+                  title="No notifications found"
+                  subtitle={modalSearch ? 'Try a different search keyword.' : 'New alerts and updates will appear here.'}
+                  style={{ padding: '48px 20px' }}
+                />
               ) : (
                 filteredModalNotifs.map((n) => {
                   const meta = getNotifMeta(n)
@@ -581,7 +629,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             type="button"
             className="sa-bell-btn"
             aria-label="Notifications"
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={handleToggleNotifPanel}
           >
             <IconBell />
             {unreadCount > 0 ? (
@@ -604,25 +652,29 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 </button>
               </div>
 
-              <div className="sa-notif-tabs">
-                {notifTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`sa-notif-tab${notifTab === tab ? ' active' : ''}`}
-                    onClick={() => setNotifTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="sa-notif-tabs-scroll-wrap">
+                <div className="sa-notif-tabs">
+                  {notifTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`sa-notif-tab${notifTab === tab ? ' active' : ''}`}
+                      onClick={() => setNotifTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="sa-notif-list">
                 {filteredNotifs.length === 0 ? (
-                  <div className="sa-notif-empty">
-                    <LuBellOff size={28} style={{ color: '#9CA3AF', marginBottom: 6 }} />
-                    <div>No notifications yet</div>
-                  </div>
+                  <EmptyState
+                    icon="bell"
+                    title="No notifications yet"
+                    subtitle="You're all caught up for now."
+                    style={{ padding: '28px 16px' }}
+                  />
                 ) : (
                   filteredNotifs.map((n) => {
                     const meta = getNotifMeta(n)
@@ -659,6 +711,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     setNotifOpen(false)
                     setModalNotifTab(notifTab)
                     setShowAllNotifsModal(true)
+                    loadNotifications()
                   }}
                 >
                   <span>View All Notifications</span>
@@ -678,7 +731,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         ) : activeNav === 'Dispatch' ? (
           <DispatchManagement />
         ) : activeNav === 'Reports' ? (
-          <RecordsReports />
+          <RecordsReports user={user} />
         ) : activeNav === 'Driver' ? (
           <DriverManagement />
         ) : !isCashier && activeNav === 'Customers' ? (
@@ -703,7 +756,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               <IconCart />
             </div>
             <div className="sa-stat-text">
-              <div className="sa-stat-value">{salesTotalLabel || '₱890.00'}</div>
+              <div className="sa-stat-value">{salesTotalLabel || '₱0.00'}</div>
               <div className="sa-stat-label">Total Sales</div>
             </div>
           </article>
@@ -782,7 +835,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </div>
             </div>
 
-            <div style={{ width: '100%', height: 260 }}>
+            <div style={{ width: '100%', height: 260, position: 'relative' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={displaySalesData} barSize={22} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid stroke="#EDEDED" strokeDasharray="0" vertical={false} />
@@ -801,19 +854,34 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     width={52}
                     tickFormatter={(v) => (v === 0 ? '₱0' : `₱${v / 1000}K`)}
                   />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(255,165,0,0.06)' }}
-                    contentStyle={{
-                      borderRadius: 8,
-                      border: '1px solid #EDEDED',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                      fontSize: 12,
-                    }}
-                    formatter={(v) => [`₱${Number(v).toLocaleString()}`, 'Sales']}
-                  />
+                  {hasSales && (
+                    <Tooltip
+                      cursor={{ fill: 'rgba(255,165,0,0.06)' }}
+                      contentStyle={{
+                        borderRadius: 8,
+                        border: '1px solid #EDEDED',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                        fontSize: 12,
+                      }}
+                      formatter={(v) => [`₱${Number(v).toLocaleString()}`, 'Sales']}
+                    />
+                  )}
                   <Bar dataKey="v" fill="#FFA500" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              {!hasSales && (
+                <div className="sa-chart-empty-overlay">
+                  <EmptyState
+                    icon="chart"
+                    title={
+                      salesPeriod === 'Daily'
+                        ? 'No sales yet today'
+                        : `No sales this ${salesPeriod.toLowerCase().replace('ly', '')}`
+                    }
+                    subtitle="Sales activity will appear once orders are placed."
+                  />
+                </div>
+              )}
             </div>
           </article>
 
@@ -834,25 +902,37 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayActivityLog.map((row, idx) => {
-                    const timeParts = String(row.time || '').split(' ')
-                    const timeNum = timeParts[0] || row.time
-                    const timeAmpm = timeParts[1] || ''
+                  {displayActivityLog.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '24px 16px', borderBottom: 'none' }}>
+                        <EmptyState
+                          icon="clock"
+                          title="No activity recorded today"
+                          subtitle="Staff actions and system events will appear here."
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    displayActivityLog.map((row, idx) => {
+                      const timeParts = String(row.time || '').split(' ')
+                      const timeNum = timeParts[0] || row.time
+                      const timeAmpm = timeParts[1] || ''
 
-                    return (
-                      <tr key={idx}>
-                        <td className="sa-act-time">
-                          <div>{timeNum}</div>
-                          <div className="sa-act-ampm">{timeAmpm}</div>
-                        </td>
-                        <td className="sa-act-user">{row.user}</td>
-                        <td className="sa-act-desc">{row.action}</td>
-                        <td className="sa-act-status">
-                          <span className="sa-badge-success">Success</span>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                      return (
+                        <tr key={idx}>
+                          <td className="sa-act-time">
+                            <div>{timeNum}</div>
+                            <div className="sa-act-ampm">{timeAmpm}</div>
+                          </td>
+                          <td className="sa-act-user">{row.user}</td>
+                          <td className="sa-act-desc">{row.action}</td>
+                          <td className="sa-act-status">
+                            <span className="sa-badge-success">Success</span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -863,7 +943,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         <section className="sa-row-bottom">
           <article className="sa-bottom-card">
             <div className="sa-card-header">
-              <h2 className="sa-card-heading">Order Status (Today)</h2>
+              <h2 className="sa-card-heading">Order Breakdown</h2>
             </div>
             <div className="sa-donut-container">
               <div className="sa-donut-chart-wrap">
@@ -908,7 +988,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
           <article className="sa-bottom-card">
             <div className="sa-card-header">
-              <h2 className="sa-card-heading">Order Status (Today)</h2>
+              <h2 className="sa-card-heading">Live Orders Queue</h2>
               <button
                 type="button"
                 className="sa-card-link"
@@ -918,13 +998,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {orders.length === 0 ? (
-              <div className="app-empty-state" style={{ padding: '36px 16px' }}>
-                <div className="app-empty-icon-circle" style={{ width: 56, height: 56, marginBottom: 12 }}>
-                  <TbClipboardList size={26} />
-                </div>
-                <div className="app-empty-title" style={{ fontSize: 16 }}>No orders today</div>
-                <p className="app-empty-subtext" style={{ fontSize: 13 }}>New orders placed today will appear here.</p>
-              </div>
+              <EmptyState
+                icon="receipt"
+                title="Queue is clear"
+                subtitle="New orders placed today will appear here."
+              />
             ) : (
               <div className="sa-activity-table-wrap">
                 <table className="sa-activity-table">
@@ -965,13 +1043,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               </button>
             </div>
             {lowStocks.length === 0 ? (
-              <div className="app-empty-state" style={{ padding: '36px 16px' }}>
-                <div className="app-empty-icon-circle" style={{ width: 56, height: 56, marginBottom: 12 }}>
-                  <LuPackage size={26} />
-                </div>
-                <div className="app-empty-title" style={{ fontSize: 16 }}>All stocks healthy</div>
-                <p className="app-empty-subtext" style={{ fontSize: 13 }}>All inventory items are above the reorder level.</p>
-              </div>
+              <EmptyState
+                icon="box"
+                title="All stocks healthy"
+                subtitle="All inventory items are above minimum reorder levels."
+              />
             ) : (
               lowStocks.map((item) => {
                 const tone = stockTone(item.level)

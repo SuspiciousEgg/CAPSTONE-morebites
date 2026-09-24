@@ -90,6 +90,7 @@ export default function RateOrderScreen() {
         foodPrice: String(foodPrice),
         foodRating: String(foodRating),
         riderRating: String(riderRating),
+        riderName,
       },
     });
   };

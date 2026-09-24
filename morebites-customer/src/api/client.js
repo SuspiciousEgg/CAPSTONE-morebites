@@ -32,9 +32,14 @@ export const API_BASE = resolveApiBase();
 
 export function mediaUrl(path) {
   if (!path) return null;
-  if (/^(https?:|blob:|data:|file:)/i.test(path)) return path;
+  const lanHost = expoLanHost();
+  let resolved = String(path);
+  if (lanHost && /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?/i.test(resolved)) {
+    resolved = resolved.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)/i, `$1${lanHost}`);
+  }
+  if (/^(https?:|blob:|data:|file:)/i.test(resolved)) return resolved;
   const origin = API_BASE.replace(/\/api\/?$/, "");
-  return `${origin}/${String(path).replace(/^\//, "")}`;
+  return `${origin}/${resolved.replace(/^\//, "")}`;
 }
 
 async function request(path, { method = "GET", body, auth = true } = {}) {
@@ -70,12 +75,10 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
   }
 
   if (!response.ok) {
+    const firstValidationError = data?.errors ? Object.values(data.errors).flat()[0] : null;
     const message =
+      firstValidationError ||
       data?.message ||
-      data?.errors?.phone?.[0] ||
-      data?.errors?.password?.[0] ||
-      data?.errors?.full_name?.[0] ||
-      data?.errors?.email?.[0] ||
       `Request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
@@ -122,10 +125,15 @@ export const customerApi = {
   updateProfile: (payload) =>
     request("/customer/profile", { method: "PATCH", body: payload }),
   menu: () => request("/customer/menu", { auth: false }),
-  quoteFees: (km = null, address = null) => {
+  topSelling: () => request("/menu/top-selling", { auth: false }),
+  quoteFees: (km = null, address = null, coords = null) => {
     const params = new URLSearchParams();
     if (km != null && km !== "") params.set("km", String(km));
     if (address) params.set("address", address);
+    if (coords && coords.latitude != null && coords.longitude != null) {
+      params.set("lat", String(coords.latitude));
+      params.set("lng", String(coords.longitude));
+    }
     const qs = params.toString();
     return request(`/delivery-rates/quote${qs ? `?${qs}` : ""}`, { auth: false });
   },
@@ -134,8 +142,13 @@ export const customerApi = {
   placeOrder: (payload) =>
     request("/customer/orders", { method: "POST", body: payload }),
   tracking: (dbId) => request(`/customer/orders/${dbId}/tracking`),
+  deliveryLocation: (deliveryId) => request(`/deliveries/${deliveryId}/location`),
   rateOrder: (dbId, payload) =>
     request(`/customer/orders/${dbId}/rate`, { method: "POST", body: payload }),
+  unreadNotificationsCount: () => request("/notifications/unread-count"),
+  notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
     try {
       await request("/logout", { method: "POST" });

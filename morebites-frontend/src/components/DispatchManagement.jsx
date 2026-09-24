@@ -12,6 +12,7 @@ import {
 } from 'react-icons/lu'
 import { dispatchApi } from '../api/client'
 import FleetMap from './FleetMap'
+import EmptyState from './EmptyState'
 import './DispatchManagement.css'
 
 function badgeClass(status) {
@@ -28,6 +29,9 @@ export default function DispatchManagement() {
   const [riders, setRiders] = useState([])
   const [monitoring, setMonitoring] = useState([])
   const [fleet, setFleet] = useState({ deliveries: [], store: null })
+  const [estimatedDistance, setEstimatedDistance] = useState('—')
+  const [estimatedTime, setEstimatedTime] = useState('—')
+  const [activeDeliveriesCount, setActiveDeliveriesCount] = useState(0)
   const [page, setPage] = useState(1)
   const [assignOrder, setAssignOrder] = useState(null)
   const [selectedRider, setSelectedRider] = useState(null)
@@ -61,6 +65,7 @@ export default function DispatchManagement() {
       const r = await dispatchApi.get()
       const d = r.data?.data || r.data || {}
       const isDeliveryOrder = (o) =>
+        (o.order_type === 'Online Order' || o.type === 'Online Order') &&
         o.order_type !== 'Dine-in' &&
         o.order_type !== 'Takeout' &&
         o.type !== 'Dine-in' &&
@@ -77,8 +82,24 @@ export default function DispatchManagement() {
     try {
       const r = await dispatchApi.fleet()
       const d = r.data?.data || r.data || {}
+      const newDeliveries = d.deliveries || []
+
+      // Prompt 38: Update bottom bar values using setState on specific display values
+      setActiveDeliveriesCount(newDeliveries.length)
+      const focused = newDeliveries.find((item) => String(item.db_id) === String(focusId))
+      const active = focused || newDeliveries[0]
+      if (active) {
+        const distNum = Number(active.distance_km)
+        const etaNum = Number(active.eta_mins)
+        setEstimatedDistance(Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—')
+        setEstimatedTime(Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—')
+      } else {
+        setEstimatedDistance('—')
+        setEstimatedTime('—')
+      }
+
       setFleet({
-        deliveries: d.deliveries || [],
+        deliveries: newDeliveries,
         store: d.store || null,
       })
     } catch (err) {
@@ -90,23 +111,20 @@ export default function DispatchManagement() {
     loadDispatch().catch(console.error)
     loadFleet().catch(console.error)
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
       loadDispatch().catch(() => {})
       loadFleet().catch(() => {})
-    }, 5000)
+    }, 10000)
     return () => clearInterval(timer)
   }, [])
 
   const mapStats = useMemo(() => {
-    const focused = fleet.deliveries.find((d) => String(d.db_id) === String(focusId))
-    const active = focused || fleet.deliveries[0]
-    if (!active) {
-      return { distance: '4.6 km', eta: '12 mins' }
-    }
     return {
-      distance: `${Number(active.distance_km || 4.6).toFixed(1)} km`,
-      eta: `${active.eta_mins || 12} mins`,
+      distance: estimatedDistance,
+      eta: estimatedTime,
+      activeCount: activeDeliveriesCount,
     }
-  }, [fleet.deliveries, focusId])
+  }, [estimatedDistance, estimatedTime, activeDeliveriesCount])
 
   const pageSize = 3
   const totalPages = Math.max(1, Math.ceil(pending.length / pageSize))
@@ -161,7 +179,11 @@ export default function DispatchManagement() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dp-empty-row">
-                    No pending deliveries waiting for dispatch.
+                    <EmptyState
+                      icon="truck"
+                      title="No pending deliveries"
+                      subtitle="Orders ready for rider assignment will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -202,36 +224,38 @@ export default function DispatchManagement() {
             Showing {(page - 1) * pageSize + (rows.length ? 1 : 0)} to{' '}
             {Math.min(page * pageSize, pending.length)} of {pending.length} pending deliveries
           </span>
-          <div className="dp-pagination-controls">
-            <button
-              type="button"
-              className="dp-page-btn arrow"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="dp-pagination-controls">
               <button
-                key={n}
                 type="button"
-                className={`dp-page-btn${n === page ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="dp-page-btn arrow"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="dp-page-btn arrow"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dp-page-btn${n === page ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dp-page-btn arrow"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -260,7 +284,6 @@ export default function DispatchManagement() {
 
           <div className="dp-map-canvas-container">
             <FleetMap
-              store={fleet.store}
               deliveries={fleet.deliveries}
               focusId={focusId}
             />
@@ -314,7 +337,11 @@ export default function DispatchManagement() {
                 {monitoring.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="dp-empty-row">
-                      No active deliveries currently being tracked.
+                      <EmptyState
+                        icon="pin"
+                        title="No active deliveries"
+                        subtitle="Dispatched deliveries in transit will appear here."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -338,8 +365,8 @@ export default function DispatchManagement() {
                           </span>
                         </td>
                         <td className="dp-last-update-text">
-                          <div className="dp-update-time">{m.updated || '10:15 AM'}</div>
-                          <div className="dp-update-date">May 25, 2026</div>
+                          <div className="dp-update-time">{m.updated_time || m.updated || '—'}</div>
+                          <div className="dp-update-date">{m.updated_date || m.date || 'Today'}</div>
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <button
@@ -420,7 +447,12 @@ export default function DispatchManagement() {
               <div className="dp-section-header-label">Available Riders</div>
               <div className="dp-rider-cards-list">
                 {riders.length === 0 ? (
-                  <div className="dp-empty-riders">No riders available right now.</div>
+                  <EmptyState
+                    icon="driver"
+                    title="No riders available"
+                    subtitle="All riders are currently on delivery or offline."
+                    style={{ padding: '24px 16px' }}
+                  />
                 ) : (
                   riders.map((r) => {
                     const rObj =
@@ -516,7 +548,6 @@ export default function DispatchManagement() {
 
             <div className="dp-map-modal-body">
               <FleetMap
-                store={fleet.store}
                 deliveries={fleet.deliveries}
                 focusId={focusId}
               />
@@ -541,7 +572,7 @@ export default function DispatchManagement() {
                 <span className="dp-stat-divider">|</span>
                 <div className="dp-map-stat-item">
                   <LuBike size={14} className="dp-stat-icon" />
-                  <span>Active Deliveries: <strong>{fleet.deliveries.length}</strong></span>
+                  <span>Active Deliveries: <strong>{activeDeliveriesCount}</strong></span>
                 </div>
               </div>
             </div>

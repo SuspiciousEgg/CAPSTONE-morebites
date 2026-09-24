@@ -78,13 +78,20 @@ function TimelineStep({ icon, title, description, timestamp, state, last }) {
 export default function OrderTrackingScreen() {
   const params = useLocalSearchParams();
   const orderParam = parseOrder(params.order);
-  const dbId = Array.isArray(params.dbId) ? params.dbId[0] : params.dbId;
+  const rawDbId =
+    (Array.isArray(params.dbId) ? params.dbId[0] : params.dbId) ||
+    orderParam.db_id ||
+    orderParam.id ||
+    orderParam.dbId;
+  const dbId = rawDbId ? String(rawDbId) : "";
   const orderIdLabel =
     (Array.isArray(params.orderId) ? params.orderId[0] : params.orderId) ||
     orderParam.orderId ||
+    orderParam.id ||
     "Order";
 
   const [tracking, setTracking] = useState(null);
+  const [liveRider, setLiveRider] = useState(null);
   const [loading, setLoading] = useState(Boolean(dbId));
   const [error, setError] = useState("");
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -97,7 +104,11 @@ export default function OrderTrackingScreen() {
     }
     try {
       const res = await customerApi.tracking(dbId);
-      setTracking(res.data || res);
+      const data = res.data || res;
+      setTracking(data);
+      if (data?.rider?.latitude && data?.rider?.longitude) {
+        setLiveRider((prev) => prev || data.rider);
+      }
       setError("");
     } catch (err) {
       setError(err.message || "Could not load tracking");
@@ -114,13 +125,53 @@ export default function OrderTrackingScreen() {
   }, [dbId, loadTracking]);
 
   const currentStatus = tracking?.status || orderParam.status || "";
+
+  // Live driver location polling (every 4.5 seconds while delivery is active)
+  useEffect(() => {
+    if (!dbId) return undefined;
+    const isDeliveryActive = ["Assigned", "Picked Up", "Out for Delivery"].includes(currentStatus);
+    if (!isDeliveryActive) return undefined;
+
+    let cancelled = false;
+
+    const pollLocation = async () => {
+      try {
+        const res = await customerApi.deliveryLocation(dbId);
+        const loc = res.data || res;
+        if (!cancelled && loc?.latitude && loc?.longitude) {
+          const next = {
+            latitude: Number(loc.latitude),
+            longitude: Number(loc.longitude),
+          };
+          setLiveRider(next);
+          if (loc.eta_mins != null) {
+            setTracking((prev) => (prev ? { ...prev, eta_mins: loc.eta_mins } : prev));
+          }
+          if (loc.distance_km != null) {
+            setTracking((prev) =>
+              prev ? { ...prev, distance_km: loc.distance_km, distance_label: `${loc.distance_km} km` } : prev
+            );
+          }
+        }
+      } catch {
+        // Retry next cycle
+      }
+    };
+
+    const interval = setInterval(pollLocation, 4500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [dbId, currentStatus]);
+
   const items = Array.isArray(tracking?.items)
     ? tracking.items
     : Array.isArray(orderParam.items)
       ? orderParam.items
       : [];
   const destination = tracking?.destination || null;
-  const rider = tracking?.rider || null;
+  const rider = liveRider || tracking?.rider || null;
   const store = tracking?.store || null;
   const route = Array.isArray(tracking?.route) ? tracking.route : [];
   const region = useMemo(
@@ -278,8 +329,8 @@ export default function OrderTrackingScreen() {
           {detailsExpanded ? (
             <View style={styles.expandedDetails}>
               {items.length ? (
-                items.map((item) => (
-                  <View key={`${item.id}-${item.size}`} style={styles.itemRow}>
+                items.map((item, index) => (
+                  <View key={`${item.id || item.name}-${item.size || "reg"}-${index}`} style={styles.itemRow}>
                     <Text style={styles.itemName}>
                       {item.quantity}x {item.name}
                       {item.size ? ` (${item.size})` : ""}

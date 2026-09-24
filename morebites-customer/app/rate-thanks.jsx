@@ -55,6 +55,7 @@ export default function RateThanksScreen() {
   const foodPrice = Number(params.foodPrice) || 480;
   const foodRating = Number(params.foodRating) || 0;
   const riderRating = Number(params.riderRating) || 0;
+  const riderName = params.riderName || "Delivery Rider";
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -76,7 +77,7 @@ export default function RateThanksScreen() {
           />
           <RatingCard
             type="rider"
-            name="John Morebytes"
+            name={riderName}
             subtitle="Delivery Rider"
             rating={riderRating}
           />

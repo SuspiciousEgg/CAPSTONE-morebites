@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,6 +47,7 @@ function FormField({ label, error, focused, onFocus, onBlur, ...inputProps }) {
 }
 
 export default function CheckoutScreen() {
+  const params = useLocalSearchParams();
   const { cartItems, cartTotal, clearCart } = useCart();
   const [deliveryFee, setDeliveryFee] = useState(40);
   const [serviceFee, setServiceFee] = useState(20);
@@ -59,10 +61,41 @@ export default function CheckoutScreen() {
   const [barangay, setBarangay] = useState("");
   const [city, setCity] = useState("");
   const [landmark, setLandmark] = useState("");
+  const [coordinates, setCoordinates] = useState(null);
+  const [savedAddressList, setSavedAddressList] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [errors, setErrors] = useState({});
   const [focusedField, setFocusedField] = useState("");
   const [showOrderSheet, setShowOrderSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Helper to update field value and immediately clear its validation error if present
+  const updateField = (setter, fieldName, isAddress = false) => (value) => {
+    setter(value);
+    if (isAddress) {
+      // If customer manually alters the address text, clear the pinned coordinates so geocoding calculates from the new address
+      setCoordinates(null);
+    }
+    if (errors[fieldName]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[fieldName];
+        return next;
+      });
+    }
+  };
+
+  const handlePhoneChange = (val) => {
+    const clean = val.replace(/\D/g, "").slice(0, 11);
+    setPhone(clean);
+    if (errors.phone) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.phone;
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     fetchDeliveryFees().then((fees) => {
@@ -76,49 +109,150 @@ export default function CheckoutScreen() {
     const deliveryAddress = [street.trim(), barangay.trim(), city.trim(), landmark.trim()]
       .filter(Boolean)
       .join(", ");
-    if (!street.trim() || !barangay.trim() || !city.trim()) return undefined;
+    if (!street.trim() || !barangay.trim() || !city.trim()) {
+      setFeeQuote(null);
+      return undefined;
+    }
 
     setQuoting(true);
     const timer = setTimeout(() => {
-      fetchDeliveryFees(null, deliveryAddress).then((fees) => {
+      fetchDeliveryFees(null, deliveryAddress, coordinates).then((fees) => {
         setDeliveryFee(fees.deliveryFee);
         setServiceFee(fees.serviceFee);
         setFeeQuote(fees);
         setQuoting(false);
       });
-    }, 700);
+    }, 600);
 
     return () => {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [street, barangay, city, landmark]);
+  }, [street, barangay, city, landmark, coordinates]);
+
+  const loadSavedDetails = useCallback(async () => {
+    const user = await authStorage.getUser();
+    if (user) {
+      setFullName((curr) => curr || user.fullName || "");
+      setPhone((curr) => curr || user.phone || "");
+    }
+
+    const savedAddresses = await AsyncStorage.getItem("saved_addresses");
+    if (savedAddresses) {
+      try {
+        const addresses = JSON.parse(savedAddresses);
+        const list = Array.isArray(addresses) ? addresses : [];
+        setSavedAddressList(list);
+
+        if (list.length > 0) {
+          setSelectedAddressId((currSelected) => {
+            if (currSelected === null) {
+              const defaultAddress = list.find((address) => address.isDefault) || list[0];
+              if (defaultAddress) {
+                setStreet(defaultAddress.street || "");
+                setBarangay(defaultAddress.barangay || "");
+                setCity(defaultAddress.city || "");
+                setLandmark(defaultAddress.landmark || "");
+                if (defaultAddress.latitude != null && defaultAddress.longitude != null) {
+                  const lat = Number(defaultAddress.latitude);
+                  const lng = Number(defaultAddress.longitude);
+                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    setCoordinates({ latitude: lat, longitude: lng });
+                  }
+                }
+                return defaultAddress.id;
+              }
+            } else if (currSelected !== "new" && currSelected !== "custom") {
+              const exists = list.some((a) => a.id === currSelected);
+              if (!exists) return "new";
+            }
+            return currSelected;
+          });
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+    } else if (user?.delivery_address) {
+      const parts = user.delivery_address.split(",").map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 3) {
+        setStreet((curr) => curr || parts.slice(0, parts.length - 2).join(", "));
+        setBarangay((curr) => curr || parts[parts.length - 2]);
+        setCity((curr) => curr || parts[parts.length - 1]);
+      } else if (parts.length === 2) {
+        setStreet((curr) => curr || parts[0]);
+        setBarangay((curr) => curr || parts[1]);
+      } else {
+        setStreet((curr) => curr || user.delivery_address);
+      }
+    }
+  }, []);
+
+  const selectSavedAddress = (addr) => {
+    setSelectedAddressId(addr.id);
+    setStreet(addr.street || "");
+    setBarangay(addr.barangay || "");
+    setCity(addr.city || "");
+    setLandmark(addr.landmark || "");
+    if (addr.latitude != null && addr.longitude != null) {
+      const lat = Number(addr.latitude);
+      const lng = Number(addr.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setCoordinates({ latitude: lat, longitude: lng });
+      } else {
+        setCoordinates(null);
+      }
+    } else {
+      setCoordinates(null);
+    }
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.street;
+      delete next.barangay;
+      delete next.city;
+      return next;
+    });
+  };
+
+  const selectNewAddress = () => {
+    setSelectedAddressId("new");
+    setStreet("");
+    setBarangay("");
+    setCity("");
+    setLandmark("");
+    setCoordinates(null);
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.street;
+      delete next.barangay;
+      delete next.city;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    const loadSavedDetails = async () => {
-      const user = await authStorage.getUser();
-      if (user) {
-        setFullName(user.fullName || "");
-        setPhone(user.phone || "");
-        if (user.delivery_address && !street) {
-          setStreet(user.delivery_address);
-        }
-      }
-
-      const savedAddresses = await AsyncStorage.getItem("saved_addresses");
-      if (savedAddresses) {
-        const addresses = JSON.parse(savedAddresses);
-        const defaultAddress = addresses.find((address) => address.isDefault) || addresses[0];
-        if (defaultAddress) {
-          setStreet(defaultAddress.street || "");
-          setBarangay(defaultAddress.barangay || "");
-          setCity(defaultAddress.city || "");
-          setLandmark(defaultAddress.landmark || "");
-        }
-      }
-    };
     loadSavedDetails();
-  }, []);
+  }, [loadSavedDetails]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSavedDetails();
+    }, [loadSavedDetails])
+  );
+
+  useEffect(() => {
+    if (params.latitude && params.longitude) {
+      const lat = Number(Array.isArray(params.latitude) ? params.latitude[0] : params.latitude);
+      const lng = Number(Array.isArray(params.longitude) ? params.longitude[0] : params.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setCoordinates({ latitude: lat, longitude: lng });
+      }
+      if (params.street) setStreet(String(Array.isArray(params.street) ? params.street[0] : params.street));
+      if (params.barangay) setBarangay(String(Array.isArray(params.barangay) ? params.barangay[0] : params.barangay));
+      if (params.city) setCity(String(Array.isArray(params.city) ? params.city[0] : params.city));
+      if (params.landmark) setLandmark(String(Array.isArray(params.landmark) ? params.landmark[0] : params.landmark));
+      setSelectedAddressId("custom");
+    }
+  }, [params.latitude, params.longitude, params.street, params.barangay, params.city, params.landmark]);
 
   const focusField = (name) => setFocusedField(name);
   const blurField = () => setFocusedField("");
@@ -126,7 +260,9 @@ export default function CheckoutScreen() {
   const validate = () => {
     const next = {};
     if (!fullName.trim()) next.fullName = "Full name is required";
-    if (!phone.trim()) next.phone = "Phone number is required";
+    const cleanPhone = phone.replace(/\s/g, "");
+    if (!cleanPhone) next.phone = "Phone number is required";
+    else if (!/^09\d{9}$/.test(cleanPhone)) next.phone = "Enter a valid 11-digit Philippine mobile number starting with 09";
     if (!street.trim()) next.street = "Street address is required";
     if (!barangay.trim()) next.barangay = "Barangay is required";
     if (!city.trim()) next.city = "City is required";
@@ -138,6 +274,13 @@ export default function CheckoutScreen() {
     if (!validate()) return;
     if (!cartItems.length) {
       Alert.alert("Cart is empty", "Add items before placing an order.");
+      return;
+    }
+    if (feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) {
+      Alert.alert(
+        "Outside Delivery Range",
+        feeQuote?.error || "Delivery not available beyond 10km. Please select an address within 10km."
+      );
       return;
     }
     if (submitting) return;
@@ -152,6 +295,8 @@ export default function CheckoutScreen() {
         full_name: fullName.trim(),
         phone: phone.replace(/\s/g, ""),
         delivery_address: deliveryAddress,
+        latitude: coordinates?.latitude ?? null,
+        longitude: coordinates?.longitude ?? null,
         payment_method: "COD",
         items: cartItems.map((item) => ({
           menu_item_id: item.db_id ?? (Number(item.id) || null),
@@ -165,6 +310,8 @@ export default function CheckoutScreen() {
       const placed = res.data;
       const order = {
         orderId: placed?.id || `#ORD-${Date.now()}`,
+        id: placed?.id,
+        db_id: placed?.db_id,
         items: cartItems,
         total: placed?.total ?? total,
         delivery_fee: placed?.delivery_fee ?? deliveryFee,
@@ -179,7 +326,14 @@ export default function CheckoutScreen() {
       };
 
       clearCart();
-      router.push({ pathname: "/order-confirmed", params: { order: JSON.stringify(order) } });
+      router.push({
+        pathname: "/order-confirmed",
+        params: {
+          order: JSON.stringify(order),
+          orderId: order.orderId,
+          dbId: String(placed?.db_id || ""),
+        },
+      });
     } catch (err) {
       Alert.alert("Order failed", err.message || "Could not place order. Please try again.");
     } finally {
@@ -205,7 +359,7 @@ export default function CheckoutScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="arrow-back" size={24} color={PRIMARY} />
+          <Ionicons name="arrow-back" size={24} color="#121212" />
         </Pressable>
         <Text style={styles.headerTitle}>Checkout</Text>
         <View style={styles.headerSpacer} />
@@ -217,15 +371,13 @@ export default function CheckoutScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.orderBar}>
-          <View style={styles.orderIconWrap}>
-            <Ionicons name="briefcase-outline" size={20} color={PRIMARY} />
-          </View>
           <View style={styles.orderInfo}>
             <Text style={styles.orderLabel}>Your Order</Text>
-            <Text style={styles.orderTotal}>₱ {total.toFixed(2)}</Text>
+            <Text style={styles.orderTotal}>₱ {Number(total).toFixed(2)}</Text>
           </View>
-          <Pressable onPress={() => setShowOrderSheet(true)}>
+          <Pressable style={styles.viewPill} onPress={() => setShowOrderSheet(true)} hitSlop={8}>
             <Text style={styles.viewLink}>View</Text>
+            <Ionicons name="chevron-forward" size={14} color={PRIMARY} />
           </Pressable>
         </View>
 
@@ -233,7 +385,7 @@ export default function CheckoutScreen() {
           label="Full Name"
           placeholder="John Doe"
           value={fullName}
-          onChangeText={setFullName}
+          onChangeText={updateField(setFullName, "fullName")}
           error={errors.fullName}
           focused={focusedField === "fullName"}
           onFocus={() => focusField("fullName")}
@@ -244,19 +396,102 @@ export default function CheckoutScreen() {
           label="Phone Number"
           placeholder="09XX XXX XXXX"
           keyboardType="phone-pad"
+          maxLength={11}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={handlePhoneChange}
           error={errors.phone}
           focused={focusedField === "phone"}
           onFocus={() => focusField("phone")}
           onBlur={blurField}
         />
 
+        <View style={styles.addressSectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>Delivery Address</Text>
+          <View style={styles.addressHeaderActions}>
+            <Pressable
+              style={styles.addressActionBtn}
+              onPress={() => router.push({ pathname: "/map-picker", params: { returnTo: "/checkout" } })}
+              hitSlop={8}
+            >
+              <Ionicons name="map-outline" size={13} color={PRIMARY} />
+              <Text style={styles.addressActionText}>Pin on map</Text>
+            </Pressable>
+            <Pressable
+              style={styles.addressActionBtn}
+              onPress={() => router.push("/saved-addresses")}
+              hitSlop={8}
+            >
+              <Ionicons name="bookmark-outline" size={13} color={PRIMARY} />
+              <Text style={styles.addressActionText}>Saved</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {savedAddressList.length > 0 ? (
+          <View style={styles.savedSelectorWrap}>
+            <Text style={styles.savedSelectorLabel}>Saved Addresses</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.savedSelectorScroll}
+            >
+              {savedAddressList.map((addr) => {
+                const isSelected = selectedAddressId === addr.id;
+                return (
+                  <Pressable
+                    key={addr.id}
+                    style={[styles.savedChip, isSelected && styles.savedChipSelected]}
+                    onPress={() => selectSavedAddress(addr)}
+                  >
+                    <Ionicons
+                      name={addr.isDefault ? "home" : "location-outline"}
+                      size={14}
+                      color={isSelected ? PRIMARY : "#4B5563"}
+                    />
+                    <Text
+                      style={[styles.savedChipText, isSelected && styles.savedChipTextSelected]}
+                      numberOfLines={1}
+                    >
+                      {addr.label || "Saved"}
+                    </Text>
+                    {addr.isDefault ? (
+                      <View style={[styles.defaultTag, isSelected && styles.defaultTagSelected]}>
+                        <Text style={[styles.defaultTagText, isSelected && styles.defaultTagTextSelected]}>
+                          Default
+                        </Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                style={[
+                  styles.savedChip,
+                  styles.newAddressChip,
+                  selectedAddressId === "new" && styles.savedChipSelected,
+                ]}
+                onPress={selectNewAddress}
+              >
+                <Ionicons
+                  name="add"
+                  size={15}
+                  color={selectedAddressId === "new" ? PRIMARY : "#4B5563"}
+                />
+                <Text
+                  style={[styles.savedChipText, selectedAddressId === "new" && styles.savedChipTextSelected]}
+                >
+                  New Address
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        ) : null}
+
         <FormField
           label="Street Address"
           placeholder="House no., Street name..."
           value={street}
-          onChangeText={setStreet}
+          onChangeText={updateField(setStreet, "street", true)}
           error={errors.street}
           focused={focusedField === "street"}
           onFocus={() => focusField("street")}
@@ -269,7 +504,7 @@ export default function CheckoutScreen() {
               label="Barangay"
               placeholder="Barangay"
               value={barangay}
-              onChangeText={setBarangay}
+              onChangeText={updateField(setBarangay, "barangay", true)}
               error={errors.barangay}
               focused={focusedField === "barangay"}
               onFocus={() => focusField("barangay")}
@@ -281,7 +516,7 @@ export default function CheckoutScreen() {
               label="City"
               placeholder="City"
               value={city}
-              onChangeText={setCity}
+              onChangeText={updateField(setCity, "city", true)}
               error={errors.city}
               focused={focusedField === "city"}
               onFocus={() => focusField("city")}
@@ -291,10 +526,14 @@ export default function CheckoutScreen() {
         </View>
 
         <Text style={styles.fieldLabel}>Payment Method</Text>
-        <View style={styles.paymentRow}>
-          <Text style={styles.paymentValue}>COD</Text>
-          {/* Only cash on delivery is supported for now */}
-          <Text style={styles.changeText}>CHANGE</Text>
+        <View style={styles.paymentCard}>
+          <View style={styles.paymentLeft}>
+            <Text style={styles.paymentValue}>Cash on Delivery (COD)</Text>
+            <Text style={styles.paymentSubtext}>Pay in cash when your order arrives</Text>
+          </View>
+          <View style={styles.paymentBadge}>
+            <Text style={styles.paymentBadgeText}>Default</Text>
+          </View>
         </View>
 
         <FormField
@@ -308,59 +547,89 @@ export default function CheckoutScreen() {
         />
 
         <View style={styles.feeCard}>
-          <Text style={styles.feeTitle}>Delivery fee calculation</Text>
+          <View style={styles.feeHeader}>
+            <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
+            <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
+          </View>
           {quoting ? (
-            <Text style={styles.feeHint}>Measuring distance from the store…</Text>
+            <View style={styles.feeHintWrap}>
+              <ActivityIndicator size="small" color={PRIMARY} />
+              <Text style={styles.feeHint}>Calculating distance from store…</Text>
+            </View>
           ) : street.trim() && barangay.trim() && city.trim() ? (
-            <>
-              {feeQuote?.distanceKm != null ? (
-                <Text style={styles.feeFormula}>{feeQuote.formula}</Text>
-              ) : null}
-              {(feeQuote?.calculation || []).map((line) => (
-                <Text key={line} style={styles.feeStep}>
-                  {line}
+            feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10) ? (
+              <View style={styles.feeErrorBanner}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <Text style={styles.feeErrorText}>
+                  {feeQuote?.error || "Delivery not available beyond 10km. Please select an address within 10km."}
                 </Text>
-              ))}
-              <View style={styles.feeTotals}>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Subtotal</Text>
-                  <Text style={styles.feeValue}>₱{Number(cartTotal).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Delivery fee</Text>
-                  <Text style={styles.feeValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>Service fee</Text>
-                  <Text style={styles.feeValue}>₱{Number(serviceFee).toFixed(2)}</Text>
-                </View>
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeTotalLabel}>Total</Text>
-                  <Text style={styles.feeTotalValue}>₱{Number(total).toFixed(2)}</Text>
-                </View>
               </View>
-            </>
+            ) : (
+              <>
+                {feeQuote?.distanceKm != null ? (
+                  <View style={styles.distanceBadge}>
+                    <Ionicons name="location-outline" size={14} color={PRIMARY} />
+                    <Text style={styles.distanceBadgeText}>
+                      {Number(feeQuote.distanceKm).toFixed(1)} km from store{coordinates ? " (Map Pinned)" : ""}
+                    </Text>
+                  </View>
+                ) : null}
+                {feeQuote?.formula ? (
+                  <Text style={styles.feeFormula}>{feeQuote.formula}</Text>
+                ) : null}
+                {(feeQuote?.calculation || []).map((line, index) => (
+                  <Text key={`${line}-${index}`} style={styles.feeStep}>
+                    {line}
+                  </Text>
+                ))}
+                <View style={styles.feeTotals}>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Subtotal</Text>
+                    <Text style={styles.feeValue}>₱{Number(cartTotal).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Delivery fee</Text>
+                    <Text style={styles.feeValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Service fee</Text>
+                    <Text style={styles.feeValue}>₱{Number(serviceFee).toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeDivider} />
+                  <View style={styles.feeTotalRow}>
+                    <Text style={styles.feeTotalLabel}>Total Amount</Text>
+                    <Text style={styles.feeTotalValue}>₱{Number(total).toFixed(2)}</Text>
+                  </View>
+                </View>
+              </>
+            )
           ) : (
-            <Text style={styles.feeHint}>
-              Enter street, barangay, and city to calculate the distance-based delivery fee.
-            </Text>
+            <View style={styles.feeHintWrap}>
+              <Ionicons name="information-circle-outline" size={18} color="#9CA3AF" />
+              <Text style={styles.feeHint}>
+                Enter street, barangay, and city to calculate the distance-based delivery fee.
+              </Text>
+            </View>
           )}
         </View>
 
-        <Pressable style={styles.cancelButton} onPress={cancelOrder}>
-          <Text style={styles.cancelText}>Cancel Order</Text>
-        </Pressable>
-
         <Pressable
-          style={[styles.confirmButton, submitting && { opacity: 0.7 }]}
+          style={[
+            styles.confirmButton,
+            (submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) && { opacity: 0.6 }
+          ]}
           onPress={confirmOrder}
-          disabled={submitting}
+          disabled={submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)}
         >
           {submitting ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.confirmText}>Confirm Order</Text>
+            <Text style={styles.confirmText}>Confirm Order →</Text>
           )}
+        </Pressable>
+
+        <Pressable style={styles.cancelButton} onPress={cancelOrder}>
+          <Text style={styles.cancelText}>Cancel Order</Text>
         </Pressable>
       </ScrollView>
 
@@ -372,31 +641,50 @@ export default function CheckoutScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Your Order</Text>
-            <ScrollView style={styles.sheetList}>
-              {cartItems.map((item) => (
-                <View key={`${item.id}-${item.size}`} style={styles.sheetRow}>
-                  <Text style={styles.sheetItemName} numberOfLines={1}>
-                    {item.name}{item.size ? ` (${item.size})` : ""} x{item.quantity}
-                  </Text>
-                  <Text style={styles.sheetItemPrice}>₱{item.price * item.quantity}</Text>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Your Order</Text>
+              <Pressable onPress={() => setShowOrderSheet(false)} hitSlop={8}>
+                <Ionicons name="close-circle" size={24} color="#9CA3AF" />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
+              {cartItems.map((item, index) => (
+                <View key={`${item.id}-${item.size || "reg"}-${index}`} style={styles.sheetRow}>
+                  <View style={styles.sheetItemLeft}>
+                    <Text style={styles.sheetItemQty}>{item.quantity}x</Text>
+                    <View style={styles.sheetItemTextWrap}>
+                      <Text style={styles.sheetItemName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {item.size ? (
+                        <Text style={styles.sheetItemSize}>Size: {item.size}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Text style={styles.sheetItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
                 </View>
               ))}
               <View style={styles.sheetDivider} />
               <View style={styles.sheetRow}>
-                <Text style={styles.sheetItemName}>Delivery fee</Text>
-                <Text style={styles.sheetItemPrice}>₱{Number(deliveryFee).toFixed(2)}</Text>
+                <Text style={styles.sheetSummaryLabel}>Delivery fee</Text>
+                <Text style={styles.sheetSummaryValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
               </View>
               <View style={styles.sheetRow}>
-                <Text style={styles.sheetItemName}>Service fee</Text>
-                <Text style={styles.sheetItemPrice}>₱{Number(serviceFee).toFixed(2)}</Text>
+                <Text style={styles.sheetSummaryLabel}>Service fee</Text>
+                <Text style={styles.sheetSummaryValue}>₱{Number(serviceFee).toFixed(2)}</Text>
               </View>
               {feeQuote?.formula ? (
                 <Text style={styles.sheetFormula}>{feeQuote.formula}</Text>
               ) : null}
+              <View style={styles.sheetDivider} />
+              <View style={styles.sheetTotalRow}>
+                <Text style={styles.sheetTotalLabel}>Total</Text>
+                <Text style={styles.sheetTotalValue}>₱{Number(total).toFixed(2)}</Text>
+              </View>
             </ScrollView>
             <Pressable style={styles.closeButton} onPress={() => setShowOrderSheet(false)}>
-              <Text style={styles.closeButtonText}>Close</Text>
+              <Text style={styles.closeButtonText}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -408,7 +696,7 @@ export default function CheckoutScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FFF9F5",
+    backgroundColor: "#F7F7F7",
   },
   header: {
     flexDirection: "row",
@@ -425,7 +713,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
   },
   headerSpacer: {
@@ -434,71 +722,199 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 32,
+    paddingBottom: 36,
   },
   orderBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FBEAE1",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   orderIconWrap: {
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF4EB",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 12,
   },
   orderInfo: {
     flex: 1,
   },
   orderLabel: {
-    color: "#121212",
+    color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: "500",
   },
   orderTotal: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
     marginTop: 2,
+  },
+  viewPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF4EB",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 2,
   },
   viewLink: {
     color: PRIMARY,
     fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  addressSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  sectionHeaderTitle: {
+    color: "#374151",
+    fontFamily: FONT,
     fontSize: 14,
     fontWeight: "700",
   },
-  fieldGroup: {
-    marginBottom: 4,
+  addressHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  fieldLabel: {
-    color: "#4B4B4B",
+  addressActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF4EB",
+    borderColor: "#FDBA74",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  addressActionText: {
+    color: PRIMARY,
     fontFamily: FONT,
-    fontSize: 13,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  savedSelectorWrap: {
+    marginBottom: 14,
+  },
+  savedSelectorLabel: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
     fontWeight: "600",
     marginBottom: 8,
   },
+  savedSelectorScroll: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  savedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  savedChipSelected: {
+    borderColor: PRIMARY,
+    backgroundColor: "#FFF7ED",
+  },
+  savedChipText: {
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  savedChipTextSelected: {
+    color: PRIMARY,
+    fontWeight: "700",
+  },
+  defaultTag: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    backgroundColor: "#F3F4F6",
+    marginLeft: 2,
+  },
+  defaultTagSelected: {
+    backgroundColor: "#FFEDD5",
+  },
+  defaultTagText: {
+    fontFamily: FONT,
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+  defaultTagTextSelected: {
+    color: PRIMARY,
+  },
+  newAddressChip: {
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FAFAFA",
+  },
+  fieldGroup: {
+    marginBottom: 14,
+  },
+  fieldLabel: {
+    color: "#374151",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
   inputWrap: {
-    minHeight: 50,
+    minHeight: 48,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#D4D4D4",
+    borderColor: "#E5E7EB",
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     paddingHorizontal: 14,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
   },
   focusedInput: {
     borderColor: PRIMARY,
+    borderWidth: 1.5,
+    backgroundColor: "#FFFFFF",
   },
   errorInput: {
-    borderColor: "#D94343",
-    backgroundColor: "#FFF3F2",
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
   },
   input: {
     color: "#121212",
@@ -510,12 +926,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: 6,
+    marginTop: 4,
   },
   fieldErrorText: {
-    color: "#D94343",
+    color: "#EF4444",
     fontFamily: FONT,
     fontSize: 12,
+    fontWeight: "500",
   },
   row: {
     flexDirection: "row",
@@ -524,75 +941,165 @@ const styles = StyleSheet.create({
   halfField: {
     flex: 1,
   },
-  paymentRow: {
+  paymentCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 50,
-    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D4D4D4",
-    backgroundColor: "#F3F4F6",
-    paddingHorizontal: 14,
-    marginBottom: 16,
+    borderColor: "#E5E7EB",
+    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  paymentLeft: {
+    flex: 1,
+    marginRight: 10,
+    justifyContent: "center",
+  },
+  paymentIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#FFF4EB",
+    alignItems: "center",
+    justifyContent: "center",
   },
   paymentValue: {
     color: "#121212",
     fontFamily: FONT,
     fontSize: 14,
+    fontWeight: "700",
   },
-  changeText: {
-    color: "#9CA3AF",
+  paymentSubtext: {
+    color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  paymentBadge: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  paymentBadgeText: {
+    color: "#059669",
+    fontFamily: FONT,
+    fontSize: 11,
+    fontWeight: "700",
   },
   feeCard: {
     backgroundColor: "#FFFFFF",
-    borderColor: "#F3E6DC",
-    borderRadius: 12,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 16,
-    marginTop: 8,
-    padding: 14,
+    marginBottom: 20,
+    marginTop: 6,
+    padding: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  feeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
   },
   feeTitle: {
     color: "#121212",
     fontFamily: FONT,
     fontSize: 15,
     fontWeight: "800",
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  feeHintWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
   },
   feeHint: {
     color: "#6B7280",
     fontFamily: FONT,
     fontSize: 13,
     lineHeight: 18,
+    flex: 1,
   },
-  feeFormula: {
-    color: PRIMARY,
+  feeErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 4,
+    gap: 8,
+  },
+  feeErrorText: {
+    color: "#DC2626",
     fontFamily: FONT,
     fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+    lineHeight: 18,
+  },
+  distanceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#FFF4EB",
+    borderColor: "#FED7AA",
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    gap: 6,
+    marginBottom: 10,
+  },
+  distanceBadgeText: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 12,
     fontWeight: "700",
-    marginBottom: 8,
+  },
+  feeFormula: {
+    color: "#4B5563",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 6,
   },
   feeStep: {
-    color: "#4B5563",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 2,
   },
   feeTotals: {
-    borderTopColor: "#F3E6DC",
+    borderTopColor: "#F3F4F6",
     borderTopWidth: 1,
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 12,
+    paddingTop: 12,
   },
   feeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 8,
   },
   feeLabel: {
     color: "#6B7280",
@@ -605,66 +1112,101 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  feeDivider: {
+    height: 1,
+    backgroundColor: "#F3F4F6",
+    marginVertical: 6,
+  },
+  feeTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+  },
   feeTotalLabel: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "800",
   },
   feeTotalValue: {
     color: PRIMARY,
     fontFamily: FONT,
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: "800",
-  },
-  cancelButton: {
-    height: 54,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: "#121212",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 20,
-  },
-  cancelText: {
-    color: "#121212",
-    fontFamily: FONT,
-    fontSize: 16,
-    fontWeight: "700",
   },
   confirmButton: {
     height: 54,
-    borderRadius: 9,
+    borderRadius: 10,
     backgroundColor: PRIMARY,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 12,
+    marginTop: 4,
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   confirmText: {
     color: "#FFFFFF",
     fontFamily: FONT,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
+  },
+  cancelButton: {
+    height: 50,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  cancelText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 15,
+    fontWeight: "600",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
     justifyContent: "flex-end",
   },
   sheet: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: "70%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    maxHeight: "75%",
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E5E7EB",
+    alignSelf: "center",
+    marginBottom: 14,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
   },
   sheetTitle: {
     color: "#121212",
     fontFamily: FONT,
     fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 12,
+    fontWeight: "800",
   },
   sheetList: {
     marginBottom: 16,
@@ -675,36 +1217,89 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    borderBottomColor: "#F9FAFB",
+  },
+  sheetItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 12,
+  },
+  sheetItemQty: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+    marginRight: 10,
+    minWidth: 24,
+  },
+  sheetItemTextWrap: {
+    flex: 1,
   },
   sheetItemName: {
-    flex: 1,
-    marginRight: 8,
     color: "#121212",
     fontFamily: FONT,
     fontSize: 14,
+    fontWeight: "600",
+  },
+  sheetItemSize: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 2,
   },
   sheetItemPrice: {
-    color: PRIMARY,
+    color: "#121212",
     fontFamily: FONT,
     fontSize: 14,
     fontWeight: "700",
   },
   sheetDivider: {
-    backgroundColor: "#F0F0F0",
+    backgroundColor: "#F3F4F6",
     height: 1,
-    marginVertical: 6,
+    marginVertical: 8,
   },
-  sheetFormula: {
+  sheetSummaryLabel: {
     color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 12,
-    marginTop: 8,
+    fontSize: 13,
+  },
+  sheetSummaryValue: {
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  sheetFormula: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  sheetTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 6,
+    marginBottom: 4,
+  },
+  sheetTotalLabel: {
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  sheetTotalValue: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "800",
   },
   closeButton: {
     height: 48,
-    borderRadius: 9,
-    backgroundColor: "#121212",
+    borderRadius: 10,
+    backgroundColor: PRIMARY,
     alignItems: "center",
     justifyContent: "center",
   },

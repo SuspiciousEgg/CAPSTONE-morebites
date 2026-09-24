@@ -19,18 +19,46 @@
 .fm-marker {
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 .fm-marker-customer {
-  background: #e53935;
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
 }
 
 .fm-marker-rider {
-  background: #2563eb;
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.35);
+  animation: fm-pulse 2s infinite ease-in-out;
 }
 
-.fm-marker-store {
-  background: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.25);
+.fm-empty-badge {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  border: 1px solid #e2e8f0;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+@keyframes fm-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(22, 163, 74, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
+  }
 }

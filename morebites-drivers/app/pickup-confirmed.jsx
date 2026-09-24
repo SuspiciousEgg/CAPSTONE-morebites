@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import {
@@ -12,7 +12,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { driverApi } from "../src/api/client";
 import { formatPeso, statusStep, useDriverOrder } from "../src/hooks/useDriverOrder";
-import { useEffect } from "react";
 
 const FONT = "Plus Jakarta Sans";
 const STEPS = ["Assigned", "Picked up", "Out for delivery", "Delivered"];
@@ -73,7 +72,7 @@ export default function PickupConfirmedScreen() {
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Order #{orderId}</Text>
+          <Text style={styles.headerTitle}>Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`}</Text>
           <Text style={styles.headerSubtitle}>Pick up Confirmed</Text>
         </View>
         <View style={styles.headerButton} />

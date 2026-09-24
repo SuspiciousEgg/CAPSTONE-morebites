@@ -13,9 +13,9 @@ import {
   LuX,
   LuEllipsis,
 } from 'react-icons/lu'
-import { TbClipboardList } from 'react-icons/tb'
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
+import EmptyState from './EmptyState'
 import './OrderManagement.css'
 
 const STATUS_OPTIONS = [
@@ -290,10 +290,12 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
 
             <div className="om-cart">
               {cart.length === 0 ? (
-                <div className="om-cart-empty">
-                  <TbClipboardList size={32} style={{ color: '#D1D5DB' }} />
-                  <p>No items yet. Select items from the menu.</p>
-                </div>
+                <EmptyState
+                  icon="cart"
+                  title="No items added yet"
+                  subtitle="Select items from menu to build order."
+                  style={{ padding: '24px 12px' }}
+                />
               ) : (
                 <ul className="om-cart-list">
                   {cart.map((line) => (
@@ -463,7 +465,13 @@ export default function OrderManagement() {
       serverStats?.delivery ?? orders.filter((o) => o.status === 'Out for Delivery').length,
   }
 
-  const nextOrderId = `#ORD-${String(orders.length + 21).padStart(5, '0')}`
+  const maxOrderNumber = orders.reduce((max, o) => {
+    const match = String(o.id || o.order_code || '').match(/(\d+)/)
+    if (!match) return max
+    const num = parseInt(match[1], 10)
+    return num > max && num < 100000 ? num : max
+  }, 27)
+  const nextOrderId = `#ORD-${String(maxOrderNumber + 1).padStart(5, '0')}`
 
   async function handlePlace(payload) {
     setSaving(true)
@@ -618,13 +626,35 @@ export default function OrderManagement() {
       <section className="om-main-card">
         {pageRows.length === 0 ? (
           <div className="om-empty-state">
-            <div className="om-empty-icon-wrap">
-              <TbClipboardList size={32} />
-            </div>
-            <h3 className="om-empty-title">No orders yet</h3>
-            <p className="om-empty-subtitle">
-              Orders will appear here once customers place them or you create one
-            </p>
+            <EmptyState
+              icon="receipt"
+              title={
+                search || status !== 'All Status' || type !== 'All Types'
+                  ? 'No matching orders found'
+                  : 'Queue is clear'
+              }
+              subtitle={
+                search || status !== 'All Status' || type !== 'All Types'
+                  ? 'Try adjusting your search query or filter settings.'
+                  : 'New orders will appear here once received.'
+              }
+              action={
+                Boolean(search || status !== 'All Status' || type !== 'All Types') && (
+                  <button
+                    type="button"
+                    className="om-empty-btn-secondary"
+                    onClick={() => {
+                      setSearch('')
+                      setStatus('All Status')
+                      setType('All Types')
+                      setPage(1)
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                )
+              }
+            />
           </div>
         ) : (
           <>
@@ -685,39 +715,41 @@ export default function OrderManagement() {
 
             <div className="om-pagination-row">
               <span className="om-pagination-info">
-                Showing {(currentPage - 1) * PAGE_SIZE + 1} to{' '}
+                Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
                 {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} orders
               </span>
-              <div className="om-pagination-controls">
-                <button
-                  type="button"
-                  className="om-page-btn arrow"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  aria-label="Previous page"
-                >
-                  <LuChevronLeft size={16} />
-                </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+              {totalPages > 1 && (
+                <div className="om-pagination-controls">
                   <button
-                    key={n}
                     type="button"
-                    className={`om-page-btn${n === currentPage ? ' active' : ''}`}
-                    onClick={() => setPage(n)}
+                    className="om-page-btn arrow"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
                   >
-                    {n}
+                    <LuChevronLeft size={16} />
                   </button>
-                ))}
-                <button
-                  type="button"
-                  className="om-page-btn arrow"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  aria-label="Next page"
-                >
-                  <LuChevronRight size={16} />
-                </button>
-              </div>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`om-page-btn${n === currentPage ? ' active' : ''}`}
+                      onClick={() => setPage(n)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="om-page-btn arrow"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    <LuChevronRight size={16} />
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}

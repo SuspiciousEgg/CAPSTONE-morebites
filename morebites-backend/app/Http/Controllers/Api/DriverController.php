@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
+use App\Models\DriverBlacklist;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -54,6 +56,48 @@ class DriverController extends Controller
         $user->update(['status' => 'Inactive']);
 
         return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
+    }
+
+    public function reactivate(User $user)
+    {
+        abort_unless($user->role === 'driver', 404);
+        $user->update(['status' => 'Active']);
+
+        return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
+    }
+
+    public function blacklist(Request $request, User $user)
+    {
+        abort_unless($user->role === 'driver', 404);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string'],
+        ]);
+
+        DriverBlacklist::query()->create([
+            'driver_id' => $user->id,
+            'driver_code' => $user->driverDisplayId(),
+            'name' => $user->name,
+            'license_number' => $user->license_number,
+            'phone' => $user->phone,
+            'reason' => $data['reason'],
+            'notes' => $data['reason'],
+            'attachment_name' => null,
+            'attachment_meta' => null,
+            'blacklisted_at' => now(),
+        ]);
+
+        $user->update([
+            'status' => 'Inactive',
+            'archived_at' => now(),
+        ]);
+
+        ActivityLog::query()->create([
+            'actor' => $request->user()?->name ?: 'Admin',
+            'action' => 'Blacklisted driver '.$user->name,
+        ]);
+
+        return response()->json(['message' => 'Driver blacklisted successfully.']);
     }
 
     private function transform(User $u): array

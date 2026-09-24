@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -57,12 +57,15 @@ export default function AddAddressScreen() {
   const initialDraft = parseDraft(params.draft);
   const paramLatitude = Number(firstParam(params.latitude));
   const paramLongitude = Number(firstParam(params.longitude));
+  const paramStreet = firstParam(params.street);
+  const paramBarangay = firstParam(params.barangay);
+  const paramCity = firstParam(params.city);
 
   const [form, setForm] = useState({
     label: initialDraft.label || "",
-    street: initialDraft.street || "",
-    barangay: initialDraft.barangay || "",
-    city: initialDraft.city || "",
+    street: (paramStreet !== undefined && paramStreet !== "") ? paramStreet : initialDraft.street || "",
+    barangay: (paramBarangay !== undefined && paramBarangay !== "") ? paramBarangay : initialDraft.barangay || "",
+    city: (paramCity !== undefined && paramCity !== "") ? paramCity : initialDraft.city || "",
     landmark: initialDraft.landmark || "",
     latitude: Number.isFinite(paramLatitude) ? paramLatitude : initialDraft.latitude ?? null,
     longitude: Number.isFinite(paramLongitude) ? paramLongitude : initialDraft.longitude ?? null,
@@ -70,6 +73,27 @@ export default function AddAddressScreen() {
   const [focusedField, setFocusedField] = useState("");
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (paramStreet !== undefined || paramBarangay !== undefined || paramCity !== undefined || Number.isFinite(paramLatitude)) {
+      setForm((current) => ({
+        ...current,
+        ...(paramStreet !== undefined && paramStreet !== "" ? { street: paramStreet } : {}),
+        ...(paramBarangay !== undefined && paramBarangay !== "" ? { barangay: paramBarangay } : {}),
+        ...(paramCity !== undefined && paramCity !== "" ? { city: paramCity } : {}),
+        ...(Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
+          ? { latitude: paramLatitude, longitude: paramLongitude }
+          : {}),
+      }));
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (paramStreet) delete next.street;
+        if (paramBarangay) delete next.barangay;
+        if (paramCity) delete next.city;
+        return next;
+      });
+    }
+  }, [paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
 
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));

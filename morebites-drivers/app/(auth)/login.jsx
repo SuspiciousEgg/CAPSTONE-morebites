@@ -1,7 +1,9 @@
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -10,6 +12,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, driverApi } from "../../src/api/client";
+import {
+  getDeviceId,
+  isDeviceTrusted,
+  addTrustedDevice,
+  normalizePhoneNumber,
+} from "../../src/utils/device";
 
 const FONT_REGULAR = "Plus Jakarta Sans";
 const FONT_MEDIUM = "Plus Jakarta Sans";
@@ -27,13 +35,29 @@ export default function LoginScreen() {
   const [saving, setSaving] = useState(false);
 
   const signIn = async () => {
-    const hasPhone = phoneValue.trim().length > 0;
+    const cleanPhone = phoneValue.replace(/\s/g, "");
+    const hasPhone = cleanPhone.length > 0;
     const hasPassword = passwordValue.trim().length > 0;
 
-    if (!hasPhone || !hasPassword) {
-      setLoginError("Incorrect phone number or password. Please try again.");
-      setPhoneError(!hasPhone ? "Phone number is required" : "");
-      setPasswordError(!hasPassword ? "Password is required" : "");
+    let hasError = false;
+    if (!hasPhone) {
+      setPhoneError("Phone number is required");
+      hasError = true;
+    } else if (!/^09\d{9}$/.test(cleanPhone)) {
+      setPhoneError("Enter a valid 11-digit Philippine mobile number starting with 09");
+      hasError = true;
+    } else {
+      setPhoneError("");
+    }
+
+    if (!hasPassword) {
+      setPasswordError("Password is required");
+      hasError = true;
+    } else {
+      setPasswordError("");
+    }
+
+    if (hasError) {
       return;
     }
 
@@ -43,9 +67,57 @@ export default function LoginScreen() {
     setPasswordError("");
 
     try {
-      const res = await driverApi.login(phoneValue.trim(), passwordValue);
-      await authStorage.saveSession(res.token, res.user);
-      router.replace("/(tabs)/home");
+      const deviceId = await getDeviceId();
+      const res = await driverApi.login(phoneValue.trim(), passwordValue, deviceId);
+
+      let userObj = res.user || {};
+      if (!userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        if (cachedMap[userObj.phone]) {
+          userObj = { ...userObj, photo: cachedMap[userObj.phone] };
+        }
+      } else if (userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        cachedMap[userObj.phone] = userObj.photo;
+        await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+      }
+
+      await authStorage.saveSession(res.token, userObj);
+
+      const cleanPhone = normalizePhoneNumber(userObj.phone || phoneValue);
+      const isTrusted = await isDeviceTrusted(cleanPhone, deviceId);
+
+      if (!isTrusted) {
+        Alert.alert(
+          "New device sign-in detected. If this wasn't you, please secure your account immediately.",
+          "",
+          [
+            {
+              text: "This Was Me",
+              onPress: async () => {
+                await addTrustedDevice(cleanPhone, deviceId);
+                router.replace("/(tabs)/home");
+              },
+            },
+            {
+              text: "This Wasn't Me",
+              style: "destructive",
+              onPress: async () => {
+                await authStorage.clear();
+                router.push({
+                  pathname: "/(auth)/forgot-password",
+                  params: { phone: cleanPhone },
+                });
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      } else {
+        router.replace("/(tabs)/home");
+      }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";
       if (/phone/i.test(msg) && /not found|inactive/i.test(msg)) {
@@ -91,10 +163,11 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             keyboardType="phone-pad"
-            placeholder="09XX XXX XXX"
+            maxLength={11}
+            placeholder="09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
             value={phoneValue}
-            onChangeText={setPhoneValue}
+            onChangeText={(val) => setPhoneValue(val.replace(/\D/g, "").slice(0, 11))}
             onFocus={() => setPhoneFocused(true)}
             onBlur={() => setPhoneFocused(false)}
             autoCapitalize="none"
@@ -153,6 +226,19 @@ export default function LoginScreen() {
             <Text style={styles.fieldErrorText}>{passwordError}</Text>
           </View>
         ) : null}
+
+        <TouchableOpacity
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/forgot-password",
+              params: { phone: phoneValue.trim() },
+            })
+          }
+          style={styles.forgotRow}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.forgotText}>Forgot Password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.signInButton, saving && { opacity: 0.7 }]}
@@ -268,13 +354,23 @@ const styles = StyleSheet.create({
     fontFamily: FONT_REGULAR,
     fontSize: 12,
   },
+  forgotRow: {
+    alignSelf: "flex-end",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  forgotText: {
+    color: "#E37925",
+    fontFamily: FONT_MEDIUM,
+    fontSize: 13,
+  },
   signInButton: {
     height: 54,
     borderRadius: 9,
     backgroundColor: "#F97000",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
+    marginTop: 16,
   },
   signInText: {
     color: "#FFFFFF",

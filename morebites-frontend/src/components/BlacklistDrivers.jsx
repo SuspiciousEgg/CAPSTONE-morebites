@@ -19,6 +19,7 @@ import {
   IconUser,
 } from './Icons'
 import { blacklistApi } from '../api/client'
+import EmptyState from './EmptyState'
 import './BlacklistDrivers.css'
 
 export default function BlacklistDrivers({ embedded = false }) {
@@ -108,7 +109,18 @@ export default function BlacklistDrivers({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="bl-empty">
+                    <EmptyState
+                      icon="shield"
+                      title="No blacklisted drivers"
+                      subtitle="Drivers restricted from deliveries will appear here."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                rows.map((d) => (
                 <tr key={d.id}>
                   <td className="bl-id">{d.id}</td>
                   <td>{d.name}</td>
@@ -125,7 +137,7 @@ export default function BlacklistDrivers({ embedded = false }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -134,36 +146,38 @@ export default function BlacklistDrivers({ embedded = false }) {
             Showing {(currentPage - 1) * pageSize + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} drivers
           </span>
-          <div className="bl-pages">
-            <button
-              type="button"
-              className="bl-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+          {totalPages > 1 && (
+            <div className="bl-pages">
               <button
-                key={n}
                 type="button"
-                className={`bl-page-btn${n === currentPage ? ' active' : ''}`}
-                onClick={() => setPage(n)}
+                className="bl-page-btn arrow"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                {n}
+                <LuChevronLeft size={16} />
               </button>
-            ))}
-            <button
-              type="button"
-              className="bl-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`bl-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="bl-page-btn arrow"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

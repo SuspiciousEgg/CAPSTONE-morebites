@@ -71,7 +71,7 @@ export default function DeliveryCompleteScreen() {
           </View>
           <Text style={styles.successTitle}>Delivery Complete</Text>
           <Text style={styles.successSubtitle}>
-            Order #{orderId} · {customer}
+            Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`} · {customer}
           </Text>
         </View>
 

@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\DeliveryRate;
+use Illuminate\Validation\ValidationException;
 
 class DeliveryRateService
 {
+    public const MAX_DELIVERY_KM = 10.0;
+
     public function serviceFee(): float
     {
         return (float) config('services.fees.service_fee', 20);
@@ -18,6 +21,12 @@ class DeliveryRateService
 
     public function feeForKm(?float $km): float
     {
+        if ($km !== null && $km > self::MAX_DELIVERY_KM) {
+            throw ValidationException::withMessages([
+                'delivery_address' => ['Delivery not available beyond 10km.'],
+            ]);
+        }
+
         $tier = $this->tierForKm($km);
 
         return $tier ? (float) $tier->fee : $this->defaultFee();
@@ -26,6 +35,25 @@ class DeliveryRateService
     public function quote(?float $km): array
     {
         $distance = $km !== null ? round(max(0, $km), 2) : null;
+
+        if ($distance !== null && $distance > self::MAX_DELIVERY_KM) {
+            return [
+                'deliverable' => false,
+                'error' => 'Delivery not available beyond 10km',
+                'distance_km' => $distance,
+                'delivery_fee' => null,
+                'service_fee' => null,
+                'fees_total' => null,
+                'tier_label' => null,
+                'formula' => 'Distance '.$distance.' km exceeds maximum delivery radius (10 km)',
+                'calculation' => [
+                    'Distance from store to address = '.$distance.' km',
+                    'Maximum delivery radius is 10 km',
+                    'Delivery not available beyond 10km',
+                ],
+            ];
+        }
+
         $tier = $this->tierForKm($distance);
         $delivery = $tier ? (float) $tier->fee : $this->defaultFee();
         $service = $this->serviceFee();
@@ -49,6 +77,8 @@ class DeliveryRateService
         $steps[] = 'Total fees = '.$peso($delivery).' + '.$peso($service).' = '.$peso($delivery + $service);
 
         return [
+            'deliverable' => true,
+            'error' => null,
             'distance_km' => $distance,
             'delivery_fee' => $delivery,
             'service_fee' => $service,
@@ -61,6 +91,21 @@ class DeliveryRateService
         ];
     }
 
+    public function quoteForCoordinates(float $lat, float $lng, ?string $address = null): array
+    {
+        $tracking = app(TrackingService::class);
+        $dest = [
+            'latitude' => $lat,
+            'longitude' => $lng,
+        ];
+        $km = $tracking->haversineKm($tracking->storePoint(), $dest);
+        $quote = $this->quote($km);
+        $quote['address'] = $address;
+        $quote['coordinates'] = $dest;
+
+        return $quote;
+    }
+
     public function quoteForAddress(string $address): array
     {
         $tracking = app(TrackingService::class);
@@ -68,6 +113,7 @@ class DeliveryRateService
         $km = $tracking->haversineKm($tracking->storePoint(), $dest);
         $quote = $this->quote($km);
         $quote['address'] = $address;
+        $quote['coordinates'] = $dest;
 
         return $quote;
     }
@@ -79,16 +125,14 @@ class DeliveryRateService
 
     private function tierForKm(?float $km): ?DeliveryRate
     {
-        if ($km === null || $km < 0) {
+        if ($km === null || $km < 0 || $km > self::MAX_DELIVERY_KM) {
             return null;
         }
 
         return DeliveryRate::query()
             ->where('active', true)
             ->where('min_km', '<=', $km)
-            ->where(function ($q) use ($km) {
-                $q->whereNull('max_km')->orWhere('max_km', '>=', $km);
-            })
+            ->where('max_km', '>=', $km)
             ->orderByDesc('min_km')
             ->first();
     }

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\DriverAppController;
 use App\Http\Controllers\Api\DriverController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\MenuController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TrackingController;
@@ -24,6 +25,7 @@ Route::post('/driver/login', [DriverAppController::class, 'login']);
 Route::post('/customer/register', [CustomerAppController::class, 'register']);
 Route::post('/customer/login', [CustomerAppController::class, 'login']);
 Route::get('/customer/menu', [CustomerAppController::class, 'menu']);
+Route::get('/menu/top-selling', [CustomerAppController::class, 'topSelling']);
 Route::get('/delivery-rates', [DeliveryRateController::class, 'index']);
 Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
 
@@ -45,6 +47,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
     Route::post('/driver/orders/{order}/report', [DriverAppController::class, 'reportIssue']);
 
+    Route::patch('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+    Route::post('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+    Route::get('/deliveries/{order}/location', [TrackingController::class, 'deliveryLocation']);
+
     Route::get('/customer/orders/{order}/tracking', [TrackingController::class, 'show']);
     Route::post('/customer/orders/{order}/rate', [CustomerAppController::class, 'rateOrder']);
 
@@ -52,6 +58,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
+
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
 
     Route::get('/orders/menu-options', [OrderController::class, 'menuOptions']);
     Route::get('/orders', [OrderController::class, 'index']);
@@ -77,6 +88,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventory', [InventoryController::class, 'store']);
     Route::put('/inventory/{inventory}', [InventoryController::class, 'update']);
     Route::post('/inventory/{inventory}/restock', [InventoryController::class, 'restock']);
+    Route::patch('/inventory/{inventory}/archive', [InventoryController::class, 'archive']);
+    Route::patch('/inventory/{inventory}/restore', [InventoryController::class, 'restore']);
     Route::delete('/inventory/{inventory}', [InventoryController::class, 'destroy']);
 
     Route::get('/dispatch', [DispatchController::class, 'index']);
@@ -84,8 +97,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/dispatch/{order}/assign', [DispatchController::class, 'assign']);
 
     Route::get('/reports', [ReportController::class, 'index']);
+    Route::get('/reports/customers', [ReportController::class, 'customers']);
     Route::post('/reports/generate', [ReportController::class, 'generate']);
+    Route::post('/reports/log-export', [ReportController::class, 'logExport']);
     Route::delete('/reports/{report}', [ReportController::class, 'destroy']);
+
+    Route::get('/drivers', [DriverController::class, 'index']);
+    Route::get('/drivers/{user}', [DriverController::class, 'show']);
+    Route::post('/drivers/{user}/suspend', [DriverController::class, 'suspend']);
+    Route::post('/drivers/{user}/reactivate', [DriverController::class, 'reactivate']);
+    Route::post('/drivers/{user}/unsuspend', [DriverController::class, 'reactivate']);
+    Route::post('/drivers/{user}/blacklist', [DriverController::class, 'blacklist']);
 
     Route::middleware('not.cashier')->group(function () {
         Route::post('/delivery-rates', [DeliveryRateController::class, 'store']);
@@ -102,10 +124,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/accounts/{user}', [AccountController::class, 'update']);
         Route::patch('/accounts/{user}/role-access', [AccountController::class, 'updateRoleAccess']);
         Route::post('/accounts/{user}/block', [AccountController::class, 'block']);
-
-        Route::get('/drivers', [DriverController::class, 'index']);
-        Route::get('/drivers/{user}', [DriverController::class, 'show']);
-        Route::post('/drivers/{user}/suspend', [DriverController::class, 'suspend']);
 
         Route::get('/blacklist', [BlacklistController::class, 'index']);
         Route::get('/blacklist/{blacklist}', [BlacklistController::class, 'show']);

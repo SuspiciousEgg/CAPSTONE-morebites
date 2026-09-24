@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -74,40 +74,97 @@ export default function OutForDeliveryScreen() {
     return () => clearInterval(timer);
   }, [dbId, loadTracking]);
 
+  const isCompletedRef = useRef(false);
+  const isDelivered = ["Delivered", "Completed"].includes(order?.status || tracking?.status || "");
+
   useEffect(() => {
-    let subscription;
+    if (isDelivered) {
+      isCompletedRef.current = true;
+    }
+  }, [isDelivered]);
+
+  const lastSentRef = useRef(0);
+
+  // Real-time device location streaming while delivery is active
+  useEffect(() => {
+    if (isDelivered) return undefined;
+
+    let timer = null;
+    let locationSubscription = null;
     let cancelled = false;
+
+    const sendCoords = (coords) => {
+      if (cancelled || isCompletedRef.current || !coords) return;
+      const now = Date.now();
+      if (now - lastSentRef.current < 3000) return;
+      lastSentRef.current = now;
+
+      const next = {
+        latitude: Number(coords.latitude),
+        longitude: Number(coords.longitude),
+      };
+      setLiveRider(next);
+
+      if (dbId) {
+        driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch(() => {});
+      }
+      driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
+    };
+
+    const captureSingleFix = async () => {
+      if (cancelled || isCompletedRef.current) return;
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (pos?.coords) {
+          sendCoords(pos.coords);
+        }
+      } catch {
+        // Location service temporarily unavailable
+      }
+    };
 
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted" || cancelled) return;
+        if (status !== "granted" || cancelled || isCompletedRef.current) return;
 
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 8000,
-            distanceInterval: 20,
-          },
-          (pos) => {
-            const next = {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-            };
-            setLiveRider(next);
-            driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
-          },
-        );
+        // Immediate initial location fix
+        await captureSingleFix();
+
+        // Subscribe to live GPS updates
+        try {
+          locationSubscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              distanceInterval: 5,
+              timeInterval: 4000,
+            },
+            (pos) => {
+              if (pos?.coords) {
+                sendCoords(pos.coords);
+              }
+            }
+          );
+        } catch {
+          if (!cancelled && !isCompletedRef.current) {
+            timer = setInterval(captureSingleFix, 6000);
+          }
+        }
       } catch {
-        // GPS unavailable
+        // Permission error or GPS unavailable
       }
     })();
 
     return () => {
       cancelled = true;
-      subscription?.remove?.();
+      if (locationSubscription?.remove) {
+        locationSubscription.remove();
+      }
+      if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [dbId, isDelivered]);
 
   const destinationCoord = tracking?.destination || null;
   const riderCoord = liveRider || tracking?.rider || null;
@@ -168,9 +225,11 @@ export default function OutForDeliveryScreen() {
   };
 
   const reportIssue = () => {
+    const issueOrderCode = order?.id || orderId;
+    const formattedOrderCode = String(issueOrderCode || '').startsWith('#') ? issueOrderCode : `#${issueOrderCode}`;
     Alert.alert(
       "Report Issue",
-      `Select the issue for Order #${order?.id || orderId}.`,
+      `Select the issue for Order ${formattedOrderCode}.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -190,6 +249,7 @@ export default function OutForDeliveryScreen() {
   };
 
   const completeDelivery = () => {
+    isCompletedRef.current = true;
     router.push({
       pathname: "/confirm-delivery",
       params: {
@@ -211,7 +271,7 @@ export default function OutForDeliveryScreen() {
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Order #{orderId}</Text>
+          <Text style={styles.headerTitle}>Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`}</Text>
           <Text style={styles.headerSubtitle}>Out for Delivery</Text>
         </View>
         <View style={styles.headerButton} />

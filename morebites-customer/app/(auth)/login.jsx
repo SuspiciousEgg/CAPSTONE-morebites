@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import {
   Alert,
@@ -11,52 +12,112 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStorage, customerApi } from "../../src/api/client";
-import { getDeviceId } from "../../src/utils/device";
+import {
+  getDeviceId,
+  isDeviceTrusted,
+  addTrustedDevice,
+  normalizePhoneNumber,
+} from "../../src/utils/device";
 
 const FONT_REGULAR = "Plus Jakarta Sans";
 const FONT_MEDIUM = "Plus Jakarta Sans";
 const FONT_BOLD = "Plus Jakarta Sans";
 
 export default function LoginScreen() {
+  const params = useLocalSearchParams();
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [phoneValue, setPhoneValue] = useState("");
+  const [phoneValue, setPhoneValue] = useState(params?.phone ? String(params.phone) : "");
   const [passwordValue, setPasswordValue] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [successBanner, setSuccessBanner] = useState(
+    params?.registered === "1" ? "Account created successfully. Please log in." : ""
+  );
   const [phoneError, setPhoneError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (params?.phone) {
+      setPhoneValue(String(params.phone));
+    }
+    if (params?.registered === "1") {
+      setSuccessBanner("Account created successfully. Please log in.");
+    }
+  }, [params?.phone, params?.registered]);
+
   const signIn = async () => {
-    const hasPhone = phoneValue.trim().length > 0;
+    const cleanPhone = phoneValue.replace(/\s/g, "");
+    const hasPhone = cleanPhone.length > 0;
     const hasPassword = passwordValue.trim().length > 0;
 
-    if (!hasPhone || !hasPassword) {
-      setLoginError("Incorrect phone number or password. Please try again.");
-      setPhoneError(!hasPhone ? "Phone number is required" : "");
-      setPasswordError(!hasPassword ? "Password is required" : "");
+    let hasError = false;
+    if (!hasPhone) {
+      setPhoneError("Phone number is required");
+      hasError = true;
+    } else if (!/^09\d{9}$/.test(cleanPhone)) {
+      setPhoneError("Enter a valid 11-digit Philippine mobile number starting with 09");
+      hasError = true;
+    } else {
+      setPhoneError("");
+    }
+
+    if (!hasPassword) {
+      setPasswordError("Password is required");
+      hasError = true;
+    } else {
+      setPasswordError("");
+    }
+
+    if (hasError) {
       return;
     }
 
     setSaving(true);
     setLoginError("");
+    setSuccessBanner("");
     setPhoneError("");
     setPasswordError("");
 
     try {
       const deviceId = await getDeviceId();
       const res = await customerApi.login(phoneValue.trim(), passwordValue, deviceId);
-      await authStorage.saveSession(res.token, res.user);
 
-      if (res?.new_device === true) {
+      let userObj = res.user || {};
+      if (!userObj.photo && userObj.phone) {
+        const [cachedRaw, savedAccounts] = await Promise.all([
+          AsyncStorage.getItem("cached_user_photos"),
+          AsyncStorage.getItem("registered_accounts"),
+        ]);
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        const accounts = savedAccounts ? JSON.parse(savedAccounts) : [];
+        const matched = accounts.find((a) => a.phone === userObj.phone);
+        const fallbackPhoto = cachedMap[userObj.phone] || matched?.photo || null;
+        if (fallbackPhoto) {
+          userObj = { ...userObj, photo: fallbackPhoto };
+        }
+      } else if (userObj.photo && userObj.phone) {
+        const cachedRaw = await AsyncStorage.getItem("cached_user_photos");
+        const cachedMap = cachedRaw ? JSON.parse(cachedRaw) : {};
+        cachedMap[userObj.phone] = userObj.photo;
+        await AsyncStorage.setItem("cached_user_photos", JSON.stringify(cachedMap));
+      }
+
+      await authStorage.saveSession(res.token, userObj);
+
+      const cleanPhone = normalizePhoneNumber(userObj.phone || phoneValue);
+      const isTrusted = await isDeviceTrusted(cleanPhone, deviceId);
+
+      if (!isTrusted) {
         Alert.alert(
           "New device sign-in detected. If this wasn't you, please secure your account immediately.",
           "",
           [
             {
               text: "This Was Me",
-              onPress: () => {
+              onPress: async () => {
+                await addTrustedDevice(cleanPhone, deviceId);
                 router.replace("/(tabs)/home");
               },
             },
@@ -65,10 +126,14 @@ export default function LoginScreen() {
               style: "destructive",
               onPress: async () => {
                 await authStorage.clear();
-                router.push("/(auth)/forgot-password");
+                router.push({
+                  pathname: "/(auth)/forgot-password",
+                  params: { phone: cleanPhone },
+                });
               },
             },
-          ]
+          ],
+          { cancelable: false }
         );
       } else {
         router.replace("/(tabs)/home");
@@ -96,6 +161,17 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.formArea}>
+        {successBanner ? (
+          <View style={styles.successBanner}>
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={18}
+              color="#16A34A"
+              style={styles.errorBannerIcon}
+            />
+            <Text style={styles.successBannerText}>{successBanner}</Text>
+          </View>
+        ) : null}
         {loginError ? (
           <View style={styles.errorBanner}>
             <Ionicons
@@ -118,10 +194,11 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             keyboardType="phone-pad"
-            placeholder="09XX XXX XXX"
+            maxLength={11}
+            placeholder="09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
             value={phoneValue}
-            onChangeText={setPhoneValue}
+            onChangeText={(val) => setPhoneValue(val.replace(/\D/g, "").slice(0, 11))}
             onFocus={() => setPhoneFocused(true)}
             onBlur={() => setPhoneFocused(false)}
             autoCapitalize="none"
@@ -230,6 +307,23 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontFamily: FONT_REGULAR, color: "#1F2937", fontSize: 14, paddingVertical: 10 },
   forgotRow: { alignSelf: "flex-end", marginTop: 12, marginBottom: 8 },
   forgotText: { color: "#E37925", fontFamily: FONT_MEDIUM, fontSize: 13 },
+  successBanner: {
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  successBannerText: {
+    flex: 1,
+    color: "#065F46",
+    fontFamily: FONT_MEDIUM,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   errorBanner: {
     marginBottom: 16,
     padding: 14,

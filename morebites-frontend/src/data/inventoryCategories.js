@@ -52,8 +52,55 @@ export const INVENTORY_CATEGORIES = {
 
 export const INVENTORY_CATEGORY_LIST = Object.keys(INVENTORY_CATEGORIES)
 
+const CUSTOM_CATEGORIES_KEY = 'morebites_custom_inventory_categories'
+
+export function getCustomCategories() {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CUSTOM_CATEGORIES_KEY) : null
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomCategory(name) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed) return null
+  const current = getCustomCategories()
+  const exists =
+    current.some((c) => c.toLowerCase() === trimmed.toLowerCase()) ||
+    INVENTORY_CATEGORY_LIST.some((c) => c.toLowerCase() === trimmed.toLowerCase())
+  if (!exists) {
+    const next = [...current, trimmed]
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(next))
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+  return trimmed
+}
+
+export function getAllCategories() {
+  const custom = getCustomCategories()
+  const set = new Set([...INVENTORY_CATEGORY_LIST, ...custom])
+  return Array.from(set)
+}
+
 export function getCategoryConfig(category) {
-  return INVENTORY_CATEGORIES[category] || null
+  if (!category) return null
+  if (INVENTORY_CATEGORIES[category]) {
+    return INVENTORY_CATEGORIES[category]
+  }
+  return {
+    defaultUnit: 'pcs',
+    trackExpiry: true,
+    subcategories: ['General'],
+  }
 }
 
 export function getSubcategoryDetailConfig(category, subcategory) {

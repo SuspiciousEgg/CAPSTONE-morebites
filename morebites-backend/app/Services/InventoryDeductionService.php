@@ -17,6 +17,11 @@ class InventoryDeductionService
         return $this->unserviceableReason($item, $qty) === null;
     }
 
+    public function outOfStockReason(MenuItem $item, int $qty = 1): string
+    {
+        return (string) ($this->unserviceableReason($item, $qty) ?? '');
+    }
+
     public function unserviceableReason(MenuItem $item, int $qty = 1): ?string
     {
         $item->loadMissing(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])]);
@@ -28,8 +33,8 @@ class InventoryDeductionService
 
         foreach ($item->ingredients as $ingredient) {
             $inventory = $ingredient->inventoryItem;
-            // Soft-deleted or missing inventory counts as unavailable.
-            if (! $inventory || $inventory->trashed()) {
+            // Soft-deleted, archived, or missing inventory counts as unavailable.
+            if (! $inventory || $inventory->trashed() || $inventory->status === 'Archived') {
                 return 'missing';
             }
 
@@ -60,8 +65,9 @@ class InventoryDeductionService
                 continue;
             }
 
-            $canServe = $this->canServe($item);
-            $item->update(['available' => $canServe]);
+            if (! $this->canServe($item)) {
+                $item->update(['available' => false]);
+            }
         }
     }
 
@@ -134,7 +140,7 @@ class InventoryDeductionService
                     'quantity' => -($prevStock - $newStock),
                     'previous_stock' => $prevStock,
                     'unit' => $inventory->unit,
-                    'reason' => 'Order #'.($order->order_code ?? $order->id),
+                    'reason' => 'Order '.($order->order_code ? (str_starts_with($order->order_code, '#') ? $order->order_code : '#'.$order->order_code) : '#'.$order->id),
                     'action_label' => 'Customer Order',
                     'notes' => 'Stock deducted for fulfilled customer order.',
                     'batch_no' => InventoryLog::makeBatchNo($inventory->id, $inventory->batch_no),
@@ -183,7 +189,7 @@ class InventoryDeductionService
                     'quantity' => $qty,
                     'previous_stock' => $prevStock,
                     'unit' => $inventory->unit,
-                    'reason' => 'Order #'.($order->order_code ?? $order->id).' reversal',
+                    'reason' => 'Order '.($order->order_code ? (str_starts_with($order->order_code, '#') ? $order->order_code : '#'.$order->order_code) : '#'.$order->id).' reversal',
                     'action_label' => 'Order Restock',
                     'notes' => 'Stock restored after order cancellation / refund.',
                     'batch_no' => InventoryLog::makeBatchNo($inventory->id, $inventory->batch_no),

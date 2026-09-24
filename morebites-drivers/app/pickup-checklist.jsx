@@ -33,8 +33,11 @@ export default function PickupChecklistScreen() {
     reload();
   }, [reload]);
 
+  const checklistOrderCode = order?.id || orderId;
+  const formattedOrderCode = String(checklistOrderCode || '').startsWith('#') ? checklistOrderCode : `#${checklistOrderCode}`;
+
   const checklistLabels = [
-    `Order #${order?.id || orderId} confirmed with staff`,
+    `Order ${formattedOrderCode} confirmed with staff`,
     `All items present (${order?.items_label || "order items"})`,
     "Bag sealed / Packaging intact",
   ];
@@ -84,7 +87,7 @@ export default function PickupChecklistScreen() {
         >
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order #{orderId}</Text>
+        <Text style={styles.headerTitle}>Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`}</Text>
         <View style={styles.headerButton} />
       </View>
 
@@ -200,9 +203,8 @@ export default function PickupChecklistScreen() {
             allChecked && styles.confirmButtonEnabled,
           ]}
           activeOpacity={allChecked ? 0.85 : 1}
-          disabled={!allChecked}
-          onPress={confirmPickup}
           disabled={saving || !allChecked}
+          onPress={confirmPickup}
         >
           <Text style={styles.confirmButtonText}>
             {saving ? "Saving..." : "Confirm Pickup"}

@@ -51,6 +51,40 @@ class TrackingService
         return $order->fresh();
     }
 
+    public function updateLivePosition(Order $order, float $lat, float $lng): Order
+    {
+        $order = $this->ensureDestination($order);
+        $from = ['latitude' => $lat, 'longitude' => $lng];
+        $dest = ['latitude' => (float) $order->dest_lat, 'longitude' => (float) $order->dest_lng];
+
+        $distanceKm = $this->haversineKm($from, $dest);
+        $etaMins = max(1, (int) round($distanceKm * 3.5));
+
+        $hasExistingRoute = is_array($order->route_coordinates) && count($order->route_coordinates) >= 2;
+
+        $updates = [
+            'current_lat' => $lat,
+            'current_lng' => $lng,
+            'delivery_distance_km' => $distanceKm,
+            'delivery_minutes' => $etaMins,
+        ];
+
+        if (! $hasExistingRoute) {
+            $route = $this->directions($from, $dest);
+            $updates['route_coordinates'] = $route['coordinates'];
+            if (isset($route['distance_km'])) {
+                $updates['delivery_distance_km'] = $route['distance_km'];
+            }
+            if (isset($route['eta_mins'])) {
+                $updates['delivery_minutes'] = $route['eta_mins'];
+            }
+        }
+
+        $order->update($updates);
+
+        return $order->fresh();
+    }
+
     public function geocode(?string $address): array
     {
         $fallback = $this->storePoint();
@@ -59,14 +93,70 @@ class TrackingService
             return $fallback;
         }
 
+        // 1. Try full address query
+        $coords = $this->nominatimLookup($query);
+        if ($coords !== null) {
+            return $coords;
+        }
+
+        // 2. Progressive fallback: split by commas and retry sub-components
+        $parts = array_values(array_filter(array_map('trim', explode(',', $query))));
+        $count = count($parts);
+
+        // If 3 or more components (e.g. Street/Purok, Barangay, City, Landmark)
+        if ($count >= 3) {
+            // Try middle components (e.g. Barangay, City) without first (street) and last (landmark)
+            $sub = implode(', ', array_slice($parts, 1, $count - 2));
+            if (($coords = $this->nominatimLookup($sub)) !== null) {
+                return $coords;
+            }
+
+            // Try without first part (e.g. Barangay, City, Province)
+            $sub = implode(', ', array_slice($parts, 1));
+            if (($coords = $this->nominatimLookup($sub)) !== null) {
+                return $coords;
+            }
+        }
+
+        // Try individual components in reverse order (typically city, then barangay)
+        if ($count >= 2) {
+            for ($i = $count - 1; $i >= 0; $i--) {
+                $candidate = $parts[$i];
+                if (strcasecmp($candidate, 'philippines') === 0) {
+                    continue;
+                }
+                // Skip obvious landmark prefixes
+                if (preg_match('/^(near|beside|in front|opposite|behind|across)/i', $candidate)) {
+                    continue;
+                }
+                if (($coords = $this->nominatimLookup($candidate)) !== null) {
+                    return $coords;
+                }
+            }
+        }
+
+        return $this->deterministicOffset($query, $fallback);
+    }
+
+    public function nominatimLookup(string $query): ?array
+    {
+        $clean = trim($query);
+        if ($clean === '') {
+            return null;
+        }
+
+        $searchQuery = str_ends_with(strtolower($clean), 'philippines')
+            ? $clean
+            : $clean.', Philippines';
+
         try {
-            $response = Http::timeout(10)
+            $response = Http::timeout(6)
                 ->withHeaders([
                     'User-Agent' => 'MoreBitesCapstone/1.0 (delivery tracking)',
                     'Accept' => 'application/json',
                 ])
                 ->get('https://nominatim.openstreetmap.org/search', [
-                    'q' => $query.', Philippines',
+                    'q' => $searchQuery,
                     'format' => 'json',
                     'limit' => 1,
                     'countrycodes' => 'ph',
@@ -82,11 +172,12 @@ class TrackingService
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning('Nominatim geocode failed: '.$e->getMessage());
+            Log::warning('Nominatim geocode failed for "'.$searchQuery.'": '.$e->getMessage());
         }
 
-        return $this->deterministicOffset($query, $fallback);
+        return null;
     }
+
 
     public function directions(array $from, array $to): array
     {
@@ -139,6 +230,14 @@ class TrackingService
 
     public function riderPoint(Order $order): ?array
     {
+        if ($order->current_lat && $order->current_lng) {
+            return [
+                'latitude' => (float) $order->current_lat,
+                'longitude' => (float) $order->current_lng,
+                'updated_at' => $order->updated_at?->toIso8601String(),
+            ];
+        }
+
         $driver = $order->relationLoaded('driver') ? $order->driver : $order->driver()->first();
         if (! $driver || ! $driver->current_lat || ! $driver->current_lng) {
             return null;
@@ -158,15 +257,21 @@ class TrackingService
             'latitude' => (float) $order->dest_lat,
             'longitude' => (float) $order->dest_lng,
         ];
-        $rider = $this->riderPoint($order) ?? $this->storePoint();
-        $coords = $order->route_coordinates;
-        if (! is_array($coords) || count($coords) < 2) {
-            $order = $this->ensureRoute($order, $rider);
+        $rider = $this->riderPoint($order);
+        $coords = [];
+        $distanceKm = null;
+        $etaMins = null;
+
+        if ($rider) {
             $coords = $order->route_coordinates;
+            if (! is_array($coords) || count($coords) < 2) {
+                $order = $this->ensureRoute($order, $rider);
+                $coords = $order->route_coordinates;
+            }
+            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
+            $etaMins = (int) ($order->delivery_minutes ?: max(1, (int) round($distanceKm * 3.5)));
         }
 
-        $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
-        $etaMins = (int) ($order->delivery_minutes ?: max(8, (int) round($distanceKm * 4)));
         $status = $order->status === 'Completed' ? 'Delivered' : $order->status;
 
         return [
@@ -178,13 +283,12 @@ class TrackingService
             'driver' => $order->driver?->name,
             'driver_phone' => $order->driver?->phone,
             'eta_mins' => $etaMins,
-            'distance_km' => round($distanceKm, 2),
-            'distance_label' => number_format($distanceKm, 1).' km',
-            'arrival_by' => now()->addMinutes($etaMins)->format('g:i A'),
+            'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
+            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : '—',
+            'arrival_by' => $etaMins ? now()->addMinutes($etaMins)->format('g:i A') : null,
             'destination' => $destination,
             'rider' => $rider,
-            'route' => is_array($coords) ? array_values($coords) : [$rider, $destination],
-            'store' => $this->storePoint(),
+            'route' => is_array($coords) ? array_values($coords) : [],
             'updated_at' => $order->updated_at?->toIso8601String(),
             'timeline' => $this->timeline($order),
             'items' => $order->items->map(fn ($i) => [
@@ -208,7 +312,8 @@ class TrackingService
         $orders = Order::query()
             ->with('driver')
             ->whereNotNull('driver_id')
-            ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery'])
+            ->where('order_type', 'Online Order')
+            ->where('status', 'Out for Delivery')
             ->latest()
             ->take(20)
             ->get()
@@ -231,7 +336,6 @@ class TrackingService
             ->values();
 
         return [
-            'store' => $this->storePoint(),
             'deliveries' => $orders,
         ];
     }
