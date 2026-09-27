@@ -260,12 +260,22 @@ class AccountController extends Controller
         ]);
     }
 
+    /**
+     * PROMPT 44 — Self-Targeting Restriction on Archive / Blacklist:
+     * Rejects requests where the authenticated user's own ID ($request->user()->id)
+     * matches the target account ID ($user->id), preventing the currently logged-in
+     * Owner/Admin from archiving or blacklisting their own account via API.
+     * Scoped strictly to self-targeting ($request->user()->id === $user->id) rather
+     * than blocking an entire role category.
+     */
     public function block(Request $request, User $user)
     {
         $this->ensureSuperAdmin($request);
 
-        if ($user->role === 'super_admin') {
-            return response()->json(['message' => 'Super admin cannot be blocklisted.'], 422);
+        if ((int) $request->user()?->id === (int) $user->id) {
+            return response()->json([
+                'message' => 'You cannot archive or blacklist your own account',
+            ], 422);
         }
 
         $data = $request->validate([

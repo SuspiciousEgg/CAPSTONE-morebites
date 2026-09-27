@@ -50,9 +50,16 @@ class DriverController extends Controller
         return response()->json(['data' => $this->transform($user)]);
     }
 
-    public function suspend(User $user)
+    public function suspend(Request $request, User $user)
     {
         abort_unless($user->role === 'driver', 404);
+
+        if ((int) $request->user()?->id === (int) $user->id) {
+            return response()->json([
+                'message' => 'You cannot archive or blacklist your own account',
+            ], 422);
+        }
+
         $user->update(['status' => 'Inactive']);
 
         return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
@@ -69,6 +76,12 @@ class DriverController extends Controller
     public function blacklist(Request $request, User $user)
     {
         abort_unless($user->role === 'driver', 404);
+
+        if ((int) $request->user()?->id === (int) $user->id) {
+            return response()->json([
+                'message' => 'You cannot archive or blacklist your own account',
+            ], 422);
+        }
 
         $data = $request->validate([
             'reason' => ['required', 'string'],

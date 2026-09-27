@@ -26,13 +26,56 @@ import {
   IconUser,
   IconWarning,
 } from './Icons'
-import { accountsApi } from '../api/client'
+import { accountsApi, getStoredUser } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import { MoreButton, RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import ArchivePage from './ArchivePage'
 import DriverManagement from './DriverManagement'
 import BlacklistDrivers from './BlacklistDrivers'
 import EmptyState from './EmptyState'
 import './AccountManagement.css'
+
+/**
+ * PROMPT 44 DIAGNOSTIC REPORT — Prevent Owner/Super Admin Account From Archiving or Blacklisting Itself:
+ * 1. How the Action dropdown determines which row it renders for:
+ *    - Each row in the Admins, Drivers, and Cashiers tables renders `<MoreButton>` which calls
+ *      `toggleMenu(e, '<type>-<id>', { type, item })` from `useRowActionMenu()`.
+ *    - `menu` state holds `{ key, top, left, type, item }`, and a single `<RowActionMenuPopup>`
+ *      renders for `menu.item`.
+ * 2. Existing self-ID check audit:
+ *    - Frontend (`AccountManagement.jsx`): No check existed comparing `menu.item.db_id` / `menu.item.id`
+ *      against the currently logged-in user's own ID (`useAuth().user.id` / `user.admin_id`). As a result,
+ *      "Archive Admin" and "Blocklist" rendered unconditionally even on the logged-in Owner's own row (ADMIN-001).
+ *    - Backend (`AccountController::block`): Previously checked `$user->role === 'super_admin'` (role-based)
+ *      rather than comparing the authenticated requester's ID against the target account ID (`$request->user()->id === $user->id`).
+ * 3. Fix implemented on BOTH frontend and backend:
+ *    - Frontend: Compares each row's `db_id` / `id` against the logged-in user's ID (`isSelfAccount(menu.item, currentUser)`).
+ *      When they match, "Archive" and "Blocklist" options are hidden from the row dropdown (and blocked in handlers),
+ *      leaving "View Profile" and "Edit Admin" available.
+ *    - Backend (`AccountController::block`, `DriverController::suspend/blacklist`, `ArchiveController::destroy`):
+ *      Explicitly checks `(int) $request->user()?->id === (int) $user->id` and rejects self-targeting with HTTP 422
+ *      `"You cannot archive or blacklist your own account"`.
+ */
+function isSelfAccount(item, currentUser) {
+  if (!item || !currentUser) return false
+  if (item.db_id != null && currentUser.id != null && Number(item.db_id) === Number(currentUser.id)) {
+    return true
+  }
+  if (item.id && currentUser.admin_id && String(item.id) === String(currentUser.admin_id)) {
+    return true
+  }
+  if (item.id && currentUser.id && String(item.id) === String(currentUser.id)) {
+    return true
+  }
+  if (
+    item.email &&
+    currentUser.email &&
+    String(item.email).toLowerCase() === String(currentUser.email).toLowerCase()
+  ) {
+    return true
+  }
+  return false
+}
 
 const PAGE_SIZE = 5
 
@@ -423,6 +466,8 @@ function AccountConfirmModal({ target, saving, onClose, onConfirm }) {
 }
 
 export default function AccountManagement() {
+  const auth = useAuth()
+  const currentUser = auth?.user || getStoredUser()
   const [section, setSection] = useState('accounts')
   const [admins, setAdmins] = useState([])
   const [drivers, setDrivers] = useState([])
@@ -602,6 +647,11 @@ export default function AccountManagement() {
 
   async function confirmBlock() {
     if (!blockTarget?.item?.db_id) return
+    if (isSelfAccount(blockTarget.item, currentUser)) {
+      alert('You cannot archive or blacklist your own account')
+      setBlockTarget(null)
+      return
+    }
     setSaving(true)
     try {
       await accountsApi.block(blockTarget.item.db_id, blockReason)
@@ -610,6 +660,7 @@ export default function AccountManagement() {
       setProfile(null)
     } catch (err) {
       console.error(err)
+      alert(err.response?.data?.message || 'Failed to blocklist account.')
     } finally {
       setSaving(false)
     }
@@ -617,6 +668,11 @@ export default function AccountManagement() {
 
   async function confirmArchiveAccount() {
     if (!archiveTarget?.item?.db_id) return
+    if (isSelfAccount(archiveTarget.item, currentUser)) {
+      alert('You cannot archive or blacklist your own account')
+      setArchiveTarget(null)
+      return
+    }
     setSaving(true)
     try {
       await accountsApi.block(archiveTarget.item.db_id, 'Archived')
@@ -1062,34 +1118,38 @@ export default function AccountManagement() {
               Edit Admin
             </button>
           ) : null}
-          <button
-            type="button"
-            className="danger"
-            onClick={() => {
-              setArchiveTarget({ type: menu.type, item: menu.item })
-              closeMenu()
-            }}
-          >
-            {menu.type === 'driver'
-              ? 'Archive Driver'
-              : menu.type === 'cashier'
-                ? 'Archive Cashier'
-                : 'Archive Admin'}
-          </button>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => {
-              setBlockTarget({ type: menu.type, item: menu.item })
-              closeMenu()
-            }}
-          >
-            {menu.type === 'driver'
-              ? 'Blocklist Driver'
-              : menu.type === 'cashier'
-                ? 'Blocklist Cashier'
-                : 'Blocklist'}
-          </button>
+          {!isSelfAccount(menu.item, currentUser) ? (
+            <>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  setArchiveTarget({ type: menu.type, item: menu.item })
+                  closeMenu()
+                }}
+              >
+                {menu.type === 'driver'
+                  ? 'Archive Driver'
+                  : menu.type === 'cashier'
+                    ? 'Archive Cashier'
+                    : 'Archive Admin'}
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  setBlockTarget({ type: menu.type, item: menu.item })
+                  closeMenu()
+                }}
+              >
+                {menu.type === 'driver'
+                  ? 'Blocklist Driver'
+                  : menu.type === 'cashier'
+                    ? 'Blocklist Cashier'
+                    : 'Blocklist'}
+              </button>
+            </>
+          ) : null}
         </RowActionMenuPopup>
       )}
 

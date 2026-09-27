@@ -26,7 +26,8 @@ import {
   IconStarFill,
   IconUser,
 } from './Icons'
-import { driversApi } from '../api/client'
+import { driversApi, getStoredUser } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
 import './DriverManagement.css'
 
@@ -49,6 +50,8 @@ function isExpired(dateStr) {
 }
 
 export default function DriverManagement({ embedded = false }) {
+  const auth = useAuth()
+  const currentUser = auth?.user || getStoredUser()
   const [drivers, setDrivers] = useState([])
   const [search, setSearch] = useState('')
 
@@ -368,40 +371,42 @@ export default function DriverManagement({ embedded = false }) {
               ))}
             </ul>
 
-            <div className="dm-drawer-actions">
-              {selected.status === 'Active' ? (
-                <button
-                  type="button"
-                  className="dm-action-btn dm-btn-suspend"
-                  onClick={() => setConfirmModal({ type: 'suspend', driver: selected })}
-                >
-                  <LuShieldAlert size={16} />
-                  <span>SUSPEND</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="dm-action-btn dm-btn-reactivate"
-                  onClick={() => setConfirmModal({ type: 'reactivate', driver: selected })}
-                >
-                  <LuCircleCheck size={16} />
-                  <span>REACTIVATE</span>
-                </button>
-              )}
+            {Number(selected.db_id) !== Number(currentUser?.id) && (
+              <div className="dm-drawer-actions">
+                {selected.status === 'Active' ? (
+                  <button
+                    type="button"
+                    className="dm-action-btn dm-btn-suspend"
+                    onClick={() => setConfirmModal({ type: 'suspend', driver: selected })}
+                  >
+                    <LuShieldAlert size={16} />
+                    <span>SUSPEND</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="dm-action-btn dm-btn-reactivate"
+                    onClick={() => setConfirmModal({ type: 'reactivate', driver: selected })}
+                  >
+                    <LuCircleCheck size={16} />
+                    <span>REACTIVATE</span>
+                  </button>
+                )}
 
-              <button
-                type="button"
-                className="dm-action-btn dm-btn-blacklist"
-                onClick={() => {
-                  setBlacklistModal({ driver: selected })
-                  setBlacklistReason(BLACKLIST_REASONS[0])
-                  setBlacklistNotes('')
-                }}
-              >
-                <LuBan size={16} />
-                <span>BLACKLIST</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="dm-action-btn dm-btn-blacklist"
+                  onClick={() => {
+                    setBlacklistModal({ driver: selected })
+                    setBlacklistReason(BLACKLIST_REASONS[0])
+                    setBlacklistNotes('')
+                  }}
+                >
+                  <LuBan size={16} />
+                  <span>BLACKLIST</span>
+                </button>
+              </div>
+            )}
           </aside>
         </>
       )}

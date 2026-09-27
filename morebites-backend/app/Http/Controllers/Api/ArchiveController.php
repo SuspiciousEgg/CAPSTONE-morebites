@@ -63,8 +63,14 @@ class ArchiveController extends Controller
         return response()->json(['message' => 'Restored']);
     }
 
-    public function destroy(User $user)
+    public function destroy(Request $request, User $user)
     {
+        if ((int) $request->user()?->id === (int) $user->id) {
+            return response()->json([
+                'message' => 'You cannot delete your own account',
+            ], 422);
+        }
+
         if ($user->role === 'driver') {
             DriverBlacklist::query()->where('driver_id', $user->id)->delete();
         }
