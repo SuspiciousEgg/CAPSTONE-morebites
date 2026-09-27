@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\MenuItem;
 use App\Models\Notification;
 use App\Models\Order;
@@ -226,6 +227,184 @@ class CustomerAppController extends Controller
         ]);
 
         return response()->json(['user' => $this->userPayload($user->fresh())]);
+    }
+
+    /**
+     * Prompt 40 — Saved Addresses Persistence & Retrieval Scoped to customer_id:
+     * Queries and persists rows in `customer_addresses` strictly scoped to the
+     * currently authenticated customer's `customer_id`.
+     */
+    public function addresses(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function storeAddress(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:100'],
+            'street' => ['required', 'string', 'max:255'],
+            'barangay' => ['required', 'string', 'max:255'],
+            'city' => ['required', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'is_default' => ['nullable', 'boolean'],
+            'isDefault' => ['nullable', 'boolean'],
+        ]);
+
+        $address = DB::transaction(function () use ($customer, $data, $request) {
+            $hasExisting = CustomerAddress::query()
+                ->where('customer_id', $customer->id)
+                ->exists();
+
+            $requestedDefault = $request->has('is_default')
+                ? (bool) $request->boolean('is_default')
+                : ($request->has('isDefault') ? (bool) $request->boolean('isDefault') : false);
+
+            $isDefault = ! $hasExisting || $requestedDefault;
+
+            if ($isDefault) {
+                CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->update(['is_default' => false]);
+            }
+
+            $created = CustomerAddress::query()->create([
+                'customer_id' => $customer->id,
+                'label' => trim($data['label']),
+                'street' => trim($data['street']),
+                'barangay' => trim($data['barangay']),
+                'city' => trim($data['city']),
+                'landmark' => isset($data['landmark']) && trim((string) $data['landmark']) !== '' ? trim((string) $data['landmark']) : null,
+                'latitude' => isset($data['latitude']) && $data['latitude'] !== null ? (float) $data['latitude'] : null,
+                'longitude' => isset($data['longitude']) && $data['longitude'] !== null ? (float) $data['longitude'] : null,
+                'is_default' => $isDefault,
+            ]);
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+
+            return $created;
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ], 201);
+    }
+
+    public function updateAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:100'],
+            'street' => ['required', 'string', 'max:255'],
+            'barangay' => ['required', 'string', 'max:255'],
+            'city' => ['required', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'is_default' => ['nullable', 'boolean'],
+            'isDefault' => ['nullable', 'boolean'],
+        ]);
+
+        DB::transaction(function () use ($customer, $address, $data, $request) {
+            $requestedDefault = $request->has('is_default')
+                ? (bool) $request->boolean('is_default')
+                : ($request->has('isDefault') ? (bool) $request->boolean('isDefault') : (bool) $address->is_default);
+
+            if ($requestedDefault) {
+                CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->where('id', '!=', $address->id)
+                    ->update(['is_default' => false]);
+            }
+
+            $address->update([
+                'label' => trim($data['label']),
+                'street' => trim($data['street']),
+                'barangay' => trim($data['barangay']),
+                'city' => trim($data['city']),
+                'landmark' => isset($data['landmark']) && trim((string) $data['landmark']) !== '' ? trim((string) $data['landmark']) : null,
+                'latitude' => array_key_exists('latitude', $data) && $data['latitude'] !== null ? (float) $data['latitude'] : null,
+                'longitude' => array_key_exists('longitude', $data) && $data['longitude'] !== null ? (float) $data['longitude'] : null,
+                'is_default' => $requestedDefault,
+            ]);
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address->fresh()),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function setDefaultAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        DB::transaction(function () use ($customer, $address) {
+            CustomerAddress::query()
+                ->where('customer_id', $customer->id)
+                ->update(['is_default' => false]);
+
+            $address->update(['is_default' => true]);
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address->fresh()),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function destroyAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        DB::transaction(function () use ($customer, $address) {
+            $wasDefault = (bool) $address->is_default;
+            $address->delete();
+
+            if ($wasDefault) {
+                $nextDefault = CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->orderBy('id')
+                    ->first();
+
+                if ($nextDefault) {
+                    $nextDefault->update(['is_default' => true]);
+                }
+            }
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'message' => 'Address removed.',
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
     }
 
     public function menu()
@@ -505,10 +684,11 @@ class CustomerAppController extends Controller
 
     private function userPayload(User $user): array
     {
-        $customer = Customer::query()->where('user_id', $user->id)->first();
+        $customer = $this->ensureCustomerRecord($user);
 
         return [
             'id' => $user->id,
+            'customer_id' => $customer->id,
             'fullName' => $user->name,
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,
@@ -517,9 +697,58 @@ class CustomerAppController extends Controller
             'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
-            'delivery_address' => $customer?->delivery_address,
-            'customer_code' => $customer?->customer_code,
+            'delivery_address' => $customer->delivery_address,
+            'customer_code' => $customer->customer_code,
         ];
+    }
+
+    private function customerAddressesPayload(Customer $customer): array
+    {
+        return CustomerAddress::query()
+            ->where('customer_id', $customer->id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (CustomerAddress $addr) => $this->addressPayload($addr))
+            ->values()
+            ->all();
+    }
+
+    private function addressPayload(CustomerAddress $addr): array
+    {
+        return [
+            'id' => $addr->id,
+            'customer_id' => $addr->customer_id,
+            'label' => $addr->label,
+            'street' => $addr->street,
+            'barangay' => $addr->barangay,
+            'city' => $addr->city,
+            'landmark' => $addr->landmark ?? '',
+            'latitude' => $addr->latitude !== null ? (float) $addr->latitude : null,
+            'longitude' => $addr->longitude !== null ? (float) $addr->longitude : null,
+            'isDefault' => (bool) $addr->is_default,
+            'is_default' => (bool) $addr->is_default,
+        ];
+    }
+
+    private function syncCustomerDefaultDeliveryAddress(Customer $customer): void
+    {
+        $defaultAddr = CustomerAddress::query()
+            ->where('customer_id', $customer->id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->first();
+
+        if ($defaultAddr) {
+            $formatted = collect([
+                $defaultAddr->street,
+                $defaultAddr->barangay,
+                $defaultAddr->city,
+                $defaultAddr->landmark,
+            ])->filter(fn ($v) => $v !== null && trim((string) $v) !== '')->implode(', ');
+
+            $customer->update(['delivery_address' => $formatted]);
+        }
     }
 
     private function menuPayload(MenuItem $m, ?InventoryDeductionService $service = null, $ratingStat = null): array

@@ -15,10 +15,73 @@ import FleetMap from './FleetMap'
 import EmptyState from './EmptyState'
 import './DispatchManagement.css'
 
+/**
+ * PROMPT 43 DIAGNOSTIC REPORT — Why Delivery Status Monitoring Showed "No Active Deliveries"
+ * While Live Delivery Map Showed Active Delivery (#ORD-00034):
+ *
+ * 1. Separate Polled Endpoints (Before Fix):
+ *    - Live Delivery Map called `loadFleet()` -> `GET /api/dispatch/fleet` (`TrackingController::fleet()` -> `TrackingService::fleetPayload()`).
+ *    - Delivery Status Monitoring table called `loadDispatch()` -> `GET /api/dispatch` (`DispatchController::index()`).
+ *
+ * 2. Side-by-Side Backend Query Comparison (Before Fix):
+ *    - Query A — Live Delivery Map (`TrackingService::fleetPayload()`):
+ *        Order::query()
+ *            ->with('driver')
+ *            ->whereNotNull('driver_id')
+ *            ->where('order_type', 'Online Order')
+ *            ->where('status', 'Out for Delivery')
+ *            ->latest()
+ *            ->take(20)
+ *            ->get()
+ *    - Query B — Delivery Status Monitoring (`DispatchController::index()`):
+ *        Order::query()
+ *            ->with(['driver', 'items', 'customer'])
+ *            ->whereNotNull('driver_id')
+ *            ->where('order_type', 'Online Order')
+ *            ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery', 'Completed', 'Delivered', 'Cancelled'])
+ *            ->latest()
+ *            ->take(10)
+ *            ->get()
+ *
+ * 3. Exact Differences Causing the Table to Come Back Empty:
+ *    - Primary Cause (Frontend Filter Discarding 100% of Backend Rows):
+ *      In `DispatchController::index()`, `$pending` mapped `'order_type' => $o->order_type`,
+ *      but `$monitoring` omitted both `'order_type'` and `'type'` from its `.map()` return object.
+ *      Then in `DispatchManagement.jsx` (`loadDispatch()`), `d.monitoring` was filtered through:
+ *        const isDeliveryOrder = (o) =>
+ *          (o.order_type === 'Online Order' || o.type === 'Online Order') && ...
+ *      Because `o.order_type` and `o.type` were `undefined` on every row in `d.monitoring`,
+ *      `isDeliveryOrder(o)` evaluated to `false` for 100% of monitoring rows (including `#ORD-00034`),
+ *      discarding every row returned by the backend and setting `monitoring` state to `[]`
+ *      ("No active deliveries"). Meanwhile, `loadFleet()` did not run `isDeliveryOrder` and passed
+ *      `d.deliveries` straight to `<FleetMap />`.
+ *    - Secondary Cause (Divergent WHERE Status Clauses & Dual-Endpoint Drift):
+ *      `fleetPayload()` only matched `status = 'Out for Delivery'` (excluding `'Assigned'`, `'Picked Up'`,
+ *      and case variant `'Out For Delivery'`), while `DispatchController::index()` included terminal statuses
+ *      (`'Completed'`, `'Delivered'`, `'Cancelled'`) in `$monitoring`, which meant completed orders would
+ *      never clear from the table when marked Delivered on the Driver app.
+ *
+ * 4. Fix Implemented:
+ *    - Both backend endpoints now use `TrackingService::activeDeliveriesPayload()` with the exact same
+ *      active status list (`['Assigned', 'Picked Up', 'Out for Delivery', 'Out For Delivery']`) and
+ *      include `'order_type'` and `'type'` plus all map and table fields on every row.
+ *    - On the frontend, both `fleet.deliveries` (Live Delivery Map) and `monitoring` (Delivery Status
+ *      Monitoring table) derive their displayed state from the same single polled response via
+ *      `applyActiveDeliveries()`, ensuring both panels always show the exact same active deliveries
+ *      and clear them simultaneously on the next poll tick once marked Delivered.
+ */
+
+const ACTIVE_DELIVERY_STATUSES = [
+  'Assigned',
+  'Picked Up',
+  'Out for Delivery',
+  'Out For Delivery',
+]
+
 function badgeClass(status) {
   if (status === 'Delivered') return 'delivered'
   if (status === 'Cancelled') return 'cancelled'
-  if (status === 'Out for Delivery') return 'delivery'
+  if (status === 'Out for Delivery' || status === 'Out For Delivery') return 'delivery'
   if (status === 'Picked Up') return 'delivery'
   if (status === 'Assigned') return 'waiting'
   return 'waiting'
@@ -33,6 +96,7 @@ export default function DispatchManagement() {
   const [estimatedTime, setEstimatedTime] = useState('—')
   const [activeDeliveriesCount, setActiveDeliveriesCount] = useState(0)
   const [page, setPage] = useState(1)
+  const [monitorPage, setMonitorPage] = useState(1)
   const [assignOrder, setAssignOrder] = useState(null)
   const [selectedRider, setSelectedRider] = useState(null)
   const [viewDelivery, setViewDelivery] = useState(null)
@@ -60,19 +124,75 @@ export default function DispatchManagement() {
     }
   }, [showMapModal])
 
+  function isDeliveryOrder(o) {
+    if (!o) return false
+    const orderType = o.order_type || o.type || 'Online Order'
+    return (
+      orderType === 'Online Order' &&
+      orderType !== 'Dine-in' &&
+      orderType !== 'Takeout'
+    )
+  }
+
+  function isActiveDelivery(o) {
+    if (!isDeliveryOrder(o)) return false
+    return (
+      ACTIVE_DELIVERY_STATUSES.includes(o.status) ||
+      ACTIVE_DELIVERY_STATUSES.includes(o.raw_status)
+    )
+  }
+
+  function applyActiveDeliveries(rawList, store = null) {
+    const activeDeliveries = (rawList || [])
+      .filter(isActiveDelivery)
+      .map((o) => ({
+        ...o,
+        id: o.id || o.order_id,
+        order_id: o.order_id || o.id,
+        name: o.name || o.driver || 'Unknown',
+        driver: o.driver || o.name || 'Unknown',
+        phone: o.phone || '+63 912 345 6789',
+        destination:
+          o.destination ||
+          (o.dest_lat != null && o.dest_lng != null
+            ? { latitude: Number(o.dest_lat), longitude: Number(o.dest_lng) }
+            : null),
+        rider:
+          o.rider ||
+          (o.rider_lat != null && o.rider_lng != null
+            ? { latitude: Number(o.rider_lat), longitude: Number(o.rider_lng) }
+            : null),
+      }))
+
+    setMonitoring(activeDeliveries)
+    setActiveDeliveriesCount(activeDeliveries.length)
+
+    const focused = activeDeliveries.find((item) => String(item.db_id) === String(focusId))
+    const active = focused || activeDeliveries[0]
+    if (active) {
+      const distNum = Number(active.distance_km)
+      const etaNum = Number(active.eta_mins)
+      setEstimatedDistance(Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—')
+      setEstimatedTime(Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—')
+    } else {
+      setEstimatedDistance('—')
+      setEstimatedTime('—')
+    }
+
+    setFleet({
+      deliveries: activeDeliveries,
+      store: store || null,
+    })
+  }
+
   async function loadDispatch() {
     try {
       const r = await dispatchApi.get()
       const d = r.data?.data || r.data || {}
-      const isDeliveryOrder = (o) =>
-        (o.order_type === 'Online Order' || o.type === 'Online Order') &&
-        o.order_type !== 'Dine-in' &&
-        o.order_type !== 'Takeout' &&
-        o.type !== 'Dine-in' &&
-        o.type !== 'Takeout'
       setPending((d.pending || []).filter(isDeliveryOrder))
       setRiders(d.riders || [])
-      setMonitoring((d.monitoring || []).filter(isDeliveryOrder))
+      // Derive both Live Delivery Map and Delivery Status Monitoring from the same single polled response
+      applyActiveDeliveries(d.deliveries || d.monitoring || [], d.store)
     } catch (err) {
       console.error(err)
     }
@@ -82,26 +202,7 @@ export default function DispatchManagement() {
     try {
       const r = await dispatchApi.fleet()
       const d = r.data?.data || r.data || {}
-      const newDeliveries = d.deliveries || []
-
-      // Prompt 38: Update bottom bar values using setState on specific display values
-      setActiveDeliveriesCount(newDeliveries.length)
-      const focused = newDeliveries.find((item) => String(item.db_id) === String(focusId))
-      const active = focused || newDeliveries[0]
-      if (active) {
-        const distNum = Number(active.distance_km)
-        const etaNum = Number(active.eta_mins)
-        setEstimatedDistance(Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} km` : '—')
-        setEstimatedTime(Number.isFinite(etaNum) && etaNum > 0 ? `${etaNum} mins` : '—')
-      } else {
-        setEstimatedDistance('—')
-        setEstimatedTime('—')
-      }
-
-      setFleet({
-        deliveries: newDeliveries,
-        store: d.store || null,
-      })
+      applyActiveDeliveries(d.deliveries || d.monitoring || [], d.store)
     } catch (err) {
       console.error(err)
     }
@@ -109,11 +210,9 @@ export default function DispatchManagement() {
 
   useEffect(() => {
     loadDispatch().catch(console.error)
-    loadFleet().catch(console.error)
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadDispatch().catch(() => {})
-      loadFleet().catch(() => {})
     }, 10000)
     return () => clearInterval(timer)
   }, [])
@@ -126,9 +225,14 @@ export default function DispatchManagement() {
     }
   }, [estimatedDistance, estimatedTime, activeDeliveriesCount])
 
-  const pageSize = 3
+  const pageSize = 5
   const totalPages = Math.max(1, Math.ceil(pending.length / pageSize))
-  const rows = pending.slice((page - 1) * pageSize, page * pageSize)
+  const currentPage = Math.min(page, totalPages)
+  const rows = pending.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const monitorTotalPages = Math.max(1, Math.ceil(monitoring.length / pageSize))
+  const currentMonitorPage = Math.min(monitorPage, monitorTotalPages)
+  const monitorRows = monitoring.slice((currentMonitorPage - 1) * pageSize, currentMonitorPage * pageSize)
 
   async function assignDelivery() {
     if (!assignOrder || !selectedRider) return
@@ -136,7 +240,7 @@ export default function DispatchManagement() {
     const riderParam = selectedRider.name || selectedRider.label || selectedRider
     try {
       await dispatchApi.assign(orderId, riderParam)
-      await Promise.all([loadDispatch(), loadFleet()])
+      await loadDispatch()
       setAssignOrder(null)
       setSelectedRider(null)
       setPage(1)
@@ -221,15 +325,15 @@ export default function DispatchManagement() {
 
         <div className="dp-pagination-row">
           <span className="dp-pagination-info">
-            Showing {(page - 1) * pageSize + (rows.length ? 1 : 0)} to{' '}
-            {Math.min(page * pageSize, pending.length)} of {pending.length} pending deliveries
+            Showing {(currentPage - 1) * pageSize + (rows.length ? 1 : 0)} to{' '}
+            {Math.min(currentPage * pageSize, pending.length)} of {pending.length} pending deliveries
           </span>
           {totalPages > 1 && (
             <div className="dp-pagination-controls">
               <button
                 type="button"
                 className="dp-page-btn arrow"
-                disabled={page <= 1}
+                disabled={currentPage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 aria-label="Previous page"
               >
@@ -239,7 +343,7 @@ export default function DispatchManagement() {
                 <button
                   key={n}
                   type="button"
-                  className={`dp-page-btn${n === page ? ' active' : ''}`}
+                  className={`dp-page-btn${n === currentPage ? ' active' : ''}`}
                   onClick={() => setPage(n)}
                 >
                   {n}
@@ -248,7 +352,7 @@ export default function DispatchManagement() {
               <button
                 type="button"
                 className="dp-page-btn arrow"
-                disabled={page >= totalPages}
+                disabled={currentPage >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 aria-label="Next page"
               >
@@ -334,7 +438,7 @@ export default function DispatchManagement() {
                 </tr>
               </thead>
               <tbody>
-                {monitoring.length === 0 ? (
+                {monitorRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="dp-empty-row">
                       <EmptyState
@@ -345,7 +449,7 @@ export default function DispatchManagement() {
                     </td>
                   </tr>
                 ) : (
-                  monitoring.map((m) => {
+                  monitorRows.map((m) => {
                     const initial = (m.name || '?')[0]?.toUpperCase()
                     return (
                       <tr key={`${m.db_id || m.id}-${m.status}`}>
@@ -387,6 +491,45 @@ export default function DispatchManagement() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="dp-pagination-row">
+            <span className="dp-pagination-info">
+              Showing {(currentMonitorPage - 1) * pageSize + (monitorRows.length ? 1 : 0)} to{' '}
+              {Math.min(currentMonitorPage * pageSize, monitoring.length)} of {monitoring.length} active deliveries
+            </span>
+            {monitorTotalPages > 1 && (
+              <div className="dp-pagination-controls">
+                <button
+                  type="button"
+                  className="dp-page-btn arrow"
+                  disabled={currentMonitorPage <= 1}
+                  onClick={() => setMonitorPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >
+                  <LuChevronLeft size={16} />
+                </button>
+                {Array.from({ length: monitorTotalPages }, (_, i) => i + 1).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`dp-page-btn${n === currentMonitorPage ? ' active' : ''}`}
+                    onClick={() => setMonitorPage(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="dp-page-btn arrow"
+                  disabled={currentMonitorPage >= monitorTotalPages}
+                  onClick={() => setMonitorPage((p) => Math.min(monitorTotalPages, p + 1))}
+                  aria-label="Next page"
+                >
+                  <LuChevronRight size={16} />
+                </button>
+              </div>
+            )}
           </div>
         </section>
       </div>

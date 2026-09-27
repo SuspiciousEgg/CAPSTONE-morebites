@@ -15,6 +15,8 @@ import {
   LuTrash2,
   LuEye,
   LuEyeOff,
+  LuChevronLeft,
+  LuChevronRight,
 } from 'react-icons/lu'
 import {
   IconClose,
@@ -31,6 +33,8 @@ import DriverManagement from './DriverManagement'
 import BlacklistDrivers from './BlacklistDrivers'
 import EmptyState from './EmptyState'
 import './AccountManagement.css'
+
+const PAGE_SIZE = 5
 
 const INITIAL_ADMINS = []
 
@@ -436,7 +440,22 @@ export default function AccountManagement() {
   const [cashierForm, setCashierForm] = useState(emptyCashier())
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [adminPage, setAdminPage] = useState(1)
+  const [driverPage, setDriverPage] = useState(1)
+  const [cashierPage, setCashierPage] = useState(1)
   const { menuRef, menu, toggleMenu, closeMenu } = useRowActionMenu()
+
+  const totalAdminPages = Math.max(1, Math.ceil(admins.length / PAGE_SIZE))
+  const currentAdminPage = Math.min(adminPage, totalAdminPages)
+  const pagedAdmins = admins.slice((currentAdminPage - 1) * PAGE_SIZE, currentAdminPage * PAGE_SIZE)
+
+  const totalDriverPages = Math.max(1, Math.ceil(drivers.length / PAGE_SIZE))
+  const currentDriverPage = Math.min(driverPage, totalDriverPages)
+  const pagedDrivers = drivers.slice((currentDriverPage - 1) * PAGE_SIZE, currentDriverPage * PAGE_SIZE)
+
+  const totalCashierPages = Math.max(1, Math.ceil(cashiers.length / PAGE_SIZE))
+  const currentCashierPage = Math.min(cashierPage, totalCashierPages)
+  const pagedCashiers = cashiers.slice((currentCashierPage - 1) * PAGE_SIZE, currentCashierPage * PAGE_SIZE)
 
   async function loadAccounts() {
     const r = await accountsApi.list()
@@ -756,7 +775,7 @@ export default function AccountManagement() {
                   </td>
                 </tr>
               ) : (
-                admins.map((a) => (
+                pagedAdmins.map((a) => (
                 <tr key={a.id}>
                   <td className="ac-id">{a.id}</td>
                   <td>
@@ -780,6 +799,44 @@ export default function AccountManagement() {
               )))}
             </tbody>
           </table>
+        </div>
+        <div className="dm-pagination">
+          <span className="dm-pagination-info">
+            Showing {(currentAdminPage - 1) * PAGE_SIZE + (admins.length ? 1 : 0)} to{' '}
+            {Math.min(currentAdminPage * PAGE_SIZE, admins.length)} of {admins.length} admins
+          </span>
+          {totalAdminPages > 1 && (
+            <div className="dm-pages">
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentAdminPage <= 1}
+                onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <LuChevronLeft size={16} />
+              </button>
+              {Array.from({ length: totalAdminPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dm-page-btn${n === currentAdminPage ? ' active' : ''}`}
+                  onClick={() => setAdminPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentAdminPage >= totalAdminPages}
+                onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -815,7 +872,7 @@ export default function AccountManagement() {
                   </td>
                 </tr>
               ) : (
-                drivers.map((d) => (
+                pagedDrivers.map((d) => (
                 <tr key={d.id}>
                   <td className="ac-id">{d.id}</td>
                   <td>
@@ -840,6 +897,44 @@ export default function AccountManagement() {
               )))}
             </tbody>
           </table>
+        </div>
+        <div className="dm-pagination">
+          <span className="dm-pagination-info">
+            Showing {(currentDriverPage - 1) * PAGE_SIZE + (drivers.length ? 1 : 0)} to{' '}
+            {Math.min(currentDriverPage * PAGE_SIZE, drivers.length)} of {drivers.length} drivers
+          </span>
+          {totalDriverPages > 1 && (
+            <div className="dm-pages">
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentDriverPage <= 1}
+                onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <LuChevronLeft size={16} />
+              </button>
+              {Array.from({ length: totalDriverPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dm-page-btn${n === currentDriverPage ? ' active' : ''}`}
+                  onClick={() => setDriverPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentDriverPage >= totalDriverPages}
+                onClick={() => setDriverPage((p) => Math.min(totalDriverPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -875,7 +970,7 @@ export default function AccountManagement() {
                   </td>
                 </tr>
               ) : (
-                cashiers.map((c) => (
+                pagedCashiers.map((c) => (
                 <tr key={c.id}>
                   <td className="ac-id">{c.id}</td>
                   <td>
@@ -900,6 +995,44 @@ export default function AccountManagement() {
               )))}
             </tbody>
           </table>
+        </div>
+        <div className="dm-pagination">
+          <span className="dm-pagination-info">
+            Showing {(currentCashierPage - 1) * PAGE_SIZE + (cashiers.length ? 1 : 0)} to{' '}
+            {Math.min(currentCashierPage * PAGE_SIZE, cashiers.length)} of {cashiers.length} cashiers
+          </span>
+          {totalCashierPages > 1 && (
+            <div className="dm-pages">
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentCashierPage <= 1}
+                onClick={() => setCashierPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <LuChevronLeft size={16} />
+              </button>
+              {Array.from({ length: totalCashierPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`dm-page-btn${n === currentCashierPage ? ' active' : ''}`}
+                  onClick={() => setCashierPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="dm-page-btn arrow"
+                disabled={currentCashierPage >= totalCashierPages}
+                onClick={() => setCashierPage((p) => Math.min(totalCashierPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
       </>

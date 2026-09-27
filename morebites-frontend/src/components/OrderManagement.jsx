@@ -32,7 +32,7 @@ const POS_ORDER_TYPES = ['Dine-in', 'Takeout']
 const DATE_OPTIONS = ['Today', 'This Week', 'This Month', 'All Time']
 const MENU_TABS = ['All', 'Pizza', 'Pasta', 'Sides', 'Drinks', 'Desserts']
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 5
 
 function peso(n) {
   return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`

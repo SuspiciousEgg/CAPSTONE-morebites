@@ -248,6 +248,27 @@ function getItemCategory(name) {
   return 'Main'
 }
 
+function formatTrendBadge(item) {
+  const raw = String(item?.change ?? '').trim()
+  const dir = item?.trend_direction
+
+  if (dir === 'up' || raw.startsWith('+') || raw.includes('↑')) {
+    const clean = raw.replace(/^[+↑\s]+/, '')
+    return { label: `↑ ${clean}`, badgeClass: 'up' }
+  }
+  if (dir === 'down' || (raw.startsWith('-') && raw !== '-' && raw !== '—') || raw.includes('↓')) {
+    const clean = raw.replace(/^[-↓\s]+/, '')
+    return { label: `↓ ${clean}`, badgeClass: 'down' }
+  }
+  if (dir === 'flat' || raw === '0%') {
+    return { label: '0%', badgeClass: 'neutral' }
+  }
+  if (raw.toLowerCase() === 'new') {
+    return { label: 'New', badgeClass: 'neutral' }
+  }
+  return { label: 'No prior data', badgeClass: 'neutral' }
+}
+
 function getStatusBadgeClass(status) {
   const s = String(status || '').toLowerCase().trim().replace(/\s+/g, '-')
   if (s === 'completed' || s === 'paid') return 'completed'
@@ -341,19 +362,49 @@ export default function RecordsReports({ user: propUser }) {
       return { title: `Sales Per Delivery Person (${periodValue})`, headers, rows }
     }
 
+    /* PROMPT 39 DIAGNOSTIC NOTE:
+     * Removed 'Email' header and `r.email` data cell from Customer Records export.
+     * In RecordsReports.jsx ("Customer Records" tab table, lines 930-979), the table
+     * already displays only: Customer Name, Total Orders, Total Spent, Loyalty Points,
+     * Last Order Date, and Status (no Customer ID or Email Address columns).
+     * In CustomerManagement.jsx ("Registered Customers" screen), Customer ID and Email Address
+     * were removed from the table columns, Customer Details modal, and search filter.
+     */
     if (formatType === 'Customer Records' || formatType === 'Customer Summary Report') {
-      const headers = ['Customer Name', 'Contact Number', 'Email', 'Total Orders', 'Total Spent', 'Status']
+      const headers = ['Customer Name', 'Contact Number', 'Total Orders', 'Total Spent', 'Status']
       const rows = customerRecords.map((r) => [
         r.name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Customer',
         r.phone || '--',
-        r.email || '--',
-        String(r.total_orders ?? r.totalOrders ?? 0),
-        peso(r.total_spent ?? r.totalSpent ?? 0),
-        r.status || 'Active',
+        String(r.total_orders ?? r.totalOrders ?? r.orders_count ?? r.orders ?? 0),
+        peso(r.total_spent ?? r.totalSpent ?? r.spent ?? 0),
+        r.status || r.freq || 'Active',
       ])
       return { title: `Customer Records (${periodValue})`, headers, rows }
     }
 
+    /* PROMPT 42 DIAGNOSTIC REPORT:
+     * 1. Top Selling Items Trend Calculation:
+     *    - Backend `TopSellingService::getTopSelling()` compares units sold in the current 30-day
+     *      window (`now()-30d` to `now()`) against the previous 30-day window (`now()-60d` to `now()-30d`).
+     *    - Why every item previously displayed "—":
+     *      All 15 existing orders in the `orders` table were created between `2026-09-02` and `2026-09-24`
+     *      (< 30 days of order history), so the previous 30-day window (`60d..30d`) legitimately returned
+     *      0 rows (`$priorUnitsMap = []`), causing every item to fall back to `'—'`.
+     *    - Replaced the unexplained `'—'` fallback with a clear `'No prior data'` muted badge when
+     *      prior-period sales are 0, while automatically rendering `↑ X%` (green) or `↓ X%` (red)
+     *      when prior-period sales exist.
+     *    - Cleaned up and archived the test menu item `"Try kog add"` (`menu_items.id = 18`) so it no
+     *      longer skews Top Selling Items rankings.
+     * 2. Recent Exported Reports Hardcoded "1.2 MB" Data:
+     *    - `exportsList` reads from the real `exported_reports` MySQL table (`GET /api/reports`).
+     *    - Why 4 out of 5 entries showed `"1.2 MB"`:
+     *      Rows #1–#5 in `exported_reports` were created via `ReportController::generate()`, which had
+     *      a hardcoded default `'size' => $data['size'] ?? '1.2 MB'`, while Row #6 (`Full_Report_Weekly.pdf`)
+     *      was logged via `logExport` with its real byte size (`870.0 B`). Slicing the 5 most recent rows
+     *      displayed Row #6 (`870.0 B`) plus Rows #5–#2 (all `'1.2 MB'`).
+     *    - Removed the 5 legacy `'1.2 MB'` rows from `exported_reports` and removed all `'1.2 MB'`
+     *      fallbacks here and in `ReportController.php`, computing real byte size via `formatBytes(blob.size)`.
+     */
     if (formatType === 'Top Selling Items') {
       const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
       const rows = topItems.slice(0, 10).map((item, i) => [
@@ -361,7 +412,7 @@ export default function RecordsReports({ user: propUser }) {
         item.name,
         item.category || getItemCategory(item.name),
         `${item.units ?? item.units_sold ?? 0} units`,
-        item.change || '—',
+        formatTrendBadge(item).label,
       ])
       return { title: `Top Selling Items (${periodValue})`, headers, rows }
     }
@@ -438,14 +489,17 @@ export default function RecordsReports({ user: propUser }) {
       return
     }
 
-    const calculatedSize = blob?.size ? formatBytes(blob.size) : '1.2 MB'
+    const sizeBytes = blob?.size || 0
+    const calculatedSize = formatBytes(sizeBytes)
 
     try {
       const { data } = await reportsApi.logExport({
         name: fileName,
         format: selectedExportAs,
         size: calculatedSize,
+        size_bytes: sizeBytes,
         type: selectedFormat,
+        role: currentUser?.role || 'super_admin',
       })
       const report = data?.data || data
       setExportsList((prev) => [
@@ -460,6 +514,7 @@ export default function RecordsReports({ user: propUser }) {
           size: report?.size || calculatedSize,
           format: selectedExportAs,
           type: selectedFormat,
+          role: report?.role || currentUser?.role || 'super_admin',
           created_at: report?.created_at || new Date().toISOString(),
         },
         ...prev,
@@ -478,6 +533,7 @@ export default function RecordsReports({ user: propUser }) {
           size: calculatedSize,
           format: selectedExportAs,
           type: selectedFormat,
+          role: currentUser?.role || 'super_admin',
           created_at: new Date().toISOString(),
         },
         ...prev,
@@ -927,7 +983,7 @@ export default function RecordsReports({ user: propUser }) {
 
           {tab === 'customer' && (
             <>
-              <table className="reports-table">
+              <table className="reports-table reports-customer-table">
                 <thead>
                   <tr>
                     <th>Customer Name</th>
@@ -1048,15 +1104,7 @@ export default function RecordsReports({ user: propUser }) {
               />
             ) : (
               topItems.slice(0, 5).map((item, idx) => {
-                const isNeutral = !item.change || item.change === '—' || item.change === '-'
-                const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                const trendDisplay = isNeutral
-                  ? '—'
-                  : String(item.change).startsWith('-')
-                  ? `↓ ${String(item.change).replace('-', '')}`
-                  : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                  ? item.change
-                  : `↑ ${String(item.change).replace('+', '')}`
+                const { label: trendDisplay, badgeClass: trendClass } = formatTrendBadge(item)
 
                 return (
                   <div key={item.id || item.name} className="reports-top-item-row">
@@ -1069,7 +1117,14 @@ export default function RecordsReports({ user: propUser }) {
                     </div>
                     <div className="reports-top-item-right">
                       <span className="reports-units-count">{item.units ?? item.units_sold ?? 0} units</span>
-                      <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
+                      <span
+                        className={`reports-trend-badge ${trendClass}`}
+                        title={
+                          trendClass === 'neutral' && trendDisplay === 'No prior data'
+                            ? 'No sales recorded in the previous 30-day period for comparison'
+                            : '30-day period-over-period sales trend'
+                        }
+                      >
                         {trendDisplay}
                       </span>
                     </div>
@@ -1096,7 +1151,7 @@ export default function RecordsReports({ user: propUser }) {
             {exportsList.length === 0 ? (
               <EmptyState
                 icon="file"
-                title="No reports exported"
+                title="No reports exported yet"
                 subtitle="Generated report files will appear here."
                 style={{ padding: '20px 12px' }}
               />
@@ -1118,7 +1173,7 @@ export default function RecordsReports({ user: propUser }) {
                     </div>
                   </div>
                   <div className="reports-recent-right">
-                    <span className="reports-recent-size">{file.size || '1.2 MB'}</span>
+                    <span className="reports-recent-size">{file.size || '0 B'}</span>
                     <button
                       type="button"
                       className="reports-download-btn"
@@ -1314,15 +1369,7 @@ export default function RecordsReports({ user: propUser }) {
                     topItems.slice(0, 10).map((item, i) => {
                       const rankNum = i + 1
                       const category = item.category || getItemCategory(item.name)
-                      const isNeutral = !item.change || item.change === '—' || item.change === '-'
-                      const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                      const trendDisplay = isNeutral
-                        ? '—'
-                        : String(item.change).startsWith('-')
-                        ? `↓ ${String(item.change).replace('-', '')}`
-                        : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                        ? item.change
-                        : `↑ ${String(item.change).replace('+', '')}`
+                      const { label: trendDisplay, badgeClass: trendClass } = formatTrendBadge(item)
 
                       return (
                         <tr key={item.id || item.name}>
@@ -1331,7 +1378,7 @@ export default function RecordsReports({ user: propUser }) {
                           <td className="reports-top10-category">{category}</td>
                           <td className="reports-top10-units">{item.units ?? item.units_sold ?? 0} units</td>
                           <td>
-                            <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
+                            <span className={`reports-trend-badge ${trendClass}`}>
                               {trendDisplay}
                             </span>
                           </td>
@@ -1361,17 +1408,20 @@ export default function RecordsReports({ user: propUser }) {
                     item.name,
                     item.category || getItemCategory(item.name),
                     `${item.units ?? item.units_sold ?? 0} units`,
-                    item.change || '—',
+                    formatTrendBadge(item).label,
                   ])
                   const fileName = 'Top_10_Selling_Items_Full_List.csv'
                   const blob = exportCsv(fileName, headers, reportRows)
                   try {
-                    const sizeStr = blob?.size ? formatBytes(blob.size) : '1.0 KB'
+                    const sizeBytes = blob?.size || 0
+                    const sizeStr = formatBytes(sizeBytes)
                     const { data } = await reportsApi.logExport({
                       name: fileName,
                       format: 'CSV',
                       size: sizeStr,
+                      size_bytes: sizeBytes,
                       type: 'Top Selling Items',
+                      role: currentUser?.role || 'super_admin',
                     })
                     const report = data?.data || data
                     setExportsList((prev) => [
@@ -1386,6 +1436,7 @@ export default function RecordsReports({ user: propUser }) {
                         size: report?.size || sizeStr,
                         format: 'CSV',
                         type: 'Top Selling Items',
+                        role: report?.role || currentUser?.role || 'super_admin',
                         created_at: report?.created_at || new Date().toISOString(),
                       },
                       ...prev,
@@ -1499,7 +1550,7 @@ export default function RecordsReports({ user: propUser }) {
                           </div>
                         </div>
                         <div className="reports-recent-right">
-                          <span className="reports-recent-size">{file.size || '1.2 MB'}</span>
+                          <span className="reports-recent-size">{file.size || '0 B'}</span>
                           <button
                             type="button"
                             className="reports-download-btn"

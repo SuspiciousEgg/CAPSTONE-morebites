@@ -21,6 +21,33 @@ const FONT = "Plus Jakarta Sans";
 const STATUS_OPTIONS = ["All", "Assigned", "Picked Up", "Out for Delivery"];
 const SORT_OPTIONS = ["Newest", "Distance", "Amount"];
 
+/**
+ * PROMPT 39 DIAGNOSTIC REPORT: Notification Bell Badge Hide-at-Zero Behavior (Driver Mobile vs. Web)
+ *
+ * 1. Investigation Findings:
+ *    - Web (`morebites-frontend/src/components/SuperAdminDashboard.jsx`, lines 635-639):
+ *      * Conditionally renders `<span className="sa-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>`
+ *        strictly when `unreadCount > 0` (rendering `null` when `unreadCount === 0`).
+ *      * Derives `unreadCount` directly from the fetched notifications list (`list.filter(n => Boolean(n.unread)).length`)
+ *        and optimistically decrements `unreadCount` synchronously on click BEFORE awaiting the API call.
+ *    - Driver Mobile (`morebites-drivers/app/(tabs)/home.jsx`) & Customer Mobile (`morebites-customer/app/(tabs)/orders.jsx`):
+ *      * Previously rendered an empty red circle (`<View style={styles.unreadBadge} />` / `<View style={styles.unreadDot} />`)
+ *        without the unread count number.
+ *      * Fetched `unreadCount` and `notifications` in separate, unsynchronized requests and waited for the
+ *        network `await` in `handleNotificationPress` / `handleMarkAllAsRead` before updating state. Because the
+ *        3-second polling interval (`loadUnreadCount()`) ran concurrently without an in-flight read-mutation guard,
+ *        reading the last remaining unread notification could race with an in-flight poll or delayed response,
+ *        causing the empty red circle to linger visible at 0 unread items until the screen was reloaded or
+ *        navigated away from and back.
+ *
+ * 2. Fix Applied:
+ *    - Updated the badge on both Driver and Customer mobile apps to render the red circle and its count
+ *      (`{unreadCount > 99 ? "99+" : String(unreadCount)}`) strictly when `unreadCount > 0`, and render `null`
+ *      (no empty red circle, no "0") whenever the unread count for the logged-in user is 0.
+ *    - Synchronized `unreadCount` with the per-user notifications list and added optimistic immediate state
+ *      updates + `locallyReadIdsRef` tracking so the badge disappears the exact instant the last unread
+ *      notification is read and reappears automatically as soon as a new unread notification arrives.
+ */
 export default function HomeScreen() {
   const [firstName, setFirstName] = useState("Driver");
   const [orders, setOrders] = useState([]);
@@ -35,12 +62,34 @@ export default function HomeScreen() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const notificationsVisibleRef = useRef(notificationsVisible);
   notificationsVisibleRef.current = notificationsVisible;
+  const locallyReadIdsRef = useRef(new Set());
+  const pendingReadMutationsRef = useRef(0);
 
-  const loadUnreadCount = useCallback(async () => {
+  const syncNotifications = useCallback(async () => {
     try {
-      const res = await driverApi.unreadNotificationsCount();
-      const count = Number(res?.count ?? res?.data?.count ?? 0);
-      setUnreadCount(count);
+      const [countRes, listRes] = await Promise.all([
+        driverApi.unreadNotificationsCount(),
+        driverApi.notifications(),
+      ]);
+      const rawList = Array.isArray(listRes?.data)
+        ? listRes.data
+        : Array.isArray(listRes)
+          ? listRes
+          : null;
+      if (rawList) {
+        const normalizedList = rawList.map((n) => {
+          if (locallyReadIdsRef.current.has(n.id)) {
+            return { ...n, is_read: true, unread: false };
+          }
+          const isUnread = Boolean(n.unread || (!n.is_read && n.is_read !== undefined));
+          return { ...n, is_read: !isUnread, unread: isUnread };
+        });
+        setNotifications(normalizedList);
+        setUnreadCount(normalizedList.filter((n) => n.unread).length);
+      } else if (pendingReadMutationsRef.current === 0) {
+        const count = Math.max(0, Number(countRes?.count ?? countRes?.data?.count ?? 0) || 0);
+        setUnreadCount(count);
+      }
     } catch {
       // offline / fallback
     }
@@ -50,10 +99,7 @@ export default function HomeScreen() {
     setNotificationsVisible(true);
     setNotificationsLoading(true);
     try {
-      const res = await driverApi.notifications();
-      setNotifications(res.data || []);
-      const countRes = await driverApi.unreadNotificationsCount();
-      setUnreadCount(Number(countRes?.count ?? countRes?.data?.count ?? 0));
+      await syncNotifications();
     } catch (err) {
       console.warn("Failed to load notifications:", err);
     } finally {
@@ -62,26 +108,40 @@ export default function HomeScreen() {
   };
 
   const handleNotificationPress = async (item) => {
-    if (item.unread || !item.is_read) {
+    const isItemUnread = Boolean(item.unread || !item.is_read);
+    if (isItemUnread) {
+      locallyReadIdsRef.current.add(item.id);
+      setNotifications((prev) => {
+        const next = prev.map((n) =>
+          n.id === item.id ? { ...n, is_read: true, unread: false } : n
+        );
+        setUnreadCount(next.filter((n) => Boolean(n.unread && !n.is_read)).length);
+        return next;
+      });
+      pendingReadMutationsRef.current += 1;
       try {
         await driverApi.markNotificationRead(item.id);
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === item.id ? { ...n, is_read: true, unread: false } : n))
-        );
-        setUnreadCount((c) => Math.max(0, c - 1));
       } catch (err) {
         console.warn("Failed to mark notification as read:", err);
+      } finally {
+        pendingReadMutationsRef.current = Math.max(0, pendingReadMutationsRef.current - 1);
       }
     }
   };
 
   const handleMarkAllAsRead = async () => {
+    notifications.forEach((n) => {
+      if (n?.id != null) locallyReadIdsRef.current.add(n.id);
+    });
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
+    setUnreadCount(0);
+    pendingReadMutationsRef.current += 1;
     try {
       await driverApi.markAllNotificationsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
-      setUnreadCount(0);
     } catch (err) {
       console.warn("Failed to mark all notifications as read:", err);
+    } finally {
+      pendingReadMutationsRef.current = Math.max(0, pendingReadMutationsRef.current - 1);
     }
   };
 
@@ -97,9 +157,11 @@ export default function HomeScreen() {
           const name = savedUser?.fullName?.trim().split(/\s+/)[0];
           if (active) setFirstName(name || "Driver");
 
-          const res = await driverApi.orders("All");
+          const [res] = await Promise.all([
+            driverApi.orders("All"),
+            syncNotifications(),
+          ]);
           if (active) setOrders(res.data || []);
-          await loadUnreadCount();
         } catch (err) {
           if (active) {
             setLoadError(err.message || "Failed to load orders");
@@ -113,14 +175,13 @@ export default function HomeScreen() {
       load();
 
       const interval = setInterval(async () => {
-        loadUnreadCount();
-        if (notificationsVisibleRef.current) {
-          try {
-            const res = await driverApi.notifications();
-            if (active) setNotifications(res.data || []);
-          } catch {
-            // offline / ignore
-          }
+        if (!active) return;
+        syncNotifications();
+        try {
+          const res = await driverApi.orders("All");
+          if (active && res?.data) setOrders(res.data);
+        } catch {
+          // offline / ignore
         }
       }, 3000);
 
@@ -128,7 +189,7 @@ export default function HomeScreen() {
         active = false;
         clearInterval(interval);
       };
-    }, [loadUnreadCount]),
+    }, [syncNotifications]),
   );
 
   const activeOrders = useMemo(
@@ -154,7 +215,6 @@ export default function HomeScreen() {
   }, [filter, sort, activeOrders]);
 
   const activeOrderCount = activeOrders.length;
-  const hasUnreadNotifications = unreadCount > 0;
 
   const chooseFilter = (value) => {
     setFilter(value);
@@ -174,9 +234,20 @@ export default function HomeScreen() {
           style={styles.bellButton}
           activeOpacity={0.7}
           onPress={openNotifications}
+          accessibilityLabel="Notifications"
+          accessibilityRole="button"
         >
           <Ionicons name="notifications-outline" size={24} color="#121212" />
-          {hasUnreadNotifications ? <View style={styles.unreadBadge} /> : null}
+          {unreadCount > 0 ? (
+            <View
+              style={styles.unreadBadge}
+              accessibilityLabel={`${unreadCount} unread notifications`}
+            >
+              <Text style={styles.unreadBadgeText}>
+                {unreadCount > 99 ? "99+" : String(unreadCount)}
+              </Text>
+            </View>
+          ) : null}
         </TouchableOpacity>
       </View>
 
@@ -435,15 +506,26 @@ const styles = StyleSheet.create({
     width: 40,
   },
   unreadBadge: {
-    backgroundColor: "red",
+    alignItems: "center",
+    backgroundColor: "#EF4444",
     borderColor: "#FFFFFF",
-    borderRadius: 5,
-    borderWidth: 1,
-    height: 9,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    height: 18,
+    justifyContent: "center",
+    minWidth: 18,
+    paddingHorizontal: 4,
     position: "absolute",
-    right: 7,
-    top: 6,
-    width: 9,
+    right: 2,
+    top: 2,
+  },
+  unreadBadgeText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 12,
+    textAlign: "center",
   },
   welcomeText: {
     color: "#121212",

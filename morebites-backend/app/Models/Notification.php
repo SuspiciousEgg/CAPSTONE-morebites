@@ -265,6 +265,61 @@ class Notification extends Model
             }
         }
 
+        // Driver Notification Handling
+        $driverUserId = $order->driver_id;
+        if ($driverUserId) {
+            $driverTitle = match ($order->status) {
+                'Assigned' => "Order {$code} has been assigned to you!",
+                'Ready' => "Order {$code} is ready for pickup!",
+                'Preparing' => "Order {$code} is now being prepared by the kitchen. Be ready for pickup!",
+                'Picked Up', 'Out for Delivery' => "Order {$code} is out for delivery.",
+                'Delivered', 'Completed' => "Order {$code} has been completed.",
+                'Cancelled' => "Order {$code} has been cancelled.",
+                default => "Order {$code} updated ({$order->status}).",
+            };
+
+            $driverMessage = match ($order->status) {
+                'Assigned' => "Delivery for {$order->customer_name} (" . ($order->delivery_address ?: 'Online Order') . ") has been assigned to you.",
+                'Ready' => "Order {$code} for {$order->customer_name} is packed and ready for pickup at the store.",
+                'Preparing' => "Order {$code} for {$order->customer_name} is being prepared in the kitchen.",
+                'Picked Up', 'Out for Delivery' => "Deliver Order {$code} to {$order->customer_name}.",
+                'Delivered', 'Completed' => "Order {$code} delivery for {$order->customer_name} is marked as completed.",
+                'Cancelled' => "Order {$code} for {$order->customer_name} was cancelled.",
+                default => "Order {$code} status is now {$order->status}.",
+            };
+
+            $existingDriver = self::query()
+                ->where('user_id', $driverUserId)
+                ->where(function ($q) use ($order, $code) {
+                    $q->where('data->order_id', $order->id)
+                        ->orWhere('data->order_id', (string) $order->id)
+                        ->orWhere('data->order_code', $code);
+                })
+                ->where(function ($q) use ($order, $driverTitle) {
+                    $q->where('data->status', $order->status)
+                        ->orWhere('title', $driverTitle);
+                })
+                ->latest('id')
+                ->first();
+
+            if (! $existingDriver) {
+                self::create([
+                    'user_id' => $driverUserId,
+                    'title' => $driverTitle,
+                    'message' => $driverMessage,
+                    'type' => 'driver_order_status',
+                    'tab' => 'Orders',
+                    'nav' => 'Orders',
+                    'is_read' => false,
+                    'data' => [
+                        'order_id' => $order->id,
+                        'order_code' => $code,
+                        'status' => $order->status,
+                    ],
+                ]);
+            }
+        }
+
         return $adminNotification;
     }
 

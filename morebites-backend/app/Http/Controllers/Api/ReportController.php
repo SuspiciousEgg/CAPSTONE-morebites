@@ -96,27 +96,56 @@ class ReportController extends Controller
                 ];
             });
 
+        /*
+         * PROMPT 42 DIAGNOSTIC REPORT — Top Selling Items & Recent Exported Reports:
+         * 1. Top Selling Items:
+         *    - `TopSellingService::getTopSelling()` compares units sold in the current 30-day
+         *      window vs. the previous 30-day window (`subDays(60)` to `subDays(30)`).
+         *    - Because all 15 orders in the `orders` table were created within the last 30 days
+         *      (`2026-09-02` to `2026-09-24`), the previous 30-day window has 0 orders, which
+         *      previously fell back to `'—'`. Now returns `'No prior data'` (with structured
+         *      `trend_direction` / `trend_pct`) when no prior-period sales exist, and automatically
+         *      computes `↑ X%` / `↓ X%` / `0%` once 30–60 day history exists.
+         * 2. Recent Exported Reports:
+         *    - Reads from the real `exported_reports` MySQL table (`ExportedReport` model).
+         *    - Why 4 of the 5 displayed entries showed `"1.2 MB"`:
+         *      Direct DB inspection revealed 6 rows in `exported_reports`: Row #6 (`Full_Report_Weekly.pdf`,
+         *      `size: "870.0 B"`, logged via `logExport` with actual `blob.size`), and Rows #1–#5
+         *      created earlier via `ReportController::generate()` which had a hardcoded default
+         *      `'size' => $data['size'] ?? '1.2 MB'`. Because the widget slices the 5 most recent
+         *      rows (#6 plus #5, #4, #3, #2), 4 out of 5 entries displayed the hardcoded `"1.2 MB"`.
+         *    - Cleaned up the 5 legacy `'1.2 MB'` placeholder rows from `exported_reports` and removed
+         *      all `'1.2 MB'` / `'1.0 MB'` defaults so only genuine byte-calculated file sizes are stored.
+         */
         $topItems = app(\App\Services\TopSellingService::class)->getTopSelling(10)->map(fn ($i) => [
             'id' => $i['id'],
             'name' => $i['name'],
             'category' => $i['category'],
             'units' => $i['units'],
             'units_sold' => $i['units_sold'],
+            'prior_units' => $i['prior_units'] ?? 0,
+            'trend_pct' => $i['trend_pct'] ?? null,
+            'trend_direction' => $i['trend_direction'] ?? 'none',
             'price' => $i['price'],
             'image' => $i['image'],
-            'change' => $i['change'] ?? '—',
+            'change' => $i['change'] ?? 'No prior data',
         ])->values();
 
-        $exports = ExportedReport::query()->latest('created_at')->take(10)->get()->map(fn ($e) => [
-            'id' => $e->id,
-            'name' => $e->name,
-            'date' => $e->created_at?->format('M d, Y'),
-            'size' => $e->size ?: '1.0 MB',
-            'format' => $e->format,
-            'type' => $e->type ?? $e->format,
-            'role' => $e->role ?? 'admin',
-            'created_at' => $e->created_at?->toISOString(),
-        ]);
+        $exports = ExportedReport::query()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->take(25)
+            ->get()
+            ->map(fn ($e) => [
+                'id' => $e->id,
+                'name' => $e->name,
+                'date' => $e->created_at?->format('M d, Y'),
+                'size' => $e->size ?: '0 B',
+                'format' => $e->format,
+                'type' => $e->type ?? $e->format,
+                'role' => $e->role ?? 'admin',
+                'created_at' => $e->created_at?->toISOString(),
+            ]);
 
         return response()->json([
             'data' => [
@@ -200,6 +229,23 @@ class ReportController extends Controller
         ]);
     }
 
+    private function formatByteSize(?int $bytes, ?string $fallbackSize = null): string
+    {
+        if ($bytes !== null && $bytes > 0) {
+            $units = ['B', 'KB', 'MB', 'GB'];
+            $power = min((int) floor(log($bytes, 1024)), count($units) - 1);
+            $value = $bytes / (1024 ** $power);
+
+            return round($value, 1).' '.$units[$power];
+        }
+
+        if ($fallbackSize && trim($fallbackSize) !== '') {
+            return trim($fallbackSize);
+        }
+
+        return '0 B';
+    }
+
     public function generate(Request $request)
     {
         $data = $request->validate([
@@ -207,6 +253,7 @@ class ReportController extends Controller
             'format_type' => ['required', 'string'],
             'export_as' => ['required', 'string'],
             'size' => ['nullable', 'string'],
+            'size_bytes' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $ext = match (strtolower($data['export_as'])) {
@@ -214,10 +261,16 @@ class ReportController extends Controller
             'csv' => 'csv',
             default => 'pdf',
         };
+        $fileName = str_replace(' ', '_', $data['format_type']).'_'.$data['period'].'.'.$ext;
+        $computedSize = $this->formatByteSize(
+            isset($data['size_bytes']) ? (int) $data['size_bytes'] : null,
+            $data['size'] ?? null
+        );
+
         $report = ExportedReport::query()->create([
-            'name' => str_replace(' ', '_', $data['format_type']).'_'.$data['period'].'.'.$ext,
+            'name' => $fileName,
             'format' => strtoupper($data['export_as']),
-            'size' => $data['size'] ?? '1.2 MB',
+            'size' => $computedSize,
             'type' => $data['format_type'],
             'role' => $request->user()?->role ?? 'admin',
         ]);
@@ -242,16 +295,22 @@ class ReportController extends Controller
             'name' => ['required', 'string'],
             'format' => ['nullable', 'string'],
             'size' => ['nullable', 'string'],
+            'size_bytes' => ['nullable', 'integer', 'min:0'],
             'type' => ['nullable', 'string'],
+            'role' => ['nullable', 'string'],
         ]);
 
-        $role = $request->user()?->role ?? 'admin';
+        $role = $request->user()?->role ?? ($data['role'] ?? 'admin');
         $format = strtoupper($data['format'] ?? pathinfo($data['name'], PATHINFO_EXTENSION) ?: 'PDF');
+        $computedSize = $this->formatByteSize(
+            isset($data['size_bytes']) ? (int) $data['size_bytes'] : null,
+            $data['size'] ?? null
+        );
 
         $report = ExportedReport::query()->create([
             'name' => $data['name'],
             'format' => $format,
-            'size' => $data['size'] ?? '1.0 MB',
+            'size' => $computedSize,
             'type' => $data['type'] ?? $format,
             'role' => $role,
         ]);

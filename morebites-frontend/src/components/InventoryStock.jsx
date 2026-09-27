@@ -82,7 +82,7 @@ const DATE_RANGES = [
   { value: 'all', label: 'All time' },
 ]
 const PAGE_SIZE = 5
-const LOG_PAGE_SIZE = 7
+const LOG_PAGE_SIZE = 5
 
 function statusClass(s) {
   if (s === 'Archived') return 'archived'

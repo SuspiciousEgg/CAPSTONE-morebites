@@ -32,6 +32,12 @@ Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/customer/me', [CustomerAppController::class, 'me']);
     Route::patch('/customer/profile', [CustomerAppController::class, 'updateProfile']);
+    Route::get('/customer/addresses', [CustomerAppController::class, 'addresses']);
+    Route::post('/customer/addresses', [CustomerAppController::class, 'storeAddress']);
+    Route::put('/customer/addresses/{address}', [CustomerAppController::class, 'updateAddress']);
+    Route::patch('/customer/addresses/{address}', [CustomerAppController::class, 'updateAddress']);
+    Route::patch('/customer/addresses/{address}/default', [CustomerAppController::class, 'setDefaultAddress']);
+    Route::delete('/customer/addresses/{address}', [CustomerAppController::class, 'destroyAddress']);
     Route::get('/customer/orders', [CustomerAppController::class, 'orders']);
     Route::get('/customer/orders/{order}', [CustomerAppController::class, 'showOrder']);
     Route::post('/customer/orders', [CustomerAppController::class, 'placeOrder']);

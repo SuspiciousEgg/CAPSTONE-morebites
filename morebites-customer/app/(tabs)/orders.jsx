@@ -369,6 +369,33 @@ function NotificationsModal({
   );
 }
 
+/**
+ * PROMPT 39 DIAGNOSTIC REPORT: Notification Bell Badge Hide-at-Zero Behavior (Customer Mobile vs. Web)
+ *
+ * 1. Investigation Findings:
+ *    - Web (`morebites-frontend/src/components/SuperAdminDashboard.jsx`, lines 635-639):
+ *      * Conditionally renders `<span className="sa-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>`
+ *        strictly when `unreadCount > 0` (rendering `null` when `unreadCount === 0`).
+ *      * Derives `unreadCount` directly from the fetched notifications list (`list.filter(n => Boolean(n.unread)).length`)
+ *        and optimistically decrements `unreadCount` synchronously on click BEFORE awaiting the API call.
+ *    - Customer Mobile (`morebites-customer/app/(tabs)/orders.jsx`) & Driver Mobile (`morebites-drivers/app/(tabs)/home.jsx`):
+ *      * Previously rendered an empty red dot (`<View style={styles.unreadDot} />` / `<View style={styles.unreadBadge} />`)
+ *        without the unread count number.
+ *      * Fetched `unreadCount` and `notifications` in separate, unsynchronized requests and waited for the
+ *        network `await` in `handleNotificationPress` / `handleMarkAllAsRead` before updating state. Because the
+ *        3-second polling interval (`loadUnreadCount()`) ran concurrently without an in-flight read-mutation guard,
+ *        reading the last remaining unread notification could race with an in-flight poll or delayed response,
+ *        causing the empty red circle to linger visible at 0 unread items until the screen was reloaded or
+ *        navigated away from and back.
+ *
+ * 2. Fix Applied:
+ *    - Updated the badge on both Customer and Driver mobile apps to render the red circle and its count
+ *      (`{unreadCount > 99 ? "99+" : String(unreadCount)}`) strictly when `unreadCount > 0`, and render `null`
+ *      (no empty red circle, no "0") whenever the unread count for the logged-in user is 0.
+ *    - Synchronized `unreadCount` with the per-user notifications list and added optimistic immediate state
+ *      updates + `locallyReadIdsRef` tracking so the badge disappears the exact instant the last unread
+ *      notification is read and reappears automatically as soon as a new unread notification arrives.
+ */
 export default function OrdersScreen() {
   const [activeTab, setActiveTab] = useState("All");
   const [detailsVisible, setDetailsVisible] = useState(false);
@@ -382,12 +409,34 @@ export default function OrdersScreen() {
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const locallyReadIdsRef = useRef(new Set());
+  const pendingReadMutationsRef = useRef(0);
 
-  const loadUnreadCount = useCallback(async () => {
+  const syncNotifications = useCallback(async () => {
     try {
-      const res = await customerApi.unreadNotificationsCount();
-      const count = Number(res?.count ?? res?.data?.count ?? 0);
-      setUnreadCount(count);
+      const [countRes, listRes] = await Promise.all([
+        customerApi.unreadNotificationsCount(),
+        customerApi.notifications(),
+      ]);
+      const rawList = Array.isArray(listRes?.data)
+        ? listRes.data
+        : Array.isArray(listRes)
+          ? listRes
+          : null;
+      if (rawList) {
+        const normalizedList = rawList.map((n) => {
+          if (locallyReadIdsRef.current.has(n.id)) {
+            return { ...n, is_read: true, unread: false };
+          }
+          const isUnread = Boolean(n.unread || (!n.is_read && n.is_read !== undefined));
+          return { ...n, is_read: !isUnread, unread: isUnread };
+        });
+        setNotifications(normalizedList);
+        setUnreadCount(normalizedList.filter((n) => n.unread).length);
+      } else if (pendingReadMutationsRef.current === 0) {
+        const count = Math.max(0, Number(countRes?.count ?? countRes?.data?.count ?? 0) || 0);
+        setUnreadCount(count);
+      }
     } catch {
       // offline or unauthenticated fallback
     }
@@ -399,7 +448,7 @@ export default function OrdersScreen() {
     try {
       const [ordersRes] = await Promise.all([
         customerApi.orders(),
-        loadUnreadCount(),
+        syncNotifications(),
       ]);
       setOrders(ordersRes.data || []);
     } catch (err) {
@@ -408,7 +457,7 @@ export default function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loadUnreadCount]);
+  }, [syncNotifications]);
 
   const notificationsVisibleRef = useRef(notificationsVisible);
   notificationsVisibleRef.current = notificationsVisible;
@@ -418,7 +467,7 @@ export default function OrdersScreen() {
       loadOrders();
 
       const interval = setInterval(async () => {
-        loadUnreadCount();
+        syncNotifications();
         try {
           const ordersRes = await customerApi.orders();
           if (ordersRes?.data) {
@@ -427,30 +476,19 @@ export default function OrdersScreen() {
         } catch {
           // offline / ignore
         }
-        if (notificationsVisibleRef.current) {
-          try {
-            const res = await customerApi.notifications();
-            setNotifications(res.data || []);
-          } catch {
-            // offline / ignore
-          }
-        }
       }, 3000);
 
       return () => {
         clearInterval(interval);
       };
-    }, [loadOrders, loadUnreadCount]),
+    }, [loadOrders, syncNotifications]),
   );
 
   const openNotifications = async () => {
     setNotificationsVisible(true);
     setNotificationsLoading(true);
     try {
-      const res = await customerApi.notifications();
-      setNotifications(res.data || []);
-      const countRes = await customerApi.unreadNotificationsCount();
-      setUnreadCount(Number(countRes?.count ?? countRes?.data?.count ?? 0));
+      await syncNotifications();
     } catch (err) {
       console.warn("Failed to load notifications:", err);
     } finally {
@@ -459,15 +497,23 @@ export default function OrdersScreen() {
   };
 
   const handleNotificationPress = async (item) => {
-    if (item.unread || !item.is_read) {
+    const isItemUnread = Boolean(item.unread || !item.is_read);
+    if (isItemUnread) {
+      locallyReadIdsRef.current.add(item.id);
+      setNotifications((prev) => {
+        const next = prev.map((n) =>
+          n.id === item.id ? { ...n, is_read: true, unread: false } : n
+        );
+        setUnreadCount(next.filter((n) => Boolean(n.unread && !n.is_read)).length);
+        return next;
+      });
+      pendingReadMutationsRef.current += 1;
       try {
         await customerApi.markNotificationRead(item.id);
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === item.id ? { ...n, is_read: true, unread: false } : n))
-        );
-        setUnreadCount((c) => Math.max(0, c - 1));
       } catch (err) {
         console.warn("Failed to mark notification as read:", err);
+      } finally {
+        pendingReadMutationsRef.current = Math.max(0, pendingReadMutationsRef.current - 1);
       }
     }
 
@@ -491,12 +537,18 @@ export default function OrdersScreen() {
   };
 
   const handleMarkAllAsRead = async () => {
+    notifications.forEach((n) => {
+      if (n?.id != null) locallyReadIdsRef.current.add(n.id);
+    });
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
+    setUnreadCount(0);
+    pendingReadMutationsRef.current += 1;
     try {
       await customerApi.markAllNotificationsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, unread: false })));
-      setUnreadCount(0);
     } catch (err) {
       console.warn("Failed to mark all notifications as read:", err);
+    } finally {
+      pendingReadMutationsRef.current = Math.max(0, pendingReadMutationsRef.current - 1);
     }
   };
 
@@ -529,7 +581,16 @@ export default function OrdersScreen() {
           accessibilityRole="button"
         >
           <Ionicons name="notifications" size={22} color="#121212" />
-          {unreadCount > 0 ? <View style={styles.unreadDot} /> : null}
+          {unreadCount > 0 ? (
+            <View
+              style={styles.bellBadge}
+              accessibilityLabel={`${unreadCount} unread notifications`}
+            >
+              <Text style={styles.bellBadgeText}>
+                {unreadCount > 99 ? "99+" : String(unreadCount)}
+              </Text>
+            </View>
+          ) : null}
         </Pressable>
       </View>
 
@@ -605,16 +666,27 @@ const styles = StyleSheet.create({
     position: "relative",
     width: 40,
   },
-  unreadDot: {
+  bellBadge: {
+    alignItems: "center",
     backgroundColor: "#EF4444",
     borderColor: "#FFFFFF",
-    borderRadius: 5,
+    borderRadius: 9,
     borderWidth: 1.5,
-    height: 10,
+    height: 18,
+    justifyContent: "center",
+    minWidth: 18,
+    paddingHorizontal: 4,
     position: "absolute",
-    right: 7,
-    top: 6,
-    width: 10,
+    right: 2,
+    top: 2,
+  },
+  bellBadgeText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 12,
+    textAlign: "center",
   },
   tabContainer: {
     backgroundColor: "#F9FAFB",

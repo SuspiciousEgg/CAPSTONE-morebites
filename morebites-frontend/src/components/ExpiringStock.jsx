@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -9,6 +10,8 @@ import {
 import { expiringStockApi } from '../api/client'
 import EmptyState from './EmptyState'
 import './ExpiringStock.css'
+
+const PAGE_SIZE = 5
 
 const DISPOSITION_BADGE = {
   pending: 'pending',
@@ -35,6 +38,7 @@ function formatDaysUntil(days) {
 
 export default function ExpiringStock() {
   const [rows, setRows] = useState([])
+  const [page, setPage] = useState(1)
   const [stats, setStats] = useState({
     expiring_soon: 0,
     expires_today: 0,
@@ -130,6 +134,10 @@ export default function ExpiringStock() {
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pagedRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
   return (
     <div className="exp-page">
       <header className="exp-header">
@@ -216,7 +224,7 @@ export default function ExpiringStock() {
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                pagedRows.map((row) => (
                   <tr key={row.id}>
                     <td>
                       <div className="exp-item-name">{row.name}</div>
@@ -290,6 +298,44 @@ export default function ExpiringStock() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="inv-pagination">
+          <span>
+            Showing {(currentPage - 1) * PAGE_SIZE + (rows.length ? 1 : 0)} to{' '}
+            {Math.min(currentPage * PAGE_SIZE, rows.length)} of {rows.length} items
+          </span>
+          {totalPages > 1 && (
+            <div className="inv-pages">
+              <button
+                type="button"
+                className="inv-page-btn arrow"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <LuChevronLeft size={16} />
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="inv-page-btn arrow"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

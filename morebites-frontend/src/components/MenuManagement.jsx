@@ -17,8 +17,43 @@ import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import EmptyState from './EmptyState'
 import './MenuManagement.css'
 
+/**
+ * PROMPT 43 DIAGNOSTIC REPORT — Global Table Pagination Audit (Standardize to 5 Items Per Page):
+ *
+ * 1. Architecture Finding:
+ *    - Neither web codebase (`morebites-frontend` or `admin-morebytes`) uses a shared reusable
+ *      table or pagination component/hook. Each page/table independently manages its own pagination
+ *      state (`page` / `currentPage`), page count calculation (`Math.ceil(total / pageSize)`), and
+ *      hardcoded per-page constant (`PAGE_SIZE`, `pageSize`, `ITEMS_PER_PAGE`, etc.).
+ *
+ * 2. Complete Table Audit by Codebase (Pre-Fix Values):
+ *    A. Owner / Super Admin Web (`morebites-frontend`):
+ *       - Menu Management (`MenuManagement.jsx`): `PAGE_SIZE = 8` -> Fixed to `5`
+ *       - Orders (`OrderManagement.jsx`): `PAGE_SIZE = 8` -> Fixed to `5`
+ *       - Customer Management (`CustomerManagement.jsx`): `PAGE_SIZE = 8` -> Fixed to `5`
+ *       - Reports — Sales / Delivery / Customer tabs (`RecordsReports.jsx`): `pageSize = 5` (already 5)
+ *       - Inventory — Main Stock table (`InventoryStock.jsx`): `PAGE_SIZE = 5` (already 5)
+ *       - Inventory — Activity Log modal table (`InventoryStock.jsx`): `LOG_PAGE_SIZE = 7` -> Fixed to `5`
+ *       - Inventory — Expiring Stock tab (`ExpiringStock.jsx`): Unpaginated -> Added `PAGE_SIZE = 5` pagination
+ *       - Dispatch — Pending Deliveries (`DispatchManagement.jsx`): `pageSize = 3` -> Fixed to `5`
+ *       - Dispatch — Delivery Status Monitoring (`DispatchManagement.jsx`): Unpaginated -> Added `pageSize = 5` pagination
+ *       - Account Management — Admins / Drivers / Cashiers tables (`AccountManagement.jsx`): Unpaginated -> Added `PAGE_SIZE = 5` pagination
+ *       - Account Management — Driver Management tab (`DriverManagement.jsx`): `pageSize = 5` (already 5)
+ *       - Account Management — Blacklist tab (`BlacklistDrivers.jsx`): `pageSize = 5` (already 5)
+ *       - Account Management — Archive tab (`ArchivePage.jsx`, Admin & Driver Archives): `PAGE_SIZE = 5` (already 5)
+ *
+ *    B. Admin / Supervisor Web (`admin-morebytes`):
+ *       - Menu Management (`Menu.jsx`): `ITEMS_PER_PAGE = 5` (already 5; added `totalPages > 1` button guard)
+ *       - Inventory — Main table (`Inventory.jsx`): `ITEMS_PER_PAGE = 5` (already 5; added `totalPages > 1` guard)
+ *       - Inventory — Activity History modal (`Inventory.jsx`): `LOGS_PER_PAGE = 7` -> Fixed to `5`
+ *       - Reports — Sales / Delivery / Customer tabs (`Reports.jsx`): `PAGE_SIZE = 5` (already 5; added `totalPages > 1` guards)
+ *       - Orders (`Orders.jsx`): `ORDERS_PER_PAGE = 5` (already 5; added `totalPages > 1` guard)
+ *       - Dispatch — Pending Deliveries (`Dispatch.jsx`): `ITEMS_PER_PAGE = 5` (already 5; added `totalPendingPages > 1` guard)
+ *       - Dispatch — Delivery Status Monitoring (`Dispatch.jsx`): Unpaginated -> Added `ITEMS_PER_PAGE = 5` pagination
+ *       - Drivers (`Driver.jsx`): `DRIVERS_PER_PAGE = 5` (already 5; added `totalPages > 1` guard)
+ */
 const CATEGORIES = ['Pizza', 'Pasta', 'Sides', 'Beverages', 'Desserts']
-const PAGE_SIZE = 8
+const PAGE_SIZE = 5
 
 function peso(n) {
   return `₱${Number(n).toLocaleString('en-PH')}`

@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -16,8 +15,8 @@ import {
 } from "react-native";
 import MapView, { Marker } from "../src/components/AppMap";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { addressStorage, customerApi } from "../src/api/client";
 
-const STORAGE_KEY = "saved_addresses";
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 
@@ -65,7 +64,7 @@ export default function EditAddressScreen() {
 
   const [form, setForm] = useState({
     id: initialAddress.id,
-    isDefault: Boolean(initialAddress.isDefault),
+    isDefault: Boolean(initialAddress.isDefault ?? initialAddress.is_default),
     label: initialAddress.label || "",
     street: (paramStreet !== undefined && paramStreet !== "") ? paramStreet : initialAddress.street || "",
     barangay: (paramBarangay !== undefined && paramBarangay !== "") ? paramBarangay : initialAddress.barangay || "",
@@ -79,25 +78,46 @@ export default function EditAddressScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (paramStreet !== undefined || paramBarangay !== undefined || paramCity !== undefined || Number.isFinite(paramLatitude)) {
+    const draftObj = parseParam(params.draft);
+    if (
+      paramStreet !== undefined ||
+      paramBarangay !== undefined ||
+      paramCity !== undefined ||
+      Number.isFinite(paramLatitude) ||
+      Object.keys(draftObj).length > 0
+    ) {
       setForm((current) => ({
         ...current,
-        ...(paramStreet !== undefined && paramStreet !== "" ? { street: paramStreet } : {}),
-        ...(paramBarangay !== undefined && paramBarangay !== "" ? { barangay: paramBarangay } : {}),
-        ...(paramCity !== undefined && paramCity !== "" ? { city: paramCity } : {}),
+        id: current.id ?? draftObj.id,
+        isDefault: current.isDefault ?? Boolean(draftObj.isDefault ?? draftObj.is_default),
+        label: current.label || draftObj.label || "",
+        landmark: current.landmark || draftObj.landmark || "",
+        street:
+          paramStreet !== undefined && paramStreet !== ""
+            ? paramStreet
+            : current.street || draftObj.street || "",
+        barangay:
+          paramBarangay !== undefined && paramBarangay !== ""
+            ? paramBarangay
+            : current.barangay || draftObj.barangay || "",
+        city:
+          paramCity !== undefined && paramCity !== ""
+            ? paramCity
+            : current.city || draftObj.city || "",
         ...(Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
           ? { latitude: paramLatitude, longitude: paramLongitude }
           : {}),
       }));
       setErrors((prev) => {
         const next = { ...prev };
-        if (paramStreet) delete next.street;
-        if (paramBarangay) delete next.barangay;
-        if (paramCity) delete next.city;
+        if (paramStreet || draftObj.street) delete next.street;
+        if (paramBarangay || draftObj.barangay) delete next.barangay;
+        if (paramCity || draftObj.city) delete next.city;
+        if (draftObj.label) delete next.label;
         return next;
       });
     }
-  }, [paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
+  }, [params.draft, paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
 
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
@@ -138,28 +158,28 @@ export default function EditAddressScreen() {
     }
     setSaving(true);
 
+    const payload = {
+      label: form.label.trim(),
+      street: form.street.trim(),
+      barangay: form.barangay.trim(),
+      city: form.city.trim(),
+      landmark: form.landmark.trim() || null,
+      latitude: Number.isFinite(form.latitude) ? form.latitude : null,
+      longitude: Number.isFinite(form.longitude) ? form.longitude : null,
+      is_default: Boolean(form.isDefault),
+    };
+
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsed = stored ? JSON.parse(stored) : [];
-      const addresses = Array.isArray(parsed) ? parsed : [];
-      const updatedAddress = {
-        id: form.id,
-        isDefault: form.isDefault,
-        label: form.label.trim(),
-        street: form.street.trim(),
-        barangay: form.barangay.trim(),
-        city: form.city.trim(),
-        landmark: form.landmark.trim(),
-        latitude: form.latitude,
-        longitude: form.longitude,
-      };
-      const nextAddresses = addresses.map((address) =>
-        String(address.id) === String(form.id) ? updatedAddress : address,
-      );
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextAddresses));
+      const res = await customerApi.updateAddress(form.id, payload);
+      const nextAddresses = Array.isArray(res?.addresses)
+        ? res.addresses
+        : (await addressStorage.getForCurrentUser()).map((address) =>
+            String(address.id) === String(form.id) ? (res?.data || { ...address, ...payload }) : address
+          );
+      await addressStorage.saveForCurrentUser(nextAddresses);
       router.replace("/saved-addresses");
-    } catch {
-      Alert.alert("Unable to update address", "Please try again.");
+    } catch (err) {
+      Alert.alert("Unable to update address", err?.message || "Please try again.");
       setSaving(false);
     }
   };

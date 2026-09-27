@@ -207,8 +207,12 @@ export default function ArchivePage({ embedded = false }) {
             </tbody>
           </table>
         </div>
-        {totalAdminPages > 1 ? (
-          <div className="ar-pagination">
+        <div className="dm-pagination">
+          <span className="dm-pagination-info">
+            Showing {(currentAdminPage - 1) * PAGE_SIZE + (admins.length ? 1 : 0)} to{' '}
+            {Math.min(currentAdminPage * PAGE_SIZE, admins.length)} of {admins.length} archived admins
+          </span>
+          {totalAdminPages > 1 ? (
             <div className="ar-pages">
               <button
                 type="button"
@@ -239,8 +243,8 @@ export default function ArchivePage({ embedded = false }) {
                 <LuChevronRight size={16} />
               </button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </section>
 
       <section className="ar-section sa-card">
@@ -290,8 +294,12 @@ export default function ArchivePage({ embedded = false }) {
             </tbody>
           </table>
         </div>
-        {totalDriverPages > 1 ? (
-          <div className="ar-pagination">
+        <div className="dm-pagination">
+          <span className="dm-pagination-info">
+            Showing {(currentDriverPage - 1) * PAGE_SIZE + (drivers.length ? 1 : 0)} to{' '}
+            {Math.min(currentDriverPage * PAGE_SIZE, drivers.length)} of {drivers.length} archived drivers
+          </span>
+          {totalDriverPages > 1 ? (
             <div className="ar-pages">
               <button
                 type="button"
@@ -322,8 +330,8 @@ export default function ArchivePage({ embedded = false }) {
                 <LuChevronRight size={16} />
               </button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </section>
 
       {confirm && (
