@@ -159,6 +159,24 @@ export const customerApi = {
       body: { phone, password, device_id },
       auth: false,
     }),
+  requestPasswordResetOtp: (phone) =>
+    request("/customer/forgot-password", {
+      method: "POST",
+      body: { phone },
+      auth: false,
+    }),
+  verifyPasswordResetOtp: (phone, code) =>
+    request("/customer/verify-otp", {
+      method: "POST",
+      body: { phone, code },
+      auth: false,
+    }),
+  resetPassword: (payload) =>
+    request("/customer/reset-password", {
+      method: "POST",
+      body: payload,
+      auth: false,
+    }),
   me: () => request("/customer/me"),
   updateProfile: (payload) =>
     request("/customer/profile", { method: "PATCH", body: payload }),

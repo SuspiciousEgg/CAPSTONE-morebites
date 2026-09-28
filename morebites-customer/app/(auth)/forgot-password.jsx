@@ -1,3 +1,37 @@
+/**
+ * PROMPT 46 DIAGNOSTIC REPORT — Forgot-Password / OTP End-to-End Investigation
+ *
+ * 1. Mobile Flow Screens & Previous API Calls (`morebites-customer/app/(auth)/`):
+ *    - `forgot-password.jsx` (`ForgotPasswordScreen`): Validated phone locally against `/^09\d{9}$/`,
+ *      then navigated directly to `/(auth)/verify-otp` with NO backend API call. -> Status: UI-only
+ *    - `verify-otp.jsx` (`VerifyOtpScreen`): Checked `entered !== "123456"` against a hardcoded static
+ *      string on the client and used a local 20-second state timer with NO backend API call. -> Status: UI-only
+ *    - `reset-password.jsx` (`ResetPasswordScreen`): Checked `password === confirm` locally without
+ *      reading `phone` or any reset token, then navigated to `/(auth)/reset-success` with NO backend
+ *      API call. -> Status: UI-only
+ *    - `reset-success.jsx` (`ResetSuccessScreen`): Static confirmation screen navigating to `/(auth)/login`.
+ *      -> Status: UI-only
+ *
+ * 2. Laravel Backend Investigation (`morebites-backend`):
+ *    - Routes (`routes/api.php`), Controller Methods, & Form Requests: None existed for requesting a
+ *      code, verifying a code, or resetting a customer password. -> Status: UI-only (missing)
+ *    - OTP / Password-Reset Table & Migration: Only Laravel's default unused `password_reset_tokens`
+ *      table (keyed by `email`) existed; no phone-based OTP table, hashed code storage, expiry,
+ *      attempt counter, cooldown, or single-use reset token existed. -> Status: UI-only (missing)
+ *    - SMS Gateway Config (`.env` & `config/services.php`): `.env` has `MAIL_MAILER=log` and no SMS
+ *      gateway credentials configured. -> Status: UI-only (no SMS gateway configured)
+ *
+ * 3. Fix Implemented:
+ *    - Wired `forgot-password.jsx` to `POST /api/customer/forgot-password` (`customerApi.requestPasswordResetOtp`),
+ *      `verify-otp.jsx` to `POST /api/customer/verify-otp` (`customerApi.verifyPasswordResetOtp`, 60s
+ *      resend cooldown, 5-minute expiry, 5-attempt limit), and `reset-password.jsx` to
+ *      `POST /api/customer/reset-password` (`customerApi.resetPassword`) requiring the short-lived,
+ *      single-use `reset_token`.
+ *    - Outbound OTP delivery is encapsulated in `App\Services\SmsOtpService::sendOtp()`, which logs
+ *      the generated 6-digit OTP to `storage/logs/laravel.log` in local/testing environments when no
+ *      external SMS gateway is configured, and never returns the code in any API response.
+ */
+
 import { useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +44,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PHONE_PATTERN = /^09\d{9}$/;
@@ -19,8 +54,10 @@ export default function ForgotPasswordScreen() {
   const [phone, setPhone] = useState(params?.phone ? String(params.phone) : "");
   const [focused, setFocused] = useState(false);
   const [error, setError] = useState("");
+  const [bannerError, setBannerError] = useState("");
+  const [sending, setSending] = useState(false);
 
-  const sendCode = () => {
+  const sendCode = async () => {
     const clean = phone.replace(/\s/g, "");
     const message = !clean
       ? "Phone number is required"
@@ -29,8 +66,28 @@ export default function ForgotPasswordScreen() {
         : "";
 
     setError(message);
-    if (!message) {
-      router.push({ pathname: "/(auth)/verify-otp", params: { phone: clean } });
+    setBannerError("");
+    if (message || sending) {
+      return;
+    }
+
+    setSending(true);
+    try {
+      const res = await customerApi.requestPasswordResetOtp(clean);
+      const cooldown = Number(res?.cooldown_seconds) || 60;
+      router.push({
+        pathname: "/(auth)/verify-otp",
+        params: { phone: clean, cooldown: String(cooldown) },
+      });
+    } catch (err) {
+      const msg = err?.message || "Could not send verification code. Please try again.";
+      if (err?.status === 422 && /phone/i.test(msg)) {
+        setError(msg);
+      } else {
+        setBannerError(msg);
+      }
+    } finally {
+      setSending(false);
     }
   };
 
@@ -45,6 +102,18 @@ export default function ForgotPasswordScreen() {
         <Text style={styles.subtitle}>Enter your phone number to receive an OTP</Text>
         <View style={styles.divider} />
 
+        {bannerError ? (
+          <View style={styles.errorBanner}>
+            <Ionicons
+              name="warning-outline"
+              size={18}
+              color="#D94343"
+              style={styles.errorBannerIcon}
+            />
+            <Text style={styles.errorBannerText}>{bannerError}</Text>
+          </View>
+        ) : null}
+
         <Text style={styles.label}>PHONE NUMBER</Text>
         <View style={[styles.inputWrap, focused && styles.focusedInput, error && styles.errorInput]}>
           <TextInput
@@ -54,7 +123,11 @@ export default function ForgotPasswordScreen() {
             keyboardType="phone-pad"
             maxLength={11}
             value={phone}
-            onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
+            onChangeText={(val) => {
+              setPhone(val.replace(/\D/g, "").slice(0, 11));
+              if (error) setError("");
+              if (bannerError) setBannerError("");
+            }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
           />
@@ -66,8 +139,12 @@ export default function ForgotPasswordScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity style={styles.button} onPress={sendCode}>
-          <Text style={styles.buttonText}>Send Code</Text>
+        <TouchableOpacity
+          style={[styles.button, sending && { opacity: 0.7 }]}
+          onPress={sendCode}
+          disabled={sending}
+        >
+          <Text style={styles.buttonText}>{sending ? "Sending Code..." : "Send Code"}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.back} onPress={() => router.replace("/(auth)/login")}>
@@ -115,6 +192,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F0F0",
     height: 1,
     marginTop: 16,
+  },
+  errorBanner: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#FDEDEC",
+    borderWidth: 1,
+    borderColor: "#F5C6CB",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  errorBannerIcon: {
+    marginRight: 10,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: "#9B2C2C",
+    fontFamily: FONT,
+    fontSize: 13,
+    lineHeight: 18,
   },
   label: {
     color: "#4B4B4B",

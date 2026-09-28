@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Image,
@@ -10,25 +10,65 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 
 export default function ResetPasswordScreen() {
+  const params = useLocalSearchParams();
+  const resetToken = Array.isArray(params.resetToken)
+    ? params.resetToken[0]
+    : params.resetToken;
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [visible, setVisible] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [focused, setFocused] = useState("");
   const [errors, setErrors] = useState({});
+  const [bannerError, setBannerError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     const next = {};
     if (!password) next.password = "Password is required";
+    else if (password.length < 6) next.password = "Password must be at least 6 characters";
+
     if (!confirm) next.confirm = "Please confirm your password";
     else if (password !== confirm) next.confirm = "Passwords do not match";
 
     setErrors(next);
-    if (!Object.keys(next).length) router.push("/(auth)/reset-success");
+    setBannerError("");
+
+    if (Object.keys(next).length || submitting) {
+      return;
+    }
+
+    if (!resetToken) {
+      setBannerError(
+        "Your password reset session is invalid or has expired. Please request a new OTP code."
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await customerApi.resetPassword({
+        reset_token: String(resetToken),
+        password,
+        password_confirmation: confirm,
+      });
+      router.push("/(auth)/reset-success");
+    } catch (err) {
+      const msg = err?.message || "Failed to reset password. Please try again.";
+      if (err?.status === 422 && /password/i.test(msg) && !/session|token/i.test(msg)) {
+        setErrors({ password: msg });
+      } else {
+        setBannerError(msg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const field = (name, value, setValue, show, setShow, placeholder) => (
@@ -40,7 +80,13 @@ export default function ResetPasswordScreen() {
         <TextInput
           style={styles.input}
           value={value}
-          onChangeText={setValue}
+          onChangeText={(val) => {
+            setValue(val);
+            if (errors[name]) {
+              setErrors((prev) => ({ ...prev, [name]: "" }));
+            }
+            if (bannerError) setBannerError("");
+          }}
           secureTextEntry={!show}
           placeholder={placeholder}
           placeholderTextColor="#9CA3AF"
@@ -68,11 +114,29 @@ export default function ResetPasswordScreen() {
         <Text style={styles.subtitle}>Enter your new password below</Text>
         <View style={styles.divider} />
 
+        {bannerError ? (
+          <View style={styles.errorBanner}>
+            <Ionicons
+              name="warning-outline"
+              size={18}
+              color="#D94343"
+              style={styles.errorBannerIcon}
+            />
+            <Text style={styles.errorBannerText}>{bannerError}</Text>
+          </View>
+        ) : null}
+
         {field("password", password, setPassword, visible, setVisible, "Enter new password")}
         {field("confirm", confirm, setConfirm, confirmVisible, setConfirmVisible, "Enter new password")}
 
-        <TouchableOpacity style={styles.primary} onPress={submit}>
-          <Text style={styles.primaryText}>Reset Password</Text>
+        <TouchableOpacity
+          style={[styles.primary, submitting && { opacity: 0.7 }]}
+          onPress={submit}
+          disabled={submitting}
+        >
+          <Text style={styles.primaryText}>
+            {submitting ? "Resetting Password..." : "Reset Password"}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.cancel} onPress={() => router.replace("/(auth)/login")}>
@@ -124,6 +188,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F0F0",
     height: 1,
     marginTop: 16,
+  },
+  errorBanner: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#FDEDEC",
+    borderWidth: 1,
+    borderColor: "#F5C6CB",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  errorBannerIcon: {
+    marginRight: 10,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: "#9B2C2C",
+    fontFamily: FONT,
+    fontSize: 13,
+    lineHeight: 18,
   },
   label: {
     color: "#4B4B4B",

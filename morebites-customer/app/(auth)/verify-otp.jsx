@@ -10,21 +10,35 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
+const DEFAULT_COOLDOWN_SECONDS = 60;
 
 export default function VerifyOtpScreen() {
-  const { phone } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
+  const initialCooldown = Math.max(
+    0,
+    Number(Array.isArray(params.cooldown) ? params.cooldown[0] : params.cooldown) ||
+      DEFAULT_COOLDOWN_SECONDS
+  );
+
   const [code, setCode] = useState(Array(6).fill(""));
-  const [timer, setTimer] = useState(20);
+  const [timer, setTimer] = useState(initialCooldown);
   const [error, setError] = useState("");
+  const [bannerError, setBannerError] = useState("");
   const [resent, setResent] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const refs = useRef([]);
 
   useEffect(() => {
-    if (!timer) return undefined;
-    const interval = setInterval(() => setTimer((current) => current - 1), 1000);
+    if (!timer || timer <= 0) return undefined;
+    const interval = setInterval(() => {
+      setTimer((current) => Math.max(0, current - 1));
+    }, 1000);
     return () => clearInterval(interval);
   }, [timer]);
 
@@ -34,33 +48,86 @@ export default function VerifyOtpScreen() {
     next[index] = digit;
     setCode(next);
     setError("");
+    setBannerError("");
     if (digit && index < 5) refs.current[index + 1]?.focus();
   };
 
   const onKeyPress = ({ nativeEvent }, index) => {
-    if (nativeEvent.key === "Backspace" && index > 0) refs.current[index - 1]?.focus();
+    if (nativeEvent.key === "Backspace" && !code[index] && index > 0) {
+      refs.current[index - 1]?.focus();
+    }
   };
 
-  const resend = () => {
-    setTimer(20);
-    setCode(Array(6).fill(""));
+  const resend = async () => {
+    if (resending || timer > 0) return;
+    if (!phone) {
+      setError("Phone number is missing. Please go back and enter your phone number.");
+      return;
+    }
+
+    setResending(true);
     setError("");
-    setResent(true);
-    refs.current[0]?.focus();
-    setTimeout(() => setResent(false), 1800);
+    setBannerError("");
+
+    try {
+      const res = await customerApi.requestPasswordResetOtp(String(phone));
+      setTimer(Number(res?.cooldown_seconds) || DEFAULT_COOLDOWN_SECONDS);
+      setCode(Array(6).fill(""));
+      setResent(true);
+      refs.current[0]?.focus();
+      setTimeout(() => setResent(false), 1800);
+    } catch (err) {
+      const retryAfter = Number(err?.data?.retry_after) || 0;
+      if (retryAfter > 0) {
+        setTimer(retryAfter);
+      }
+      const msg = err?.message || "Could not resend verification code. Please try again.";
+      if (/cannot reach the api/i.test(msg)) {
+        setBannerError(msg);
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setResending(false);
+    }
   };
 
-  const verify = () => {
+  const verify = async () => {
     const entered = code.join("");
     if (entered.length < 6) {
       setError("Please enter the complete 6-digit code.");
       return;
     }
-    if (entered !== "123456") {
-      setError("Incorrect OTP. Please try again.");
+    if (!phone) {
+      setError("Phone number is missing. Please go back and enter your phone number.");
       return;
     }
-    router.push({ pathname: "/(auth)/reset-password", params: { phone } });
+    if (verifying) return;
+
+    setVerifying(true);
+    setError("");
+    setBannerError("");
+
+    try {
+      const res = await customerApi.verifyPasswordResetOtp(String(phone), entered);
+      const resetToken = res?.reset_token || "";
+      router.push({
+        pathname: "/(auth)/reset-password",
+        params: {
+          phone: String(phone),
+          resetToken: String(resetToken),
+        },
+      });
+    } catch (err) {
+      const msg = err?.message || "Incorrect OTP. Please try again.";
+      if (/cannot reach the api/i.test(msg)) {
+        setBannerError(msg);
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setVerifying(false);
+    }
   };
 
   return (
@@ -70,6 +137,18 @@ export default function VerifyOtpScreen() {
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>Enter the 6-digit code sent to your phone number</Text>
         <View style={styles.divider} />
+
+        {bannerError ? (
+          <View style={styles.errorBanner}>
+            <Ionicons
+              name="warning-outline"
+              size={18}
+              color="#D94343"
+              style={styles.errorBannerIcon}
+            />
+            <Text style={styles.errorBannerText}>{bannerError}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.otpRow}>
           {code.map((value, index) => (
@@ -91,8 +170,12 @@ export default function VerifyOtpScreen() {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.button} onPress={verify}>
-          <Text style={styles.buttonText}>Verify OTP</Text>
+        <TouchableOpacity
+          style={[styles.button, verifying && { opacity: 0.7 }]}
+          onPress={verify}
+          disabled={verifying}
+        >
+          <Text style={styles.buttonText}>{verifying ? "Verifying..." : "Verify OTP"}</Text>
         </TouchableOpacity>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -105,8 +188,10 @@ export default function VerifyOtpScreen() {
         ) : (
           <View style={styles.resendRow}>
             <Text style={styles.timerText}>Didn&apos;t receive any code? </Text>
-            <TouchableOpacity onPress={resend}>
-              <Text style={styles.resendText}>Resend Code</Text>
+            <TouchableOpacity onPress={resend} disabled={resending}>
+              <Text style={styles.resendText}>
+                {resending ? "Sending..." : "Resend Code"}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -157,6 +242,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F0F0",
     height: 1,
     marginTop: 16,
+  },
+  errorBanner: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#FDEDEC",
+    borderWidth: 1,
+    borderColor: "#F5C6CB",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  errorBannerIcon: {
+    marginRight: 10,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: "#9B2C2C",
+    fontFamily: FONT,
+    fontSize: 13,
+    lineHeight: 18,
   },
   otpRow: {
     flexDirection: "row",

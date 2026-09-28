@@ -138,7 +138,12 @@ class OrderController extends Controller
         ]);
 
         $previous = $order->status;
-        $order->update(['status' => $data['status']]);
+        $updatePayload = ['status' => $data['status']];
+        if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
+            $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+            $updatePayload['payment_status'] = 'Paid';
+        }
+        $order->update($updatePayload);
 
         if ($data['status'] === 'Cancelled' && $previous !== 'Cancelled') {
             app(InventoryDeductionService::class)->restockForOrder($order);

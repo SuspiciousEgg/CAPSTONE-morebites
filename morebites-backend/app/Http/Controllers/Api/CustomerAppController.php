@@ -10,10 +10,12 @@ use App\Models\MenuItem;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\PasswordResetOtp;
 use App\Models\TrustedDevice;
 use App\Models\User;
 use App\Services\DeliveryRateService;
 use App\Services\InventoryDeductionService;
+use App\Services\SmsOtpService;
 use App\Services\TopSellingService;
 use App\Services\TrackingService;
 use App\Support\Media;
@@ -21,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -153,6 +156,275 @@ class CustomerAppController extends Controller
             'token' => $token,
             'user' => $this->userPayload($user),
             'new_device' => $newDevice,
+        ]);
+    }
+
+    /**
+     * PROMPT 46 DIAGNOSTIC REPORT — Forgot-Password / OTP End-to-End Audit:
+     *
+     * 1. Mobile Flow Screens & API Calls (`morebites-customer/app/(auth)/`) — Classification: UI-only
+     *    - `forgot-password.jsx`: Validated phone against `/^09\d{9}$/` on the client, then navigated
+     *      directly to `/(auth)/verify-otp` with zero network call.
+     *    - `verify-otp.jsx`: Checked `if (entered !== "123456")` against a hardcoded static string
+     *      on the client, with a fake 20s local timer and zero network call.
+     *    - `reset-password.jsx`: Checked `password === confirm` locally, ignored `phone`/tokens, and
+     *      navigated directly to `/(auth)/reset-success` without updating any database record.
+     *    - `reset-success.jsx`: Static confirmation screen navigating back to `/(auth)/login`.
+     *    - `src/api/client.js`: Contained no forgot-password, verify-otp, or reset-password methods.
+     *
+     * 2. Laravel Backend Audit (`morebites-backend`) — Classification: UI-only (Missing)
+     *    - Routes (`routes/api.php`), Controller Methods, & Form Requests: None existed (`UI-only`).
+     *    - OTP / Password-Reset Table & Migration: Only the unused default `password_reset_tokens`
+     *      (keyed by `email`) existed; no phone-based OTP table, expiry, attempt counter, cooldown,
+     *      or single-use reset token existed (`UI-only`).
+     *    - SMS Gateway Config (`.env` / `config/services.php`): `.env` has `MAIL_MAILER=log` and no
+     *      SMS gateway credentials (`UI-only`).
+     *
+     * 3. Real Backend Implementation:
+     *    - `requestPasswordResetOtp`: Validates `^09\d{9}$`, enforces a 60-second resend cooldown,
+     *      generates a CSPRNG 6-digit code (`random_int(0, 999999)`), stores only `Hash::make($code)`
+     *      with a 5-minute expiry in `password_reset_otps`, dispatches via `SmsOtpService::sendOtp()`
+     *      (which logs to `storage/logs/laravel.log` in local/testing when no SMS provider is configured),
+     *      and returns an identical generic response whether or not the phone is registered.
+     *    - `verifyPasswordResetOtp`: Enforces the 5-minute expiry and a strict limit of 5 wrong
+     *      attempts (invalidating the OTP on the 5th failed attempt), and issues a short-lived (10-min),
+     *      single-use 64-char `reset_token` (stored hashed with SHA-256).
+     *    - `resetPasswordWithToken`: Requires the valid, unconsumed `reset_token` + confirmed new
+     *      password, updates the customer's hashed password, and immediately invalidates the token.
+     */
+    public function requestPasswordResetOtp(Request $request, SmsOtpService $smsService)
+    {
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+        $existing = PasswordResetOtp::query()->where('phone', $phone)->first();
+
+        if ($existing && $existing->last_sent_at) {
+            $elapsed = (int) $existing->last_sent_at->diffInSeconds(now());
+            if ($elapsed < PasswordResetOtp::RESEND_COOLDOWN_SECONDS) {
+                $remaining = max(1, PasswordResetOtp::RESEND_COOLDOWN_SECONDS - $elapsed);
+
+                return response()->json([
+                    'message' => "Please wait {$remaining} seconds before requesting another code.",
+                    'retry_after' => $remaining,
+                ], 429);
+            }
+        }
+
+        $user = User::query()
+            ->where('role', 'customer')
+            ->whereNull('archived_at')
+            ->where(function ($query) use ($phone, $data) {
+                $query->where('phone', $data['phone'])
+                    ->orWhere('phone', $phone)
+                    ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$phone]);
+            })
+            ->first();
+
+        if ($user && $user->status === 'Active') {
+            $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+            PasswordResetOtp::query()->updateOrCreate(
+                ['phone' => $phone],
+                [
+                    'user_id' => $user->id,
+                    'otp_hash' => Hash::make($code),
+                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                    'attempts' => 0,
+                    'last_sent_at' => now(),
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                    'consumed_at' => null,
+                ]
+            );
+
+            $smsService->sendOtp($phone, $code);
+        } else {
+            PasswordResetOtp::query()->updateOrCreate(
+                ['phone' => $phone],
+                [
+                    'user_id' => null,
+                    'otp_hash' => null,
+                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                    'attempts' => 0,
+                    'last_sent_at' => now(),
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                    'consumed_at' => null,
+                ]
+            );
+        }
+
+        return response()->json([
+            'message' => 'If this phone number is registered, a 6-digit verification code has been sent.',
+            'cooldown_seconds' => PasswordResetOtp::RESEND_COOLDOWN_SECONDS,
+            'expires_in_seconds' => PasswordResetOtp::OTP_EXPIRY_MINUTES * 60,
+        ]);
+    }
+
+    public function verifyPasswordResetOtp(Request $request)
+    {
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
+            'code.regex' => 'Please enter a valid 6-digit verification code.',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+        $record = PasswordResetOtp::query()->where('phone', $phone)->first();
+
+        if (! $record || ! $record->otp_hash || $record->consumed_at !== null) {
+            if ($record) {
+                if ($record->attempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                    ]);
+                }
+
+                $nextAttempts = $record->attempts + 1;
+                $record->update(['attempts' => $nextAttempts]);
+
+                if ($nextAttempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                    ]);
+                }
+            }
+
+            throw ValidationException::withMessages([
+                'code' => ['Incorrect OTP. Please try again.'],
+            ]);
+        }
+
+        if ($record->attempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+            $record->update(['otp_hash' => null]);
+
+            throw ValidationException::withMessages([
+                'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+            ]);
+        }
+
+        if (! $record->otp_expires_at || $record->otp_expires_at->isPast()) {
+            $record->update(['otp_hash' => null]);
+
+            throw ValidationException::withMessages([
+                'code' => ['This verification code has expired. Please request a new code.'],
+            ]);
+        }
+
+        if (! Hash::check($data['code'], $record->otp_hash)) {
+            $nextAttempts = $record->attempts + 1;
+
+            if ($nextAttempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                $record->update([
+                    'attempts' => $nextAttempts,
+                    'otp_hash' => null,
+                ]);
+
+                throw ValidationException::withMessages([
+                    'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                ]);
+            }
+
+            $record->update(['attempts' => $nextAttempts]);
+
+            throw ValidationException::withMessages([
+                'code' => ['Incorrect OTP. Please try again.'],
+            ]);
+        }
+
+        $plainResetToken = Str::random(64);
+
+        $record->update([
+            'otp_hash' => null,
+            'otp_expires_at' => null,
+            'attempts' => 0,
+            'reset_token_hash' => hash('sha256', $plainResetToken),
+            'reset_token_expires_at' => now()->addMinutes(PasswordResetOtp::RESET_TOKEN_EXPIRY_MINUTES),
+            'consumed_at' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'OTP verified successfully.',
+            'reset_token' => $plainResetToken,
+            'expires_in_seconds' => PasswordResetOtp::RESET_TOKEN_EXPIRY_MINUTES * 60,
+        ]);
+    }
+
+    public function resetPasswordWithToken(Request $request)
+    {
+        $data = $request->validate([
+            'reset_token' => ['required', 'string', 'min:32'],
+            'password' => ['required', 'string', 'min:6', 'confirmed'],
+        ]);
+
+        $tokenHash = hash('sha256', $data['reset_token']);
+        $record = PasswordResetOtp::query()
+            ->where('reset_token_hash', $tokenHash)
+            ->whereNull('consumed_at')
+            ->first();
+
+        if (! $record || ! $record->reset_token_expires_at || $record->reset_token_expires_at->isPast()) {
+            if ($record) {
+                $record->update([
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                ]);
+            }
+
+            throw ValidationException::withMessages([
+                'reset_token' => ['Your password reset session is invalid or has expired. Please request a new OTP code.'],
+            ]);
+        }
+
+        $user = $record->user_id
+            ? User::query()
+                ->where('id', $record->user_id)
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->first()
+            : User::query()
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->where('phone', $record->phone)
+                ->first();
+
+        if (! $user || $user->status !== 'Active') {
+            $record->update([
+                'reset_token_hash' => null,
+                'reset_token_expires_at' => null,
+                'consumed_at' => now(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'reset_token' => ['Your password reset session is invalid or has expired. Please request a new OTP code.'],
+            ]);
+        }
+
+        DB::transaction(function () use ($user, $record, $data) {
+            $user->update([
+                'password' => $data['password'],
+            ]);
+
+            $record->update([
+                'otp_hash' => null,
+                'otp_expires_at' => null,
+                'reset_token_hash' => null,
+                'reset_token_expires_at' => null,
+                'consumed_at' => now(),
+            ]);
+
+            $user->tokens()->delete();
+        });
+
+        return response()->json([
+            'message' => 'Your password has been reset successfully.',
         ]);
     }
 
@@ -803,16 +1075,21 @@ class CustomerAppController extends Controller
             'Picked Up' => 'Out for Delivery',
             default => $o->status,
         };
+        $isCompleted = in_array($o->status, ['Completed', 'Delivered'], true) || $displayStatus === 'Delivered';
         $date = $o->created_at;
+        $deliveredAt = $o->delivered_at ?? ($isCompleted ? $o->updated_at : null);
         $firstItem = $o->items->first();
 
         return [
             'id' => $o->order_code,
             'db_id' => $o->id,
+            'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
             'date' => $date?->toIso8601String(),
             'dateLabel' => $date?->format('M j, Y · g:i A'),
+            'ordered_at' => $date?->toIso8601String(),
+            'ordered_at_label' => $date?->format('M j, Y · g:i A'),
             'total' => (float) $o->total,
             'delivery_fee' => (float) ($o->delivery_fee ?? app(DeliveryRateService::class)->defaultFee()),
             'service_fee' => (float) ($o->service_fee ?? app(DeliveryRateService::class)->serviceFee()),
@@ -828,6 +1105,7 @@ class CustomerAppController extends Controller
             'food_price' => (float) ($firstItem?->unit_price ?? $o->total),
             'address' => $o->delivery_address,
             'payment_method' => $o->payment_method ?: 'COD',
+            'payment_status' => $isCompleted ? 'Paid' : ($o->payment_status ?: 'Unpaid'),
             'customer' => $o->customer_name,
             'driver' => $o->driver?->name,
             'driver_phone' => $o->driver?->phone,
@@ -842,8 +1120,11 @@ class CustomerAppController extends Controller
             'food_rating' => $o->food_rating ? (int) $o->food_rating : null,
             'rider_rating' => $o->rider_rating ? (int) $o->rider_rating : null,
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
-            'delivered_at' => $o->delivered_at?->toIso8601String(),
-            'delivered_at_label' => $o->delivered_at?->format('M j, Y · g:i A'),
+            'delivered_at' => $deliveredAt?->toIso8601String(),
+            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
+            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_earned' => $o->loyaltyPointsEarned(),
         ];
     }
 }

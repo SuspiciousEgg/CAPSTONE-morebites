@@ -200,6 +200,26 @@ export default function OrderTrackingScreen() {
     }
   };
 
+  const openReceipt = () => {
+    if (currentStatus === "Delivered" || currentStatus === "Completed") {
+      const mergedOrder = {
+        ...orderParam,
+        ...(tracking || {}),
+        id: tracking?.order_id || orderParam.id || orderIdLabel,
+        orderId: tracking?.order_id || orderParam.orderId || orderIdLabel,
+        db_id: dbId || tracking?.db_id || orderParam.db_id,
+      };
+      router.push({
+        pathname: "/receipt",
+        params: {
+          orderId: String(mergedOrder.orderId || ""),
+          dbId: String(mergedOrder.db_id || ""),
+          order: JSON.stringify(mergedOrder),
+        },
+      });
+    }
+  };
+
   const timeline = Array.isArray(tracking?.timeline) ? tracking.timeline : null;
 
   return (
@@ -371,12 +391,18 @@ export default function OrderTrackingScreen() {
         ) : null}
 
         {currentStatus === "Delivered" || currentStatus === "Completed" ? (
-          tracking?.rated ? null : (
-          <TouchableOpacity style={styles.rateButton} onPress={openRating} activeOpacity={0.85}>
-            <Ionicons name="star-outline" size={22} color="#FFFFFF" />
-            <Text style={styles.rateButtonText}>Rate Your Order</Text>
-          </TouchableOpacity>
-          )
+          <View style={styles.deliveredActionsWrap}>
+            <TouchableOpacity style={styles.receiptButton} onPress={openReceipt} activeOpacity={0.85}>
+              <Ionicons name="receipt-outline" size={20} color={PRIMARY} />
+              <Text style={styles.receiptButtonText}>View Receipt</Text>
+            </TouchableOpacity>
+            {tracking?.rated ? null : (
+              <TouchableOpacity style={styles.rateButton} onPress={openRating} activeOpacity={0.85}>
+                <Ionicons name="star-outline" size={22} color="#FFFFFF" />
+                <Text style={styles.rateButtonText}>Rate Your Order</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -663,6 +689,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  deliveredActionsWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    gap: 12,
+    marginTop: 8,
+  },
+  receiptButton: {
+    height: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FFF4EB",
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 9,
+  },
+  receiptButtonText: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 17,
+    fontWeight: "700",
+  },
   rateButton: {
     height: 54,
     flexDirection: "row",
@@ -671,9 +720,6 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: PRIMARY,
     borderRadius: 9,
-    marginTop: 16,
-    marginHorizontal: 16,
-    marginBottom: 24,
   },
   rateButtonText: {
     color: "#FFFFFF",

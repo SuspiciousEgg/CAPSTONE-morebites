@@ -279,6 +279,27 @@ function OrderDetailsModal({ visible, order, onClose }) {
             ) : null}
           </ScrollView>
 
+          {["Delivered", "Completed"].includes(order.status) ||
+          ["Delivered", "Completed"].includes(order.raw_status) ? (
+            <Pressable
+              style={styles.viewReceiptButton}
+              onPress={() => {
+                onClose();
+                router.push({
+                  pathname: "/receipt",
+                  params: {
+                    orderId: String(order.id || ""),
+                    dbId: String(order.db_id || ""),
+                    order: JSON.stringify(order),
+                  },
+                });
+              }}
+            >
+              <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
+              <Text style={styles.viewReceiptButtonText}>View Receipt</Text>
+            </Pressable>
+          ) : null}
+
           <Pressable style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeButtonText}>Close</Text>
           </Pressable>
@@ -938,11 +959,29 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   proofEmptyText: { color: "#6B7280", flex: 1, fontSize: 13, lineHeight: 18 },
+  viewReceiptButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF4EB",
+    borderColor: PRIMARY,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 16,
+    paddingVertical: 13,
+  },
+  viewReceiptButtonText: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   closeButton: {
     alignItems: "center",
     backgroundColor: PRIMARY,
     borderRadius: 12,
-    marginTop: 16,
+    marginTop: 10,
     paddingVertical: 14,
   },
   closeButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },

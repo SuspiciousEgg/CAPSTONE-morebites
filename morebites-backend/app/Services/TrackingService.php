@@ -287,11 +287,21 @@ class TrackingService
             'Out For Delivery', 'Out for Delivery' => 'Out for Delivery',
             default => $order->status,
         };
+        $isCompleted = in_array($status, ['Delivered', 'Completed'], true);
+        $deliveredAt = $order->delivered_at ?? ($isCompleted ? $order->updated_at : null);
+        $rates = app(DeliveryRateService::class);
 
         return [
             'order_id' => $order->order_code,
+            'id' => $order->order_code,
             'db_id' => $order->id,
+            'receipt_number' => $order->receiptNumber(),
             'status' => $status,
+            'raw_status' => $order->status,
+            'date' => $order->created_at?->toIso8601String(),
+            'dateLabel' => $order->created_at?->format('M j, Y · g:i A'),
+            'ordered_at' => $order->created_at?->toIso8601String(),
+            'ordered_at_label' => $order->created_at?->format('M j, Y · g:i A'),
             'customer' => $order->customer_name,
             'address' => $order->delivery_address,
             'driver' => $order->driver?->name,
@@ -313,11 +323,18 @@ class TrackingService
                 'price' => (float) $i->unit_price,
             ])->values(),
             'total' => (float) $order->total,
+            'delivery_fee' => (float) ($order->delivery_fee ?? $rates->defaultFee()),
+            'service_fee' => (float) ($order->service_fee ?? $rates->serviceFee()),
+            'payment_method' => $order->payment_method ?: 'COD',
+            'payment_status' => $isCompleted ? 'Paid' : ($order->payment_status ?: 'Unpaid'),
             'rated' => (bool) $order->rated_at,
-            'can_rate' => in_array($status, ['Delivered', 'Completed'], true) && ! $order->rated_at,
+            'can_rate' => $isCompleted && ! $order->rated_at,
             'proof_of_delivery' => Media::url($order->proof_of_delivery),
-            'delivered_at' => $order->delivered_at?->toIso8601String(),
-            'delivered_at_label' => $order->delivered_at?->format('M j, Y · g:i A'),
+            'delivered_at' => $deliveredAt?->toIso8601String(),
+            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
+            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_earned' => $order->loyaltyPointsEarned(),
         ];
     }
 
