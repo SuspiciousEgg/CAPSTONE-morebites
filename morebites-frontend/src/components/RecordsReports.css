@@ -827,6 +827,47 @@
   margin-bottom: 8px;
 }
 
+/* Modal Date Range (From / To side by side) */
+.reports-modal-date-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.reports-modal-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reports-modal-date-sublabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+}
+
+.reports-modal-date-field .reports-date-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.reports-date-input.input-error {
+  border-color: #EF4444;
+  background: #FEF2F2;
+}
+
+.reports-date-range-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #DC2626;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 /* Format Selector */
 .reports-format-group {
   display: grid;

@@ -44,9 +44,11 @@ class TopSellingService
      * @param int $limit
      * @return Collection
      */
-    public function getTopSelling(int $limit = 10): Collection
+    public function getTopSelling(int $limit = 10, ?Carbon $from = null, ?Carbon $to = null): Collection
     {
-        $since = Carbon::now()->subDays(30);
+        $hasExplicitRange = $from !== null || $to !== null;
+        $start = $from ? $from->copy()->startOfDay() : Carbon::now()->subDays(30);
+        $end = $to ? $to->copy()->endOfDay() : Carbon::now();
 
         $dateExpr = Schema::hasColumn('orders', 'order_date')
             ? 'COALESCE(orders.order_date, orders.created_at)'
@@ -59,7 +61,7 @@ class TopSellingService
 
         $excludedTestNames = ['try kog add', 'petsa'];
 
-        // 1. Primary Query: Join order_items with orders and menu_items (current 30-day window)
+        // 1. Primary Query: Join order_items with orders and menu_items within target window
         $salesRows = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->join('menu_items', function ($join) use ($fallbackNameMatchSql) {
@@ -72,7 +74,7 @@ class TopSellingService
             ->where('menu_items.archived', false)
             ->whereRaw('LOWER(TRIM(menu_items.name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('orders.status', '!=', 'Cancelled')
-            ->whereRaw("{$dateExpr} >= ?", [$since])
+            ->whereRaw("{$dateExpr} >= ? AND {$dateExpr} <= ?", [$start, $end])
             ->select(
                 'menu_items.id',
                 DB::raw('SUM(order_items.qty) as units_sold')
@@ -81,10 +83,15 @@ class TopSellingService
             ->orderByDesc('units_sold')
             ->get();
 
-        $priorStart = Carbon::now()->subDays(60);
-        $priorEnd = Carbon::now()->subDays(30);
+        $rangeDays = max(1, (int) $start->copy()->startOfDay()->diffInDays($end->copy()->startOfDay()) + 1);
+        $priorStart = $hasExplicitRange
+            ? $start->copy()->subDays($rangeDays)->startOfDay()
+            : Carbon::now()->subDays(60);
+        $priorEnd = $hasExplicitRange
+            ? $start->copy()
+            : Carbon::now()->subDays(30);
 
-        // Previous 30-day window (days 30 to 60 ago) for period-over-period trend comparison
+        // Previous window of equal length for period-over-period trend comparison
         $priorSalesRows = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->join('menu_items', function ($join) use ($fallbackNameMatchSql) {
@@ -107,7 +114,7 @@ class TopSellingService
 
         $priorUnitsMap = $priorSalesRows->pluck('units_sold', 'id')->all();
 
-        // If any products have recorded sales within the 30-day window, return them ranked by units sold
+        // If any products have recorded sales within the window, return them ranked by units sold
         if ($salesRows->count() >= 1) {
             $unitsMap = $salesRows->pluck('units_sold', 'id')->all();
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
@@ -120,6 +127,10 @@ class TopSellingService
                 ->values();
 
             return $this->formatItems($items, $unitsMap, $priorUnitsMap);
+        }
+
+        if ($hasExplicitRange) {
+            return collect();
         }
 
         // 2. Fallback Tier 1: Return menu items where is_featured is true
