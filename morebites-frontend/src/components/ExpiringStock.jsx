@@ -304,38 +304,37 @@ export default function ExpiringStock() {
             Showing {(currentPage - 1) * PAGE_SIZE + (rows.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, rows.length)} of {rows.length} items
           </span>
-          {totalPages > 1 && (
-            <div className="inv-pages">
+          <div className="inv-pages">
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="inv-page-btn arrow"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="inv-page-btn arrow"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 

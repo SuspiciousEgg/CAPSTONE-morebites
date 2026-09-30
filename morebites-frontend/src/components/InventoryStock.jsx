@@ -1225,38 +1225,37 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} items
           </span>
-          {totalPages > 1 && (
-            <div className="inv-pages">
+          <div className="inv-pages">
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => p - 1)}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="inv-page-btn arrow"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => p - 1)}
-                aria-label="Previous page"
+                className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="inv-page-btn arrow"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1544,46 +1543,49 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   {Math.min(logCurrentPage * LOG_PAGE_SIZE, filteredLogs.length)} of{' '}
                   {filteredLogs.length} activities
                 </span>
-                {logTotalPages > 1 && (
-                  <div className="inv-pages">
-                    <button
-                      type="button"
-                      disabled={logCurrentPage <= 1}
-                      onClick={() => setLogPage((p) => p - 1)}
-                    >
-                      {'<'}
-                    </button>
-                    {Array.from({ length: logTotalPages }, (_, i) => i + 1)
-                      .filter((n) => {
-                        if (logTotalPages <= 7) return true
-                        if (n === 1 || n === logTotalPages) return true
-                        return Math.abs(n - logCurrentPage) <= 1
-                      })
-                      .map((n, idx, arr) => {
-                        const prev = arr[idx - 1]
-                        const showEllipsis = prev != null && n - prev > 1
-                        return (
-                          <span key={n} className="inv-page-group">
-                            {showEllipsis && <span className="inv-ellipsis">…</span>}
-                            <button
-                              type="button"
-                              className={n === logCurrentPage ? 'active' : ''}
-                              onClick={() => setLogPage(n)}
-                            >
-                              {n}
-                            </button>
-                          </span>
-                        )
-                      })}
-                    <button
-                      type="button"
-                      disabled={logCurrentPage >= logTotalPages}
-                      onClick={() => setLogPage((p) => p + 1)}
-                    >
-                      {'>'}
-                    </button>
-                  </div>
-                )}
+                <div className="inv-pages">
+                  <button
+                    type="button"
+                    className="inv-page-btn arrow"
+                    disabled={logCurrentPage <= 1}
+                    onClick={() => setLogPage((p) => p - 1)}
+                    aria-label="Previous page"
+                  >
+                    <LuChevronLeft size={16} />
+                  </button>
+                  {Array.from({ length: logTotalPages }, (_, i) => i + 1)
+                    .filter((n) => {
+                      if (logTotalPages <= 7) return true
+                      if (n === 1 || n === logTotalPages) return true
+                      return Math.abs(n - logCurrentPage) <= 1
+                    })
+                    .map((n, idx, arr) => {
+                      const prev = arr[idx - 1]
+                      const showEllipsis = prev != null && n - prev > 1
+                      return (
+                        <span key={n} className="inv-page-group">
+                          {showEllipsis && <span className="inv-ellipsis">…</span>}
+                          <button
+                            type="button"
+                            className={`inv-page-btn${n === logCurrentPage ? ' active' : ''}`}
+                            disabled={logTotalPages <= 1}
+                            onClick={() => setLogPage(n)}
+                          >
+                            {n}
+                          </button>
+                        </span>
+                      )
+                    })}
+                  <button
+                    type="button"
+                    className="inv-page-btn arrow"
+                    disabled={logCurrentPage >= logTotalPages}
+                    onClick={() => setLogPage((p) => p + 1)}
+                    aria-label="Next page"
+                  >
+                    <LuChevronRight size={16} />
+                  </button>
+                </div>
                 <button type="button" className="inv-btn-outline inv-btn-export" onClick={exportLogs}>
                   <LuUpload size={15} /> Export
                 </button>

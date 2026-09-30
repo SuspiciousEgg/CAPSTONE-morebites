@@ -505,13 +505,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  background: #FBFBFB;
-  border-top: 1px solid #EFEFEF;
+  background: #FFFFFF;
+  border-top: 1px solid #F3F4F6;
 }
 
 .menu-pagination-info {
-  font-size: 14px;
-  color: #666666;
+  font-size: 13px;
+  color: #6B7280;
   font-weight: 400;
 }
 
@@ -522,26 +522,26 @@
 }
 
 .menu-page-btn {
-  min-width: 34px;
-  height: 34px;
+  min-width: 32px;
+  height: 32px;
   padding: 0 8px;
   border-radius: 8px;
-  border: 1px solid #E0E0E0;
+  border: 1px solid #EDEDED;
   background: #FFFFFF;
-  color: #333333;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 14px;
+  color: #1C1B18;
+  font-family: inherit;
+  font-size: 13px;
   font-weight: 500;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
 }
 
 .menu-page-btn:hover:not(:disabled) {
-  border-color: #FFA500;
-  color: #FFA500;
+  border-color: #D1D5DB;
+  background: #FAFAFA;
 }
 
 .menu-page-btn.active {
@@ -554,7 +554,6 @@
 .menu-page-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  border-color: #E0E0E0;
 }
 
 /* Modal Overlay & Base Styling */

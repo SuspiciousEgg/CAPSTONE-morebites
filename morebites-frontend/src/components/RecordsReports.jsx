@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import {
   IconClose,
   IconDownload,
@@ -1183,39 +1184,40 @@ export default function RecordsReports({ user: propUser }) {
           <span className="reports-pagination-info">
             Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} {tab === 'all' ? 'transactions' : tab === 'delivery' ? 'deliveries' : 'customers'}
           </span>
-          {totalPages > 1 && (
-            <div className="reports-pagination-controls">
-              <button
-                type="button"
-                className="reports-page-btn"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                ‹
-              </button>
-              {Array.from({ length: totalPages }).map((_, idx) => {
-                const pageNum = idx + 1
-                return (
-                  <button
-                    key={pageNum}
-                    type="button"
-                    className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
-                    onClick={() => setPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                )
-              })}
-              <button
-                type="button"
-                className="reports-page-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                ›
-              </button>
-            </div>
-          )}
+          <div className="reports-pagination-controls">
+            <button
+              type="button"
+              className="reports-page-btn arrow"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const pageNum = idx + 1
+              return (
+                <button
+                  key={pageNum}
+                  type="button"
+                  className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
+                  disabled={totalPages <= 1}
+                  onClick={() => setPage(pageNum)}
+                >
+                  {pageNum}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              className="reports-page-btn arrow"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 

@@ -9,7 +9,7 @@ class PasswordResetOtp extends Model
 {
     public const OTP_EXPIRY_MINUTES = 5;
 
-    public const RESEND_COOLDOWN_SECONDS = 60;
+    public const RESEND_COOLDOWN_SECONDS = 20;
 
     public const MAX_ATTEMPTS = 5;
 

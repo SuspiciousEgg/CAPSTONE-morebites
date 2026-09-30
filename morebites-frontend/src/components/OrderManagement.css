@@ -484,7 +484,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 22px;
-  border-top: 1px solid #EDEDED;
+  border-top: 1px solid #F3F4F6;
   background: #FFFFFF;
 }
 
@@ -500,8 +500,8 @@
 }
 
 .om-page-btn {
-  min-width: 36px;
-  height: 36px;
+  min-width: 32px;
+  height: 32px;
   border-radius: 8px;
   border: 1px solid #EDEDED;
   background: #FFFFFF;

@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
-const DEFAULT_COOLDOWN_SECONDS = 60;
+const DEFAULT_COOLDOWN_SECONDS = 20;
 
 export default function VerifyOtpScreen() {
   const params = useLocalSearchParams();

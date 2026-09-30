@@ -328,38 +328,37 @@ export default function DispatchManagement() {
             Showing {(currentPage - 1) * pageSize + (rows.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * pageSize, pending.length)} of {pending.length} pending deliveries
           </span>
-          {totalPages > 1 && (
-            <div className="dp-pagination-controls">
+          <div className="dp-pagination-controls">
+            <button
+              type="button"
+              className="dp-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="dp-page-btn arrow"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`dp-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`dp-page-btn${n === currentPage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="dp-page-btn arrow"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="dp-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -498,38 +497,37 @@ export default function DispatchManagement() {
               Showing {(currentMonitorPage - 1) * pageSize + (monitorRows.length ? 1 : 0)} to{' '}
               {Math.min(currentMonitorPage * pageSize, monitoring.length)} of {monitoring.length} active deliveries
             </span>
-            {monitorTotalPages > 1 && (
-              <div className="dp-pagination-controls">
+            <div className="dp-pagination-controls">
+              <button
+                type="button"
+                className="dp-page-btn arrow"
+                disabled={currentMonitorPage <= 1}
+                onClick={() => setMonitorPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <LuChevronLeft size={16} />
+              </button>
+              {Array.from({ length: monitorTotalPages }, (_, i) => i + 1).map((n) => (
                 <button
+                  key={n}
                   type="button"
-                  className="dp-page-btn arrow"
-                  disabled={currentMonitorPage <= 1}
-                  onClick={() => setMonitorPage((p) => Math.max(1, p - 1))}
-                  aria-label="Previous page"
+                  className={`dp-page-btn${n === currentMonitorPage ? ' active' : ''}`}
+                  disabled={monitorTotalPages <= 1}
+                  onClick={() => setMonitorPage(n)}
                 >
-                  <LuChevronLeft size={16} />
+                  {n}
                 </button>
-                {Array.from({ length: monitorTotalPages }, (_, i) => i + 1).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={`dp-page-btn${n === currentMonitorPage ? ' active' : ''}`}
-                    onClick={() => setMonitorPage(n)}
-                  >
-                    {n}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="dp-page-btn arrow"
-                  disabled={currentMonitorPage >= monitorTotalPages}
-                  onClick={() => setMonitorPage((p) => Math.min(monitorTotalPages, p + 1))}
-                  aria-label="Next page"
-                >
-                  <LuChevronRight size={16} />
-                </button>
-              </div>
-            )}
+              ))}
+              <button
+                type="button"
+                className="dp-page-btn arrow"
+                disabled={currentMonitorPage >= monitorTotalPages}
+                onClick={() => setMonitorPage((p) => Math.min(monitorTotalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <LuChevronRight size={16} />
+              </button>
+            </div>
           </div>
         </section>
       </div>

@@ -79,12 +79,12 @@ export default function ArchivePage({ embedded = false }) {
   const [adminPage, setAdminPage] = useState(1)
   const [driverPage, setDriverPage] = useState(1)
 
-  const totalAdminPages = Math.ceil(admins.length / PAGE_SIZE)
-  const currentAdminPage = Math.min(Math.max(1, adminPage), Math.max(1, totalAdminPages))
+  const totalAdminPages = Math.max(1, Math.ceil(admins.length / PAGE_SIZE))
+  const currentAdminPage = Math.min(Math.max(1, adminPage), totalAdminPages)
   const pagedAdmins = admins.slice((currentAdminPage - 1) * PAGE_SIZE, currentAdminPage * PAGE_SIZE)
 
-  const totalDriverPages = Math.ceil(drivers.length / PAGE_SIZE)
-  const currentDriverPage = Math.min(Math.max(1, driverPage), Math.max(1, totalDriverPages))
+  const totalDriverPages = Math.max(1, Math.ceil(drivers.length / PAGE_SIZE))
+  const currentDriverPage = Math.min(Math.max(1, driverPage), totalDriverPages)
   const pagedDrivers = drivers.slice((currentDriverPage - 1) * PAGE_SIZE, currentDriverPage * PAGE_SIZE)
 
   async function loadArchive() {
@@ -212,38 +212,37 @@ export default function ArchivePage({ embedded = false }) {
             Showing {(currentAdminPage - 1) * PAGE_SIZE + (admins.length ? 1 : 0)} to{' '}
             {Math.min(currentAdminPage * PAGE_SIZE, admins.length)} of {admins.length} archived admins
           </span>
-          {totalAdminPages > 1 ? (
-            <div className="ar-pages">
+          <div className="ar-pages">
+            <button
+              type="button"
+              className="ar-page-btn arrow"
+              disabled={currentAdminPage <= 1}
+              onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalAdminPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="ar-page-btn arrow"
-                disabled={currentAdminPage <= 1}
-                onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`ar-page-btn${currentAdminPage === n ? ' active' : ''}`}
+                disabled={totalAdminPages <= 1}
+                onClick={() => setAdminPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalAdminPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`ar-page-btn${currentAdminPage === n ? ' active' : ''}`}
-                  onClick={() => setAdminPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="ar-page-btn arrow"
-                disabled={currentAdminPage >= totalAdminPages}
-                onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          ) : null}
+            ))}
+            <button
+              type="button"
+              className="ar-page-btn arrow"
+              disabled={currentAdminPage >= totalAdminPages}
+              onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -299,38 +298,37 @@ export default function ArchivePage({ embedded = false }) {
             Showing {(currentDriverPage - 1) * PAGE_SIZE + (drivers.length ? 1 : 0)} to{' '}
             {Math.min(currentDriverPage * PAGE_SIZE, drivers.length)} of {drivers.length} archived drivers
           </span>
-          {totalDriverPages > 1 ? (
-            <div className="ar-pages">
+          <div className="ar-pages">
+            <button
+              type="button"
+              className="ar-page-btn arrow"
+              disabled={currentDriverPage <= 1}
+              onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalDriverPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="ar-page-btn arrow"
-                disabled={currentDriverPage <= 1}
-                onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`ar-page-btn${currentDriverPage === n ? ' active' : ''}`}
+                disabled={totalDriverPages <= 1}
+                onClick={() => setDriverPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalDriverPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`ar-page-btn${currentDriverPage === n ? ' active' : ''}`}
-                  onClick={() => setDriverPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="ar-page-btn arrow"
-                disabled={currentDriverPage >= totalDriverPages}
-                onClick={() => setDriverPage((p) => Math.min(totalDriverPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          ) : null}
+            ))}
+            <button
+              type="button"
+              className="ar-page-btn arrow"
+              disabled={currentDriverPage >= totalDriverPages}
+              onClick={() => setDriverPage((p) => Math.min(totalDriverPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 

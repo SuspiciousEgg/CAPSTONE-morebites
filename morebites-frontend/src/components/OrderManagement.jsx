@@ -657,7 +657,6 @@ export default function OrderManagement() {
             />
           </div>
         ) : (
-          <>
             <div className="om-table-wrap">
               <table className="om-table">
                 <thead>
@@ -712,47 +711,71 @@ export default function OrderManagement() {
                 </tbody>
               </table>
             </div>
+          )}
 
-            <div className="om-pagination-row">
-              <span className="om-pagination-info">
-                Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} orders
-              </span>
-              {totalPages > 1 && (
-                <div className="om-pagination-controls">
-                  <button
-                    type="button"
-                    className="om-page-btn arrow"
-                    disabled={currentPage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    aria-label="Previous page"
-                  >
-                    <LuChevronLeft size={16} />
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`om-page-btn${n === currentPage ? ' active' : ''}`}
-                      onClick={() => setPage(n)}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="om-page-btn arrow"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    aria-label="Next page"
-                  >
-                    <LuChevronRight size={16} />
-                  </button>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        {/*
+         * Prompt 48 Investigation Report — Global Pagination Standardization:
+         * 1. Shared vs. Per-Table Logic: Neither web codebase uses a shared reusable
+         *    pagination component or hook; each table component manages its own page
+         *    state, page count calculation, and pagination bar JSX independently.
+         * 2. Tables Audited & Standardized Across Both Web Codebases:
+         *    - Owner / Super Admin Web (morebites-frontend):
+         *      * MenuManagement.jsx (Menu Management table)
+         *      * OrderManagement.jsx (Orders table)
+         *      * CustomerManagement.jsx (Customers table)
+         *      * RecordsReports.jsx (All Transactions, Delivery Records, Customer Records tabs)
+         *      * InventoryStock.jsx (Main Stock table & Inventory Activity History modal table)
+         *      * ExpiringStock.jsx (Expiring Stock table)
+         *      * DispatchManagement.jsx (Pending Deliveries & Delivery Status Monitoring tables)
+         *      * AccountManagement.jsx (Admins, Drivers, and Cashiers tables)
+         *      * DriverManagement.jsx (Drivers table)
+         *      * BlacklistDrivers.jsx (Blacklisted Drivers table)
+         *      * ArchivePage.jsx (Admin Archives & Driver Archives tables)
+         *    - Admin / Supervisor Web (admin-morebytes):
+         *      * Menu.jsx (Menu Management table)
+         *      * Inventory.jsx (Main Inventory table & Activity History modal table)
+         *      * Orders.jsx (Orders table & POS modal catalog pagination)
+         *      * Dispatch.jsx (Pending Deliveries & Delivery Status Monitoring tables)
+         *      * Reports.jsx (Sales Transactions, Delivery Records, Customer Records tabs)
+         *      * Driver.jsx (Drivers table)
+         */}
+        <div className="om-pagination-row">
+          <span className="om-pagination-info">
+            Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
+            {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} orders
+          </span>
+          <div className="om-pagination-controls">
+            <button
+              type="button"
+              className="om-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`om-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="om-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* Row Action Menu Popup */}

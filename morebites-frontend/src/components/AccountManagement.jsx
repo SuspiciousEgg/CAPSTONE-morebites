@@ -861,38 +861,37 @@ export default function AccountManagement() {
             Showing {(currentAdminPage - 1) * PAGE_SIZE + (admins.length ? 1 : 0)} to{' '}
             {Math.min(currentAdminPage * PAGE_SIZE, admins.length)} of {admins.length} admins
           </span>
-          {totalAdminPages > 1 && (
-            <div className="dm-pages">
+          <div className="dm-pages">
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentAdminPage <= 1}
+              onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalAdminPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="dm-page-btn arrow"
-                disabled={currentAdminPage <= 1}
-                onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`dm-page-btn${n === currentAdminPage ? ' active' : ''}`}
+                disabled={totalAdminPages <= 1}
+                onClick={() => setAdminPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalAdminPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`dm-page-btn${n === currentAdminPage ? ' active' : ''}`}
-                  onClick={() => setAdminPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="dm-page-btn arrow"
-                disabled={currentAdminPage >= totalAdminPages}
-                onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentAdminPage >= totalAdminPages}
+              onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -959,38 +958,37 @@ export default function AccountManagement() {
             Showing {(currentDriverPage - 1) * PAGE_SIZE + (drivers.length ? 1 : 0)} to{' '}
             {Math.min(currentDriverPage * PAGE_SIZE, drivers.length)} of {drivers.length} drivers
           </span>
-          {totalDriverPages > 1 && (
-            <div className="dm-pages">
+          <div className="dm-pages">
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentDriverPage <= 1}
+              onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalDriverPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="dm-page-btn arrow"
-                disabled={currentDriverPage <= 1}
-                onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`dm-page-btn${n === currentDriverPage ? ' active' : ''}`}
+                disabled={totalDriverPages <= 1}
+                onClick={() => setDriverPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalDriverPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`dm-page-btn${n === currentDriverPage ? ' active' : ''}`}
-                  onClick={() => setDriverPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="dm-page-btn arrow"
-                disabled={currentDriverPage >= totalDriverPages}
-                onClick={() => setDriverPage((p) => Math.min(totalDriverPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentDriverPage >= totalDriverPages}
+              onClick={() => setDriverPage((p) => Math.min(totalDriverPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1057,38 +1055,37 @@ export default function AccountManagement() {
             Showing {(currentCashierPage - 1) * PAGE_SIZE + (cashiers.length ? 1 : 0)} to{' '}
             {Math.min(currentCashierPage * PAGE_SIZE, cashiers.length)} of {cashiers.length} cashiers
           </span>
-          {totalCashierPages > 1 && (
-            <div className="dm-pages">
+          <div className="dm-pages">
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentCashierPage <= 1}
+              onClick={() => setCashierPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalCashierPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="dm-page-btn arrow"
-                disabled={currentCashierPage <= 1}
-                onClick={() => setCashierPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`dm-page-btn${n === currentCashierPage ? ' active' : ''}`}
+                disabled={totalCashierPages <= 1}
+                onClick={() => setCashierPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalCashierPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`dm-page-btn${n === currentCashierPage ? ' active' : ''}`}
-                  onClick={() => setCashierPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="dm-page-btn arrow"
-                disabled={currentCashierPage >= totalCashierPages}
-                onClick={() => setCashierPage((p) => Math.min(totalCashierPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentCashierPage >= totalCashierPages}
+              onClick={() => setCashierPage((p) => Math.min(totalCashierPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
       </>

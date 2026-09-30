@@ -74,7 +74,7 @@ export default function ForgotPasswordScreen() {
     setSending(true);
     try {
       const res = await customerApi.requestPasswordResetOtp(clean);
-      const cooldown = Number(res?.cooldown_seconds) || 60;
+      const cooldown = Number(res?.cooldown_seconds) || 20;
       router.push({
         pathname: "/(auth)/verify-otp",
         params: { phone: clean, cooldown: String(cooldown) },
