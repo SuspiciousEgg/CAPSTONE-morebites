@@ -16,6 +16,28 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
+    /**
+     * PROMPT 49 DIAGNOSTIC REPORT — Walk-in vs. Online Orders in Sales & Lifecycle:
+     * 1. Statuses Counted Toward Total Sales:
+     *    - Dashboard (`DashboardController::index`) and Supervisor Web (`Dashboard.jsx`, `Reports.jsx`)
+     *      count strictly `status = 'Completed'` for both walk-in (`Dine-in`, `Takeout`) and `Online Order`
+     *      records via a single unified query.
+     *    - Previously, `ReportController::index` (`total_sales_today`) and `DashboardController::index`
+     *      hourly chart (`$salesRows`) had no `status` filter (summing Pending/Preparing/Ready/Cancelled).
+     *      Both now filter strictly for `status = 'Completed'` within the `Asia/Manila` day window.
+     * 2. Real-World Payment Timing vs. Lifecycle Dead-End:
+     *    - Walk-in (`Dine-in`/`Takeout`) orders set `payment_status = 'Paid'` at POS creation (`store()`),
+     *      whereas COD `Online Order` records start as `payment_status = 'Unpaid'` and become `'Paid'`
+     *      when the rider marks delivery `'Completed'`. There is no separate `paid_at` column.
+     *    - Previously, walk-in orders started at `'Preparing'` -> `'Mark Ready'` (`'Ready'`), and once
+     *      at `'Ready'`, `transform()` returned `action = 'View'`, leaving all 12 walk-in orders in the
+     *      database stuck at `'Ready'` with no UI button to reach `'Completed'`.
+     * 3. Fix Implemented (Option A — Unified `Completed` Rule Across Both Order Types):
+     *    - `transform()` now returns `action = 'Complete'` for walk-in (`Dine-in`/`Takeout`) orders in
+     *      `'Ready'` status so staff can mark them `'Completed'` upon customer handoff.
+     *    - Both walk-in and online orders now consistently reflect in Dashboard Total Sales, Hourly Sales
+     *      Chart, Orders Completed, and Reports Total Sales Today as soon as they reach `'Completed'`.
+     */
     public function index(Request $request)
     {
         $query = Order::query()->with('items')->latest();
@@ -39,11 +61,19 @@ class OrderController extends Controller
 
         $orders = $query->get()->map(fn (Order $o) => $this->transform($o));
 
+        $manilaNow = \Illuminate\Support\Carbon::now('Asia/Manila');
+        $todayStartUtc = $manilaNow->copy()->startOfDay()->setTimezone('UTC');
+        $todayEndUtc = $manilaNow->copy()->endOfDay()->setTimezone('UTC');
+
+        $todayQuery = Order::query()
+            ->realOrderCodes()
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
+
         $stats = [
-            'total' => Order::query()->whereDate('created_at', today())->count(),
-            'completed' => Order::query()->whereDate('created_at', today())->where('status', 'Completed')->count(),
-            'pending' => Order::query()->whereDate('created_at', today())->where('status', 'Pending')->count(),
-            'delivery' => Order::query()->whereDate('created_at', today())->where('status', 'Out for Delivery')->count(),
+            'total' => (clone $todayQuery)->count(),
+            'completed' => (clone $todayQuery)->where('status', 'Completed')->count(),
+            'pending' => (clone $todayQuery)->where('status', 'Pending')->count(),
+            'delivery' => (clone $todayQuery)->where('status', 'Out for Delivery')->count(),
         ];
 
         return response()->json(['data' => $orders, 'meta' => ['stats' => $stats]]);
@@ -140,7 +170,9 @@ class OrderController extends Controller
         $previous = $order->status;
         $updatePayload = ['status' => $data['status']];
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
-            $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+            if ($order->order_type === 'Online Order') {
+                $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+            }
             $updatePayload['payment_status'] = 'Paid';
         }
         $order->update($updatePayload);
@@ -190,7 +222,8 @@ class OrderController extends Controller
         $action = match ($o->status) {
             'Pending' => 'Confirm',
             'Preparing' => 'Mark Ready',
-            'Ready', 'Out for Delivery' => $isOnline ? 'Track' : 'View',
+            'Ready' => $isOnline ? 'Track' : 'Complete',
+            'Out for Delivery' => $isOnline ? 'Track' : 'View',
             'Completed' => 'View',
             default => 'View',
         };

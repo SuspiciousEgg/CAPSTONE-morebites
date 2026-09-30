@@ -751,6 +751,9 @@ export default function RecordsReports({ user: propUser }) {
   const filteredDeliveries = useMemo(() => {
     const q = deliverySearch.trim().toLowerCase()
     return deliveryRecords.filter((r) => {
+      const rowType = (r.order_type || r.type || 'Online Order').toLowerCase()
+      if (rowType === 'dine-in' || rowType === 'takeout') return false
+
       const matchQuery =
         !q ||
         (r.id && r.id.toLowerCase().includes(q)) ||

@@ -77,6 +77,7 @@ class ReportController extends Controller
 
         $deliveryQuery = Order::query()
             ->with(['driver', 'customer'])
+            ->where('order_type', 'Online Order')
             ->latest();
         if ($from) {
             $deliveryQuery->where('created_at', '>=', $from);
@@ -99,6 +100,8 @@ class ReportController extends Controller
                 'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
                 'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
                 'status' => $o->status ?: 'Preparing',
+                'type' => $o->order_type,
+                'order_type' => $o->order_type,
             ])->values();
 
         $orderRangeFilter = function ($q) use ($from, $to) {
@@ -233,11 +236,19 @@ class ReportController extends Controller
             $to = $toDate ? Carbon::createFromFormat('Y-m-d', $toDate)->endOfDay() : null;
         }
 
+        $manilaNow = Carbon::now('Asia/Manila');
+        $todayStartUtc = $manilaNow->copy()->startOfDay()->setTimezone('UTC');
+        $todayEndUtc = $manilaNow->copy()->endOfDay()->setTimezone('UTC');
+
+        $todayOrdersQuery = Order::query()
+            ->realOrderCodes()
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
+
         $stats = [
-            'total_sales_today' => (float) Order::query()->whereDate('created_at', today())->sum('total'),
-            'completed_deliveries' => Order::query()->where('status', 'Completed')->whereDate('created_at', today())->count(),
-            'avg_delivery_time' => (int) (Order::query()->whereNotNull('delivery_minutes')->avg('delivery_minutes') ?: 0),
-            'total_orders' => Order::query()->whereDate('created_at', today())->count(),
+            'total_sales_today' => (float) (clone $todayOrdersQuery)->where('status', 'Completed')->sum('total'),
+            'completed_deliveries' => (clone $todayOrdersQuery)->where('order_type', 'Online Order')->where('status', 'Completed')->count(),
+            'avg_delivery_time' => (int) (Order::query()->where('order_type', 'Online Order')->whereNotNull('delivery_minutes')->avg('delivery_minutes') ?: 0),
+            'total_orders' => (clone $todayOrdersQuery)->count(),
         ];
 
         $dataset = $this->buildReportDataset($from, $to, $search, 50);

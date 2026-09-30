@@ -87,6 +87,7 @@ class DashboardController extends Controller
             ->realOrderCodes()
             ->select(DB::raw("{$timeExpression} as t"), DB::raw('SUM(total) as v'))
             ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
+            ->where('status', 'Completed')
             ->groupBy('t')
             ->orderBy('t')
             ->get()
@@ -97,9 +98,10 @@ class DashboardController extends Controller
             'v' => (float) ($salesRows[$h] ?? 0),
         ]);
 
-        // Left-side donut chart Order Breakdown widget: preserved exactly as-is
+        // Left-side donut chart Order Breakdown widget: preserved with Manila today window
         $statusCounts = Order::query()
-            ->whereDate('created_at', today())
+            ->realOrderCodes()
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
             ->select('status', DB::raw('COUNT(*) as value'))
             ->groupBy('status')
             ->pluck('value', 'status');

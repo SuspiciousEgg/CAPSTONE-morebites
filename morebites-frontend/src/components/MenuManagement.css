@@ -123,7 +123,7 @@
 }
 
 .menu-add-btn:hover {
-  background: #E6522A;
+  background: #E69500;
 }
 
 .menu-add-btn:active {
@@ -942,7 +942,7 @@
 }
 
 .menu-modal-btn.save:hover {
-  background: #E6522A;
+  background: #E69500;
 }
 
 /* Confirmation Modals (Archive & Restore) */

@@ -23,6 +23,7 @@ const STATUS_OPTIONS = [
   'Pending',
   'Confirmed',
   'Preparing',
+  'Ready',
   'Out for Delivery',
   'Completed',
   'Cancelled',
@@ -498,12 +499,15 @@ export default function OrderManagement() {
         ? 'Preparing'
         : order.action === 'Mark Ready'
           ? 'Ready'
-          : null
+          : order.action === 'Complete'
+            ? 'Completed'
+            : null
     if (!next || !order.db_id) return
     try {
       const { data } = await ordersApi.updateStatus(order.db_id, next)
       const updated = data?.data || data
       setOrders((prev) => prev.map((o) => (o.db_id === order.db_id ? updated : o)))
+      await loadOrders()
     } catch (err) {
       console.error(err)
     }
@@ -685,7 +689,7 @@ export default function OrderManagement() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="om-actions-cell">
-                          {['Confirm', 'Mark Ready'].includes(o.action) && (
+                          {['Confirm', 'Mark Ready', 'Complete'].includes(o.action) && (
                             <button
                               type="button"
                               className="om-primary-action-btn"
