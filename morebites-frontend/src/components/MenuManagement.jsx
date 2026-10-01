@@ -51,8 +51,36 @@ import './MenuManagement.css'
  *       - Dispatch — Pending Deliveries (`Dispatch.jsx`): `ITEMS_PER_PAGE = 5` (already 5; added `totalPendingPages > 1` guard)
  *       - Dispatch — Delivery Status Monitoring (`Dispatch.jsx`): Unpaginated -> Added `ITEMS_PER_PAGE = 5` pagination
  *       - Drivers (`Driver.jsx`): `DRIVERS_PER_PAGE = 5` (already 5; added `totalPages > 1` guard)
+/**
+ * PROMPT 51 ARCHITECTURAL INVESTIGATION REPORT:
+ * 
+ * 1. Menu Category Storage & Selection (Pre-existing):
+ *    - In Menu items, `category` is stored directly as a VARCHAR(255) string column on the `menu_items` table.
+ *    - In the frontend form, Category is selected via a single <select> dropdown mapped to the predefined list:
+ *      ['Pizza', 'Meal', 'Rice Meals', 'Pasta', 'Sides', 'Snacks', 'Beverages', 'Desserts'].
+ *
+ * 2. Inventory Category -> Subcategory Structural Pattern:
+ *    - In Inventory items, `category` and `subcategory` are separate dedicated database columns on `inventory_items`
+ *      (subcategory added via migration `2026_08_30_000001_add_subcategory_to_inventory_items_table.php`).
+ *    - It is NOT a separate table and NOT a single combined string (like "Category - Subcategory").
+ *    - Frontend manages an explicit category-to-subcategories dictionary. When a category is picked, its subcategories
+ *      become available in a second dropdown.
+ *
+ * 3. Reused Architecture for Menu Items:
+ *    - Reused the exact same structural pattern: added a nullable `subcategory` VARCHAR(255) column to `menu_items`
+ *      via migration `2026_10_02_000001_add_subcategory_to_menu_items_table.php`.
+ *    - Subcategories are defined only for 'Pizza' (['Premium Pizza', 'Pizzadilla']) and 'Meal' / 'Rice Meals' (['Breakfast', 'Lunch']).
+ *    - For all other categories, the subcategory field is hidden, not required, and saved as null.
+ *    - Subcategory is strictly optional even for Pizza and Meal.
  */
-const CATEGORIES = ['Pizza', 'Pasta', 'Sides', 'Beverages', 'Desserts']
+const CATEGORIES = ['Pizza', 'Meal', 'Rice Meals', 'Pasta', 'Sides', 'Snacks', 'Beverages', 'Desserts']
+
+export const MENU_SUBCATEGORIES = {
+  Pizza: ['Premium Pizza', 'Pizzadilla'],
+  Meal: ['Breakfast', 'Lunch'],
+  'Rice Meals': ['Breakfast', 'Lunch'],
+}
+
 const PAGE_SIZE = 5
 
 function peso(n) {
@@ -75,6 +103,7 @@ function emptyForm() {
     name: '',
     description: '',
     category: '',
+    subcategory: '',
     image: '',
     imageFile: null,
     hasSizes: false,
@@ -89,6 +118,7 @@ function buildInitialForm(initial) {
   return {
     ...emptyForm(),
     ...initial,
+    subcategory: initial?.subcategory || '',
     description: initial?.description || '',
     price: initial?.price ?? '',
     imageFile: null,
@@ -238,6 +268,9 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }))
 
     const description = String(form.description || '').trim()
+    const subcategory = MENU_SUBCATEGORIES[form.category]
+      ? (form.subcategory ? String(form.subcategory).trim() : null)
+      : null
     let payload
     if (form.hasSizes) {
       const validSizes = form.sizes.filter((s) => s.name.trim() && s.price !== '')
@@ -249,6 +282,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...form,
         name: String(form.name).trim(),
         description,
+        subcategory,
         price: 0,
         sizes: validSizes.map((s) => ({ name: s.name.trim(), price: Number(s.price) })),
         ingredients,
@@ -262,6 +296,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...form,
         name: String(form.name).trim(),
         description,
+        subcategory,
         price: Number(form.price),
         sizes: [],
         ingredients,
@@ -373,7 +408,15 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             <select
               id="form-item-cat"
               value={form.category}
-              onChange={(e) => setField('category', e.target.value)}
+              onChange={(e) => {
+                const nextCat = e.target.value
+                const allowed = MENU_SUBCATEGORIES[nextCat] || []
+                setForm((prev) => ({
+                  ...prev,
+                  category: nextCat,
+                  subcategory: allowed.includes(prev.subcategory) ? prev.subcategory : '',
+                }))
+              }}
               required
             >
               <option value="" disabled>
@@ -386,6 +429,27 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               ))}
             </select>
           </div>
+
+          {/* Subcategory (Conditional: Pizza and Meal only, optional) */}
+          {Boolean(MENU_SUBCATEGORIES[form.category]) && (
+            <div className="menu-form-group">
+              <label htmlFor="form-item-subcat">
+                Subcategory <span className="menu-form-optional-tag">(Optional)</span>
+              </label>
+              <select
+                id="form-item-subcat"
+                value={form.subcategory || ''}
+                onChange={(e) => setField('subcategory', e.target.value)}
+              >
+                <option value="">None (Optional)</option>
+                {MENU_SUBCATEGORIES[form.category].map((sub) => (
+                  <option key={sub} value={sub}>
+                    {sub}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Size Options Toggle */}
           <div className="menu-form-group-toggle">
@@ -624,6 +688,7 @@ export default function MenuManagement() {
   const [tab, setTab] = useState('active') // 'active' | 'archived' | 'all'
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All Categories')
+  const [subcategoryFilter, setSubcategoryFilter] = useState('All Subcategories')
   const [page, setPage] = useState(1)
   const [formState, setFormState] = useState(null)
   const [confirm, setConfirm] = useState(null)
@@ -669,15 +734,22 @@ export default function MenuManagement() {
       // In 'all' tab, include both active and archived
       if (category !== 'All Categories' && item.category !== category) return false
       if (
+        subcategoryFilter !== 'All Subcategories' &&
+        item.subcategory !== subcategoryFilter
+      ) {
+        return false
+      }
+      if (
         q &&
         !item.name.toLowerCase().includes(q) &&
-        !item.category.toLowerCase().includes(q)
+        !item.category.toLowerCase().includes(q) &&
+        !(item.subcategory && item.subcategory.toLowerCase().includes(q))
       ) {
         return false
       }
       return true
     })
-  }, [items, tab, search, category])
+  }, [items, tab, search, category, subcategoryFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -697,10 +769,14 @@ export default function MenuManagement() {
   }
 
   async function saveItem(data) {
+    const subcategory = MENU_SUBCATEGORIES[data.category]
+      ? (data.subcategory ? String(data.subcategory).trim() : null)
+      : null
     const payload = {
       name: data.name,
       description: data.description || null,
       category: data.category,
+      subcategory,
       image: data.imageFile ? null : data.image || null,
       imageFile: data.imageFile || null,
       has_sizes: Boolean(data.hasSizes),
@@ -780,6 +856,7 @@ export default function MenuManagement() {
             value={category}
             onChange={(e) => {
               setCategory(e.target.value)
+              setSubcategoryFilter('All Subcategories')
               setPage(1)
             }}
           >
@@ -792,6 +869,28 @@ export default function MenuManagement() {
           </select>
           <LuChevronDown className="menu-select-arrow" size={16} />
         </div>
+
+        {/* Subcategory Filter Dropdown (Conditional when selected category has subcategories) */}
+        {Boolean(MENU_SUBCATEGORIES[category]) && (
+          <div className="menu-category-wrapper">
+            <select
+              className="menu-category-select"
+              value={subcategoryFilter}
+              onChange={(e) => {
+                setSubcategoryFilter(e.target.value)
+                setPage(1)
+              }}
+            >
+              <option value="All Subcategories">All Subcategories</option>
+              {MENU_SUBCATEGORIES[category].map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </select>
+            <LuChevronDown className="menu-select-arrow" size={16} />
+          </div>
+        )}
 
         {/* Add New Item Button */}
         <button
@@ -871,18 +970,19 @@ export default function MenuManagement() {
                       icon="utensils"
                       title="No menu items found"
                       subtitle={
-                        search || category !== 'All Categories'
+                        search || category !== 'All Categories' || subcategoryFilter !== 'All Subcategories'
                           ? 'No items match your active search filters.'
                           : 'Catalog is currently empty.'
                       }
                       action={
-                        Boolean(search || category !== 'All Categories') && (
+                        Boolean(search || category !== 'All Categories' || subcategoryFilter !== 'All Subcategories') && (
                           <button
                             type="button"
                             className="menu-empty-btn-secondary"
                             onClick={() => {
                               setSearch('')
                               setCategory('All Categories')
+                              setSubcategoryFilter('All Subcategories')
                               setPage(1)
                             }}
                           >
@@ -938,9 +1038,14 @@ export default function MenuManagement() {
                         </div>
                       </td>
 
-                      {/* Category Pill */}
+                      {/* Category & Subcategory Badges */}
                       <td>
-                        <span className="menu-category-badge">{item.category}</span>
+                        <div className="menu-category-cell">
+                          <span className="menu-category-badge">{item.category}</span>
+                          {item.subcategory && (
+                            <span className="menu-subcategory-badge">{item.subcategory}</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Price */}

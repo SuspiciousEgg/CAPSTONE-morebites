@@ -37,7 +37,7 @@ class ReportController extends Controller
      *      neither date is in the future (`before_or_equal:today`), and filters `all_records`,
      *      `delivery_records`, `customer_records`, and `top_items` across `[from_date 00:00:00, to_date 23:59:59]`.
      */
-    private function buildReportDataset(?Carbon $from = null, ?Carbon $to = null, ?string $search = null, ?int $limit = 50): array
+    private function buildReportDataset(?Carbon $from = null, ?Carbon $to = null, ?string $search = null, ?int $limit = 50, ?string $status = null): array
     {
         $hasRange = $from !== null || $to !== null;
 
@@ -53,6 +53,9 @@ class ReportController extends Controller
         }
         if ($to) {
             $allQuery->where('created_at', '<=', $to);
+        }
+        if ($status && strtolower($status) !== 'all' && strtolower($status) !== 'all statuses') {
+            $allQuery->where('status', $status);
         }
         if ($limit !== null && ! $hasRange) {
             $allQuery->take($limit);
@@ -84,6 +87,9 @@ class ReportController extends Controller
         }
         if ($to) {
             $deliveryQuery->where('created_at', '<=', $to);
+        }
+        if ($status && strtolower($status) !== 'all' && strtolower($status) !== 'all statuses') {
+            $deliveryQuery->where('status', $status);
         }
         if ($limit !== null && ! $hasRange) {
             $deliveryQuery->take($limit);
@@ -251,7 +257,8 @@ class ReportController extends Controller
             'total_orders' => (clone $todayOrdersQuery)->count(),
         ];
 
-        $dataset = $this->buildReportDataset($from, $to, $search, 50);
+        $status = $request->query('status');
+        $dataset = $this->buildReportDataset($from, $to, $search, 50, $status);
 
         $exports = ExportedReport::query()
             ->orderByDesc('created_at')
@@ -378,6 +385,7 @@ class ReportController extends Controller
             'to_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:from_date', 'before_or_equal:'.$today],
             'format_type' => ['required', 'string'],
             'export_as' => ['required', 'string'],
+            'status' => ['nullable', 'string'],
             'sections' => ['nullable', 'array'],
             'size' => ['nullable', 'string'],
             'size_bytes' => ['nullable', 'integer', 'min:0'],
@@ -395,7 +403,8 @@ class ReportController extends Controller
         $from = Carbon::createFromFormat('Y-m-d', $data['from_date'])->startOfDay();
         $to = Carbon::createFromFormat('Y-m-d', $data['to_date'])->endOfDay();
 
-        $dataset = $this->buildReportDataset($from, $to, null, null);
+        $status = $data['status'] ?? null;
+        $dataset = $this->buildReportDataset($from, $to, null, null, $status);
 
         $ext = match (strtolower($data['export_as'])) {
             'excel', 'xlsx' => 'xlsx',

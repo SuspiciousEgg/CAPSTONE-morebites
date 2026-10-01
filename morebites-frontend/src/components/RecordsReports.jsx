@@ -12,7 +12,7 @@ import EmptyState from './EmptyState'
 import './RecordsReports.css'
 
 function peso(n) {
-  return `₱ ${Number(n).toLocaleString('en-PH')}`
+  return `₱${Number(n).toLocaleString('en-PH')}`
 }
 
 function downloadBlob(blob, filename) {
@@ -97,24 +97,35 @@ async function exportXlsx(filename, title, headers, rows) {
 }
 
 /* ============================================================================
- * PROMPT DIAGNOSTIC REPORT: PDF Generation Logic Location & Implementation
- * ============================================================================
- * 1. PDF Generation Library & Method:
- *    - In this Owner / Super Admin web codebase (`morebites-frontend`), PDF generation
- *      is completely frontend-based. No Laravel backend PDF package (like barryvdh/laravel-dompdf
- *      or spatie/laravel-pdf) is installed or called.
- *    - PDFs are generated in `exportPdf()` via a minimal standards-compliant PDF 1.4 binary
- *      stream generator (Blob creation with xref table and streams), with an interop check
- *      for `window.jsPDF` / `window.jspdf.jsPDF` if present.
- * 2. Header / Footer Metadata Template Section:
- *    - In `exportPdf()`, metadata is rendered directly in the header block above table rows:
- *      title, date/timestamp (`Generated: ...`), and now the author attribution line:
- *      `Prepared by: [Full Name] ([Role])`.
- * 3. Authenticated User Attribution:
- *    - Pulled directly from the authenticated session context (`useAuth()` / `getStoredUser()`
- *      from `localStorage.getItem('mb_user')` and component props `user`), ensuring the
- *      currently logged-in user's full name and mapped role (e.g. "John Owner (Owner)")
- *      is dynamically and consistently attributed across all exported PDF reports.
+ * PROMPT 52 DIAGNOSTIC REPORT:
+ * 1. Status Filter Audit across Reports Tabs:
+ *    - Sales Records (`tab === 'all'`): Previously displayed orders of every status
+ *      mixed together (Completed, Ready, Out for Delivery, Pending, Cancelled)
+ *      with no status filter dropdown.
+ *    - Delivery Records (`tab === 'delivery'`): Already possessed `deliveryStatus`
+ *      dropdown filter ('All Statuses', 'Preparing', 'Out for Delivery', 'Completed', 'Cancelled').
+ *    - Customer Records (`tab === 'customer'`): Already possessed `customerStatus`
+ *      dropdown filter ('All Customers', 'Frequent', 'Regular', 'New').
+ *    - Resolution: Added `salesStatus` filter state defaulting to `'Completed'` on page load,
+ *      matching the Dashboard Total Sales calculation rule (Prompt 51 — Total Sales counts
+ *      status = Completed only). Provided options: 'Completed', 'All Statuses', 'Ready',
+ *      'Out for Delivery', 'Pending', 'Cancelled'. Applied this filter to both the on-screen table
+ *      and the Generate Report modal exports (PDF/CSV/XLSX) via `reportsApi.generate({ status })`.
+ *
+ * 2. PDF Peso Sign Rendering ("– 380" vs "₱380"):
+ *    - Cause: Font-encoding limitation of the standard PDF Type 1 /Helvetica font, NOT a
+ *      data-passing or formatting bug in how amounts were passed to the PDF template.
+ *    - Mechanism: The application passed the UTF-8 string `"₱380"` (bytes 0xE2 0x82 0xB1 0x33 0x38 0x30).
+ *      However, PDF 1.4 standard Type 1 fonts (/Helvetica) rely on standard 8-bit WinAnsiEncoding
+ *      (Windows-1252 / ISO-8859-1), which lacks a character code or glyph for the Philippine
+ *      Peso sign (₱, Unicode U+20B1). When PDF readers parsed unmapped multi-byte UTF-8 sequences
+ *      against single-byte WinAnsi tables, byte 0x96 (WinAnsi En Dash "–") or reader fallbacks
+ *      substituted an en-dash, rendering "– 380" instead of "₱380".
+ *    - Resolution: Implemented a native Type 3 vector glyph (/peso) assigned to character code \200 (128),
+ *      accompanied by an Adobe UCS /ToUnicode CMap mapping <80> directly to <20B1>. The PDF stream
+ *      encodes "₱" to \200 with font /F2 (Type 3) and surrounding text with /F1 (Helvetica), rendering
+ *      a crisp, authentic Philippine Peso symbol and allowing text copying to extract the true "₱" character.
+ *      Also updated `peso(n)` helper to format as `₱${Number(n).toLocaleString('en-PH')}` without spaces.
  * ============================================================================
  */
 
@@ -143,84 +154,133 @@ function getPreparedByString(user) {
 
 async function exportPdf(filename, title, headers, rows, preparedBy) {
   const preparedByText = preparedBy || getPreparedByString()
+  const enc = new TextEncoder()
 
-  if (typeof window !== 'undefined' && (window.jsPDF || window.jspdf?.jsPDF)) {
-    const JsPdf = window.jsPDF || window.jspdf.jsPDF
-    const doc = new JsPdf()
-    doc.setFontSize(14)
-    doc.setFont('helvetica', 'bold')
-    doc.text(title, 14, 16)
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 23)
-    doc.text(preparedByText, 14, 29)
-    let y = 37
-    doc.setFont('helvetica', 'bold')
-    doc.text(headers.join('  |  '), 14, y)
-    doc.setFont('helvetica', 'normal')
-    rows.slice(0, 30).forEach((r) => {
-      if (y > 280) {
-        doc.addPage()
-        y = 20
+  // Type 3 vector glyph for Philippine Peso (₱):
+  // Cap-height 700, dual horizontal crossbars at y=560 and y=450, stroke width 40
+  const charProc = [
+    '600 0 0 -100 600 800 d1',
+    '40 w 1 J 1 j',
+    '120 0 m 120 700 l S',
+    '120 700 m 340 700 440 630 440 510 c 440 390 340 320 120 320 c S',
+    '40 560 m 380 560 l S',
+    '40 450 m 380 450 l S',
+  ].join('\n')
+
+  // Adobe UCS ToUnicode CMap mapping code 0x80 (\200) to Unicode U+20B1 (₱)
+  const toUnicodeCMap = [
+    '/CIDInit /ProcSet findresource begin',
+    '12 dict begin',
+    'begincmap',
+    '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+    '/CMapName /Custom-ToUnicode def',
+    '/CMapType 2 def',
+    '1 begincodespacerange',
+    '<00> <FF>',
+    'endcodespacerange',
+    '1 beginbfrange',
+    '<80> <80> <20B1>',
+    'endbfrange',
+    'endcmap',
+    'CMapName currentdict /CMap defineresource pop',
+    'end',
+    'end',
+  ].join('\n')
+
+  function encodeLineToOps(line) {
+    const sanitized = String(line ?? '')
+      .replace(/[\u2014\u2015]/g, '--')
+      .replace(/[\u2012\u2013]/g, '-')
+    const parts = sanitized.split('₱')
+    const ops = []
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].length > 0) {
+        const safe = parts[i].replace(/[()\\]/g, '\\$&')
+        ops.push(`/F1 9 Tf (${safe}) Tj`)
       }
-      doc.text(r.join('  |  '), 14, y)
-      y += 7
-    })
-    const blob = doc.output ? doc.output('blob') : new Blob([doc.output()], { type: 'application/pdf' })
-    downloadBlob(blob, filename)
-    return blob
+      if (i < parts.length - 1) {
+        ops.push('/F2 9 Tf (\\200) Tj')
+      }
+    }
+    ops.push('T*')
+    return ops.join('\n')
   }
 
-  const lines = [
+  const headerSep = '-'.repeat(Math.min(95, headers.join(' | ').length))
+  const dataLines = rows.map((r) => r.join(' | '))
+
+  const ROWS_PER_PAGE_FIRST = 38
+  const ROWS_PER_PAGE_SUB = 45
+
+  const pagesData = []
+  const remaining = [...dataLines]
+
+  // Page 1 with Title, Timestamp, Prepared By, and Headers
+  const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
+  pagesData.push([
     title,
     `Generated: ${new Date().toLocaleString()}`,
     preparedByText,
     '',
     headers.join(' | '),
-    '-'.repeat(Math.min(80, headers.join(' | ').length)),
-    ...rows.map((r) => r.join(' | ')),
-  ]
+    headerSep,
+    ...page1Rows,
+  ])
 
-  const pdfStream = [
-    'BT',
-    '/F1 10 Tf',
-    '40 760 Td',
-    '14 TL',
-    ...lines.map((l) => `(${String(l).replace(/[()\\]/g, '\\$&')}) '`),
-    'ET',
-  ].join('\n')
+  // Subsequent pages with Continued title and Headers
+  while (remaining.length > 0) {
+    const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
+    pagesData.push([
+      `${title} (Continued)`,
+      headers.join(' | '),
+      headerSep,
+      ...subRows,
+    ])
+  }
 
-  const header = '%PDF-1.4\n'
-  const obj1 = '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'
-  const obj2 = '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n'
-  const obj3 = '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n'
-  const obj4 = `4 0 obj << /Length ${pdfStream.length} >> stream\n${pdfStream}\nendstream endobj\n`
-  const obj5 = '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n'
+  const numPages = pagesData.length
+  const pageObjNums = []
+  for (let i = 0; i < numPages; i++) {
+    pageObjNums.push(7 + 2 * i)
+  }
 
-  const offset1 = header.length
-  const offset2 = offset1 + obj1.length
-  const offset3 = offset2 + obj2.length
-  const offset4 = offset3 + obj3.length
-  const offset5 = offset4 + obj4.length
-  const xrefOffset = offset5 + obj5.length
+  let body = '%PDF-1.4\n'
+  const offsets = []
 
+  function addObj(num, content) {
+    offsets[num] = enc.encode(body).length
+    body += `${num} 0 obj ${content} endobj\n`
+  }
+
+  addObj(1, '<< /Type /Catalog /Pages 2 0 R >>')
+  addObj(2, `<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(' ')}] /Count ${numPages} >>`)
+  addObj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+  addObj(4, '<< /Type /Font /Subtype /Type3 /FontBBox [0 -100 600 800] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /peso 5 0 R >> /Encoding << /Type /Encoding /Differences [128 /peso] >> /FirstChar 128 /LastChar 128 /Widths [600] /ToUnicode 6 0 R >>')
+  addObj(5, `<< /Length ${enc.encode(charProc).length} >> stream\n${charProc}\nendstream`)
+  addObj(6, `<< /Length ${enc.encode(toUnicodeCMap).length} >> stream\n${toUnicodeCMap}\nendstream`)
+
+  for (let i = 0; i < numPages; i++) {
+    const pageNum = 7 + 2 * i
+    const streamNum = 8 + 2 * i
+
+    addObj(pageNum, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${streamNum} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`)
+
+    const lines = pagesData[i]
+    const streamOps = ['BT', '40 750 Td', '14 TL', ...lines.map(encodeLineToOps), 'ET'].join('\n')
+    const streamByteLen = enc.encode(streamOps).length
+    addObj(streamNum, `<< /Length ${streamByteLen} >> stream\n${streamOps}\nendstream`)
+  }
+
+  const totalObjs = 6 + 2 * numPages
+  const startXref = enc.encode(body).length
   const pad = (n) => String(n).padStart(10, '0')
-  const xref = [
-    'xref',
-    '0 6',
-    '0000000000 65535 f ',
-    `${pad(offset1)} 00000 n `,
-    `${pad(offset2)} 00000 n `,
-    `${pad(offset3)} 00000 n `,
-    `${pad(offset4)} 00000 n `,
-    `${pad(offset5)} 00000 n `,
-    'trailer << /Size 6 /Root 1 0 R >>',
-    'startxref',
-    String(xrefOffset),
-    '%%EOF',
-  ].join('\n')
+  let xref = `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`
+  for (let i = 1; i <= totalObjs; i++) {
+    xref += `${pad(offsets[i])} 00000 n \n`
+  }
+  xref += `trailer << /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`
 
-  const pdfBody = header + obj1 + obj2 + obj3 + obj4 + obj5 + xref
+  const pdfBody = body + xref
   const blob = new Blob([pdfBody], { type: 'application/pdf' })
   downloadBlob(blob, filename)
   return blob
@@ -325,6 +385,7 @@ export default function RecordsReports({ user: propUser }) {
       .catch(console.error)
   }, [])
   const [salesSearch, setSalesSearch] = useState('')
+  const [salesStatus, setSalesStatus] = useState('Completed')
   const [deliverySearch, setDeliverySearch] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
   const [deliveryStatus, setDeliveryStatus] = useState('All Statuses')
@@ -418,10 +479,17 @@ export default function RecordsReports({ user: propUser }) {
   })
 
   function getReportData(formatType, rangeLabel, recordsOverride = null) {
-    const sourceAll = recordsOverride?.all_records ?? allRecords
-    const sourceDelivery = recordsOverride?.delivery_records ?? deliveryRecords
+    let sourceAll = recordsOverride?.all_records ?? allRecords
+    if (salesStatus !== 'All Statuses') {
+      sourceAll = sourceAll.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
+    }
+    let sourceDelivery = recordsOverride?.delivery_records ?? deliveryRecords
+    if (salesStatus !== 'All Statuses') {
+      sourceDelivery = sourceDelivery.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
+    }
     const sourceCustomer = recordsOverride?.customer_records ?? customerRecords
     const sourceTopItems = recordsOverride?.top_items ?? topItems
+    const statusSuffix = salesStatus !== 'All Statuses' ? ` - ${salesStatus}` : ''
 
     if (formatType === 'Sales Per Delivery Person' || formatType === 'Delivery Records' || formatType === 'Delivery Summary Report') {
       const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Status']
@@ -433,7 +501,7 @@ export default function RecordsReports({ user: propUser }) {
         r.distance,
         r.status,
       ])
-      return { title: `Sales Per Delivery Person (${rangeLabel})`, headers, rows }
+      return { title: `Sales Per Delivery Person${statusSuffix} (${rangeLabel})`, headers, rows }
     }
 
     /* PROMPT 39 DIAGNOSTIC NOTE:
@@ -502,7 +570,7 @@ export default function RecordsReports({ user: propUser }) {
         r.payment,
         r.status,
       ])
-      return { title: `Full Sales Report (${rangeLabel})`, headers, rows }
+      return { title: `Full Sales Report${statusSuffix} (${rangeLabel})`, headers, rows }
     }
 
     const headers = ['Order ID', 'Customer Name', 'Date & Time', 'Order Type', 'Total Amount', 'Payment Method', 'Status']
@@ -515,7 +583,7 @@ export default function RecordsReports({ user: propUser }) {
       r.payment,
       r.status,
     ])
-    return { title: `Sales Summary Report (${rangeLabel})`, headers, rows }
+    return { title: `Sales Summary Report${statusSuffix} (${rangeLabel})`, headers, rows }
   }
 
   function handleCancel() {
@@ -563,8 +631,8 @@ export default function RecordsReports({ user: propUser }) {
     const selectedFormat = format
     const selectedExportAs = exportAs
     const rangeLabel = `${selectedFrom} to ${selectedTo}`
-    const ext = selectedExportAs.toLowerCase() === 'csv' ? 'csv' : selectedExportAs.toLowerCase() === 'pdf' ? 'pdf' : 'xlsx'
-    const fileName = `${selectedFormat.replace(/\s+/g, '_')}_${selectedFrom}_to_${selectedTo}.${ext}`
+    const statusSlug = salesStatus !== 'All Statuses' ? `_${salesStatus.replace(/\s+/g, '_')}` : ''
+    const fileName = `${selectedFormat.replace(/\s+/g, '_')}${statusSlug}_${selectedFrom}_to_${selectedTo}.${ext}`
 
     setGeneratingReport(true)
 
@@ -575,6 +643,7 @@ export default function RecordsReports({ user: propUser }) {
         to_date: selectedTo,
         format_type: selectedFormat,
         export_as: selectedExportAs,
+        status: salesStatus,
         sections,
         create_export_record: false,
       })
@@ -592,8 +661,12 @@ export default function RecordsReports({ user: propUser }) {
         return
       }
       console.warn('Fallback to client-side date range filtering for report generation:', err)
+      const baseFilteredAll =
+        salesStatus === 'All Statuses'
+          ? allRecords
+          : allRecords.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
       filteredDataset = {
-        all_records: filterArrayByDateRange(allRecords, selectedFrom, selectedTo, 'datetime'),
+        all_records: filterArrayByDateRange(baseFilteredAll, selectedFrom, selectedTo, 'datetime'),
         delivery_records: filterArrayByDateRange(deliveryRecords, selectedFrom, selectedTo, 'datetime'),
         customer_records: filterArrayByDateRange(customerRecords, selectedFrom, selectedTo, 'last'),
         top_items: topItems,
@@ -744,9 +817,14 @@ export default function RecordsReports({ user: propUser }) {
         }
       }
 
-      return matchQuery && matchDate
+      let matchStatus = true
+      if (salesStatus !== 'All Statuses') {
+        matchStatus = (r.status || '').toLowerCase() === salesStatus.toLowerCase()
+      }
+
+      return matchQuery && matchDate && matchStatus
     })
-  }, [salesSearch, startDate, endDate, allRecords])
+  }, [salesSearch, startDate, endDate, salesStatus, allRecords])
 
   const filteredDeliveries = useMemo(() => {
     const q = deliverySearch.trim().toLowerCase()
@@ -918,6 +996,21 @@ export default function RecordsReports({ user: propUser }) {
                     }}
                   />
                 </div>
+
+                <select
+                  className="reports-select-filter"
+                  value={salesStatus}
+                  onChange={(e) => {
+                    setSalesStatus(e.target.value)
+                    setPage(1)
+                  }}
+                >
+                  <option>Completed</option>
+                  <option>All Statuses</option>
+                  <option>Ready</option>
+                  <option>Out for Delivery</option>
+                  <option>Pending</option>
+                </select>
               </>
             )}
 
@@ -973,7 +1066,6 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Preparing</option>
                   <option>Out for Delivery</option>
                   <option>Completed</option>
-                  <option>Cancelled</option>
                 </select>
               </>
             )}
@@ -1413,6 +1505,27 @@ export default function RecordsReports({ user: propUser }) {
                     {reportDateError}
                   </div>
                 )}
+              </div>
+
+              <div className="reports-form-group">
+                <label className="reports-form-label">Order Status</label>
+                <select
+                  className="reports-select-filter"
+                  style={{ width: '100%', height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px', background: '#FFFFFF', color: '#1F2937' }}
+                  value={salesStatus}
+                  onChange={(e) => setSalesStatus(e.target.value)}
+                >
+                  <option>Completed</option>
+                  <option>All Statuses</option>
+                  <option>Ready</option>
+                  <option>Out for Delivery</option>
+                  <option>Pending</option>
+                </select>
+                <p style={{ margin: '4px 0 0 2px', fontSize: '12px', color: '#6B7280' }}>
+                  {salesStatus === 'All Statuses'
+                    ? 'Exported file will include orders across all statuses.'
+                    : `Exported file will only include orders with "${salesStatus}" status.`}
+                </p>
               </div>
 
               <div className="reports-form-group">

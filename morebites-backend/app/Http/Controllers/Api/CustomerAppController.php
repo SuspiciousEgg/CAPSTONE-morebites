@@ -1049,6 +1049,7 @@ class CustomerAppController extends Controller
             'db_id' => $m->id,
             'name' => $m->name,
             'category' => $m->category,
+            'subcategory' => $m->subcategory,
             'description' => $m->description,
             'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
             'priceLabel' => $priceLabel,

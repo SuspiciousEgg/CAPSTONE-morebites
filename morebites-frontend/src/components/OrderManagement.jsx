@@ -26,7 +26,6 @@ const STATUS_OPTIONS = [
   'Ready',
   'Out for Delivery',
   'Completed',
-  'Cancelled',
 ]
 const TYPE_OPTIONS = ['All Types', 'Online Order', 'Dine-in', 'Takeout']
 const POS_ORDER_TYPES = ['Dine-in', 'Takeout']
