@@ -91,6 +91,9 @@ function toMenuFormData(payload) {
   form.append('name', payload.name || '')
   form.append('description', payload.description || '')
   form.append('category', payload.category || '')
+  if (payload.subcategory !== undefined) {
+    form.append('subcategory', payload.subcategory || '')
+  }
   form.append('has_sizes', payload.has_sizes ? '1' : '0')
   form.append('price', String(payload.price ?? 0))
   form.append('sizes', JSON.stringify(payload.sizes || []))

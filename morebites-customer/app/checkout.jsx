@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, customerApi } from "../src/api/client";
+import { addressStorage, authStorage, customerApi } from "../src/api/client";
 import { fetchDeliveryFees } from "../src/api/fees";
 import { useCart } from "../src/context/CartContext";
 
@@ -137,52 +137,56 @@ export default function CheckoutScreen() {
       setPhone((curr) => curr || user.phone || "");
     }
 
-    const savedAddresses = await AsyncStorage.getItem("saved_addresses");
-    if (savedAddresses) {
-      try {
-        const addresses = JSON.parse(savedAddresses);
-        const list = Array.isArray(addresses) ? addresses : [];
-        setSavedAddressList(list);
-
-        if (list.length > 0) {
-          setSelectedAddressId((currSelected) => {
-            if (currSelected === null) {
-              const defaultAddress = list.find((address) => address.isDefault) || list[0];
-              if (defaultAddress) {
-                setStreet(defaultAddress.street || "");
-                setBarangay(defaultAddress.barangay || "");
-                setCity(defaultAddress.city || "");
-                setLandmark(defaultAddress.landmark || "");
-                if (defaultAddress.latitude != null && defaultAddress.longitude != null) {
-                  const lat = Number(defaultAddress.latitude);
-                  const lng = Number(defaultAddress.longitude);
-                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                    setCoordinates({ latitude: lat, longitude: lng });
-                  }
-                }
-                return defaultAddress.id;
-              }
-            } else if (currSelected !== "new" && currSelected !== "custom") {
-              const exists = list.some((a) => a.id === currSelected);
-              if (!exists) return "new";
-            }
-            return currSelected;
-          });
-        }
-      } catch {
-        // ignore JSON parse errors
+    let list = [];
+    try {
+      const res = await customerApi.addresses();
+      if (Array.isArray(res?.data)) {
+        list = res.data;
+        await addressStorage.saveForCurrentUser(list);
       }
-    } else if (user?.delivery_address) {
-      const parts = user.delivery_address.split(",").map((s) => s.trim()).filter(Boolean);
-      if (parts.length >= 3) {
-        setStreet((curr) => curr || parts.slice(0, parts.length - 2).join(", "));
-        setBarangay((curr) => curr || parts[parts.length - 2]);
-        setCity((curr) => curr || parts[parts.length - 1]);
-      } else if (parts.length === 2) {
-        setStreet((curr) => curr || parts[0]);
-        setBarangay((curr) => curr || parts[1]);
-      } else {
-        setStreet((curr) => curr || user.delivery_address);
+    } catch {
+      list = await addressStorage.getForCurrentUser();
+    }
+
+    if (list.length > 0) {
+      setSavedAddressList(list);
+      setSelectedAddressId((currSelected) => {
+        if (currSelected === null) {
+          const defaultAddress = list.find((address) => address.isDefault || address.is_default) || list[0];
+          if (defaultAddress) {
+            setStreet(defaultAddress.street || "");
+            setBarangay(defaultAddress.barangay || "");
+            setCity(defaultAddress.city || "");
+            setLandmark(defaultAddress.landmark || "");
+            if (defaultAddress.latitude != null && defaultAddress.longitude != null) {
+              const lat = Number(defaultAddress.latitude);
+              const lng = Number(defaultAddress.longitude);
+              if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                setCoordinates({ latitude: lat, longitude: lng });
+              }
+            }
+            return defaultAddress.id;
+          }
+        } else if (currSelected !== "new" && currSelected !== "custom") {
+          const exists = list.some((a) => String(a.id) === String(currSelected));
+          if (!exists) return "new";
+        }
+        return currSelected;
+      });
+    } else {
+      setSavedAddressList([]);
+      if (user?.delivery_address) {
+        const parts = user.delivery_address.split(",").map((s) => s.trim()).filter(Boolean);
+        if (parts.length >= 3) {
+          setStreet((curr) => curr || parts.slice(0, parts.length - 2).join(", "));
+          setBarangay((curr) => curr || parts[parts.length - 2]);
+          setCity((curr) => curr || parts[parts.length - 1]);
+        } else if (parts.length === 2) {
+          setStreet((curr) => curr || parts[0]);
+          setBarangay((curr) => curr || parts[1]);
+        } else {
+          setStreet((curr) => curr || user.delivery_address);
+        }
       }
     }
   }, []);

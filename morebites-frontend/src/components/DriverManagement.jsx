@@ -26,7 +26,8 @@ import {
   IconStarFill,
   IconUser,
 } from './Icons'
-import { driversApi } from '../api/client'
+import { driversApi, getStoredUser } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
 import './DriverManagement.css'
 
@@ -49,6 +50,8 @@ function isExpired(dateStr) {
 }
 
 export default function DriverManagement({ embedded = false }) {
+  const auth = useAuth()
+  const currentUser = auth?.user || getStoredUser()
   const [drivers, setDrivers] = useState([])
   const [search, setSearch] = useState('')
 
@@ -284,38 +287,37 @@ export default function DriverManagement({ embedded = false }) {
             Showing {(currentPage - 1) * pageSize + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} drivers
           </span>
-          {totalPages > 1 && (
-            <div className="dm-pages">
+          <div className="dm-pages">
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="dm-page-btn arrow"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`dm-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`dm-page-btn${n === currentPage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="dm-page-btn arrow"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="dm-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -368,40 +370,42 @@ export default function DriverManagement({ embedded = false }) {
               ))}
             </ul>
 
-            <div className="dm-drawer-actions">
-              {selected.status === 'Active' ? (
-                <button
-                  type="button"
-                  className="dm-action-btn dm-btn-suspend"
-                  onClick={() => setConfirmModal({ type: 'suspend', driver: selected })}
-                >
-                  <LuShieldAlert size={16} />
-                  <span>SUSPEND</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="dm-action-btn dm-btn-reactivate"
-                  onClick={() => setConfirmModal({ type: 'reactivate', driver: selected })}
-                >
-                  <LuCircleCheck size={16} />
-                  <span>REACTIVATE</span>
-                </button>
-              )}
+            {Number(selected.db_id) !== Number(currentUser?.id) && (
+              <div className="dm-drawer-actions">
+                {selected.status === 'Active' ? (
+                  <button
+                    type="button"
+                    className="dm-action-btn dm-btn-suspend"
+                    onClick={() => setConfirmModal({ type: 'suspend', driver: selected })}
+                  >
+                    <LuShieldAlert size={16} />
+                    <span>SUSPEND</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="dm-action-btn dm-btn-reactivate"
+                    onClick={() => setConfirmModal({ type: 'reactivate', driver: selected })}
+                  >
+                    <LuCircleCheck size={16} />
+                    <span>REACTIVATE</span>
+                  </button>
+                )}
 
-              <button
-                type="button"
-                className="dm-action-btn dm-btn-blacklist"
-                onClick={() => {
-                  setBlacklistModal({ driver: selected })
-                  setBlacklistReason(BLACKLIST_REASONS[0])
-                  setBlacklistNotes('')
-                }}
-              >
-                <LuBan size={16} />
-                <span>BLACKLIST</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="dm-action-btn dm-btn-blacklist"
+                  onClick={() => {
+                    setBlacklistModal({ driver: selected })
+                    setBlacklistReason(BLACKLIST_REASONS[0])
+                    setBlacklistNotes('')
+                  }}
+                >
+                  <LuBan size={16} />
+                  <span>BLACKLIST</span>
+                </button>
+              </div>
+            )}
           </aside>
         </>
       )}

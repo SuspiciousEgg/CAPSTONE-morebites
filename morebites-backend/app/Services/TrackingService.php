@@ -250,6 +250,13 @@ class TrackingService
         ];
     }
 
+    public const ACTIVE_DELIVERY_STATUSES = [
+        'Assigned',
+        'Picked Up',
+        'Out for Delivery',
+        'Out For Delivery',
+    ];
+
     public function trackingPayload(Order $order): array
     {
         $order = $this->ensureDestination($order->loadMissing(['driver', 'items', 'customer']));
@@ -258,6 +265,9 @@ class TrackingService
             'longitude' => (float) $order->dest_lng,
         ];
         $rider = $this->riderPoint($order);
+        if (! $rider && in_array($order->status, self::ACTIVE_DELIVERY_STATUSES, true)) {
+            $rider = $this->storePoint();
+        }
         $coords = [];
         $distanceKm = null;
         $etaMins = null;
@@ -272,12 +282,26 @@ class TrackingService
             $etaMins = (int) ($order->delivery_minutes ?: max(1, (int) round($distanceKm * 3.5)));
         }
 
-        $status = $order->status === 'Completed' ? 'Delivered' : $order->status;
+        $status = match ($order->status) {
+            'Completed', 'Delivered' => 'Delivered',
+            'Out For Delivery', 'Out for Delivery' => 'Out for Delivery',
+            default => $order->status,
+        };
+        $isCompleted = in_array($status, ['Delivered', 'Completed'], true);
+        $deliveredAt = $order->delivered_at ?? ($isCompleted ? $order->updated_at : null);
+        $rates = app(DeliveryRateService::class);
 
         return [
             'order_id' => $order->order_code,
+            'id' => $order->order_code,
             'db_id' => $order->id,
+            'receipt_number' => $order->receiptNumber(),
             'status' => $status,
+            'raw_status' => $order->status,
+            'date' => $order->created_at?->toIso8601String(),
+            'dateLabel' => $order->created_at?->format('M j, Y · g:i A'),
+            'ordered_at' => $order->created_at?->toIso8601String(),
+            'ordered_at_label' => $order->created_at?->format('M j, Y · g:i A'),
             'customer' => $order->customer_name,
             'address' => $order->delivery_address,
             'driver' => $order->driver?->name,
@@ -299,44 +323,87 @@ class TrackingService
                 'price' => (float) $i->unit_price,
             ])->values(),
             'total' => (float) $order->total,
+            'delivery_fee' => (float) ($order->delivery_fee ?? $rates->defaultFee()),
+            'service_fee' => (float) ($order->service_fee ?? $rates->serviceFee()),
+            'payment_method' => $order->payment_method ?: 'COD',
+            'payment_status' => $isCompleted ? 'Paid' : ($order->payment_status ?: 'Unpaid'),
             'rated' => (bool) $order->rated_at,
-            'can_rate' => in_array($status, ['Delivered', 'Completed'], true) && ! $order->rated_at,
+            'can_rate' => $isCompleted && ! $order->rated_at,
             'proof_of_delivery' => Media::url($order->proof_of_delivery),
-            'delivered_at' => $order->delivered_at?->toIso8601String(),
-            'delivered_at_label' => $order->delivered_at?->format('M j, Y · g:i A'),
+            'delivered_at' => $deliveredAt?->toIso8601String(),
+            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
+            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_earned' => $order->loyaltyPointsEarned(),
         ];
     }
 
-    public function fleetPayload(): array
+    /**
+     * Unified active deliveries query & payload shared by both the Live Delivery Map
+     * and the Delivery Status Monitoring table on the Dispatch page (Prompt 43).
+     */
+    public function activeDeliveriesPayload(): array
     {
-        $orders = Order::query()
-            ->with('driver')
+        return Order::query()
+            ->with(['driver', 'items', 'customer'])
             ->whereNotNull('driver_id')
             ->where('order_type', 'Online Order')
-            ->where('status', 'Out for Delivery')
-            ->latest()
+            ->whereIn('status', self::ACTIVE_DELIVERY_STATUSES)
+            ->latest('updated_at')
             ->take(20)
             ->get()
             ->map(function (Order $order) {
                 $payload = $this->trackingPayload($order);
+                $normalizedStatus = match ($order->status) {
+                    'Picked Up' => 'Picked Up',
+                    'Assigned' => 'Assigned',
+                    default => 'Out for Delivery',
+                };
 
                 return [
-                    'db_id' => $payload['db_id'],
+                    'id' => $order->order_code,
                     'order_id' => $payload['order_id'],
-                    'status' => $payload['status'],
-                    'driver' => $payload['driver'],
+                    'db_id' => $payload['db_id'],
+                    'order_type' => $order->order_type ?: 'Online Order',
+                    'type' => $order->order_type ?: 'Online Order',
+                    'status' => $normalizedStatus,
+                    'raw_status' => $order->status,
+                    'name' => $order->driver?->name ?? 'Unknown',
+                    'driver' => $payload['driver'] ?? ($order->driver?->name ?? 'Unknown'),
+                    'phone' => $order->driver?->phone ?: '+63 912 345 6789',
                     'customer' => $payload['customer'],
+                    'customer_phone' => $order->customer?->phone ?: '',
+                    'address' => $order->delivery_address ?: 'N/A',
+                    'total' => (float) $order->total,
+                    'payment_method' => $order->payment_method ?: 'COD',
+                    'items' => $order->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', '),
+                    'updated' => $order->updated_at?->format('g:i A'),
+                    'updated_time' => $order->updated_at?->format('g:i A'),
+                    'updated_date' => $order->updated_at?->format('M d, Y'),
+                    'updated_at' => $payload['updated_at'],
+                    'assigned_at' => $order->assigned_at?->format('M d, Y g:i A'),
                     'destination' => $payload['destination'],
                     'rider' => $payload['rider'],
                     'route' => $payload['route'],
+                    'dest_lat' => isset($payload['destination']['latitude']) ? (float) $payload['destination']['latitude'] : null,
+                    'dest_lng' => isset($payload['destination']['longitude']) ? (float) $payload['destination']['longitude'] : null,
+                    'rider_lat' => isset($payload['rider']['latitude']) ? (float) $payload['rider']['latitude'] : null,
+                    'rider_lng' => isset($payload['rider']['longitude']) ? (float) $payload['rider']['longitude'] : null,
                     'eta_mins' => $payload['eta_mins'],
                     'distance_km' => $payload['distance_km'],
                 ];
             })
-            ->values();
+            ->values()
+            ->all();
+    }
+
+    public function fleetPayload(): array
+    {
+        $deliveries = $this->activeDeliveriesPayload();
 
         return [
-            'deliveries' => $orders,
+            'deliveries' => $deliveries,
+            'monitoring' => $deliveries,
         ];
     }
 

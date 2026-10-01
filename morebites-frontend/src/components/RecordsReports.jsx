@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import {
   IconClose,
   IconDownload,
@@ -11,7 +12,7 @@ import EmptyState from './EmptyState'
 import './RecordsReports.css'
 
 function peso(n) {
-  return `₱ ${Number(n).toLocaleString('en-PH')}`
+  return `₱${Number(n).toLocaleString('en-PH')}`
 }
 
 function downloadBlob(blob, filename) {
@@ -96,24 +97,35 @@ async function exportXlsx(filename, title, headers, rows) {
 }
 
 /* ============================================================================
- * PROMPT DIAGNOSTIC REPORT: PDF Generation Logic Location & Implementation
- * ============================================================================
- * 1. PDF Generation Library & Method:
- *    - In this Owner / Super Admin web codebase (`morebites-frontend`), PDF generation
- *      is completely frontend-based. No Laravel backend PDF package (like barryvdh/laravel-dompdf
- *      or spatie/laravel-pdf) is installed or called.
- *    - PDFs are generated in `exportPdf()` via a minimal standards-compliant PDF 1.4 binary
- *      stream generator (Blob creation with xref table and streams), with an interop check
- *      for `window.jsPDF` / `window.jspdf.jsPDF` if present.
- * 2. Header / Footer Metadata Template Section:
- *    - In `exportPdf()`, metadata is rendered directly in the header block above table rows:
- *      title, date/timestamp (`Generated: ...`), and now the author attribution line:
- *      `Prepared by: [Full Name] ([Role])`.
- * 3. Authenticated User Attribution:
- *    - Pulled directly from the authenticated session context (`useAuth()` / `getStoredUser()`
- *      from `localStorage.getItem('mb_user')` and component props `user`), ensuring the
- *      currently logged-in user's full name and mapped role (e.g. "John Owner (Owner)")
- *      is dynamically and consistently attributed across all exported PDF reports.
+ * PROMPT 52 DIAGNOSTIC REPORT:
+ * 1. Status Filter Audit across Reports Tabs:
+ *    - Sales Records (`tab === 'all'`): Previously displayed orders of every status
+ *      mixed together (Completed, Ready, Out for Delivery, Pending, Cancelled)
+ *      with no status filter dropdown.
+ *    - Delivery Records (`tab === 'delivery'`): Already possessed `deliveryStatus`
+ *      dropdown filter ('All Statuses', 'Preparing', 'Out for Delivery', 'Completed', 'Cancelled').
+ *    - Customer Records (`tab === 'customer'`): Already possessed `customerStatus`
+ *      dropdown filter ('All Customers', 'Frequent', 'Regular', 'New').
+ *    - Resolution: Added `salesStatus` filter state defaulting to `'Completed'` on page load,
+ *      matching the Dashboard Total Sales calculation rule (Prompt 51 — Total Sales counts
+ *      status = Completed only). Provided options: 'Completed', 'All Statuses', 'Ready',
+ *      'Out for Delivery', 'Pending', 'Cancelled'. Applied this filter to both the on-screen table
+ *      and the Generate Report modal exports (PDF/CSV/XLSX) via `reportsApi.generate({ status })`.
+ *
+ * 2. PDF Peso Sign Rendering ("– 380" vs "₱380"):
+ *    - Cause: Font-encoding limitation of the standard PDF Type 1 /Helvetica font, NOT a
+ *      data-passing or formatting bug in how amounts were passed to the PDF template.
+ *    - Mechanism: The application passed the UTF-8 string `"₱380"` (bytes 0xE2 0x82 0xB1 0x33 0x38 0x30).
+ *      However, PDF 1.4 standard Type 1 fonts (/Helvetica) rely on standard 8-bit WinAnsiEncoding
+ *      (Windows-1252 / ISO-8859-1), which lacks a character code or glyph for the Philippine
+ *      Peso sign (₱, Unicode U+20B1). When PDF readers parsed unmapped multi-byte UTF-8 sequences
+ *      against single-byte WinAnsi tables, byte 0x96 (WinAnsi En Dash "–") or reader fallbacks
+ *      substituted an en-dash, rendering "– 380" instead of "₱380".
+ *    - Resolution: Implemented a native Type 3 vector glyph (/peso) assigned to character code \200 (128),
+ *      accompanied by an Adobe UCS /ToUnicode CMap mapping <80> directly to <20B1>. The PDF stream
+ *      encodes "₱" to \200 with font /F2 (Type 3) and surrounding text with /F1 (Helvetica), rendering
+ *      a crisp, authentic Philippine Peso symbol and allowing text copying to extract the true "₱" character.
+ *      Also updated `peso(n)` helper to format as `₱${Number(n).toLocaleString('en-PH')}` without spaces.
  * ============================================================================
  */
 
@@ -142,84 +154,133 @@ function getPreparedByString(user) {
 
 async function exportPdf(filename, title, headers, rows, preparedBy) {
   const preparedByText = preparedBy || getPreparedByString()
+  const enc = new TextEncoder()
 
-  if (typeof window !== 'undefined' && (window.jsPDF || window.jspdf?.jsPDF)) {
-    const JsPdf = window.jsPDF || window.jspdf.jsPDF
-    const doc = new JsPdf()
-    doc.setFontSize(14)
-    doc.setFont('helvetica', 'bold')
-    doc.text(title, 14, 16)
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 23)
-    doc.text(preparedByText, 14, 29)
-    let y = 37
-    doc.setFont('helvetica', 'bold')
-    doc.text(headers.join('  |  '), 14, y)
-    doc.setFont('helvetica', 'normal')
-    rows.slice(0, 30).forEach((r) => {
-      if (y > 280) {
-        doc.addPage()
-        y = 20
+  // Type 3 vector glyph for Philippine Peso (₱):
+  // Cap-height 700, dual horizontal crossbars at y=560 and y=450, stroke width 40
+  const charProc = [
+    '600 0 0 -100 600 800 d1',
+    '40 w 1 J 1 j',
+    '120 0 m 120 700 l S',
+    '120 700 m 340 700 440 630 440 510 c 440 390 340 320 120 320 c S',
+    '40 560 m 380 560 l S',
+    '40 450 m 380 450 l S',
+  ].join('\n')
+
+  // Adobe UCS ToUnicode CMap mapping code 0x80 (\200) to Unicode U+20B1 (₱)
+  const toUnicodeCMap = [
+    '/CIDInit /ProcSet findresource begin',
+    '12 dict begin',
+    'begincmap',
+    '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+    '/CMapName /Custom-ToUnicode def',
+    '/CMapType 2 def',
+    '1 begincodespacerange',
+    '<00> <FF>',
+    'endcodespacerange',
+    '1 beginbfrange',
+    '<80> <80> <20B1>',
+    'endbfrange',
+    'endcmap',
+    'CMapName currentdict /CMap defineresource pop',
+    'end',
+    'end',
+  ].join('\n')
+
+  function encodeLineToOps(line) {
+    const sanitized = String(line ?? '')
+      .replace(/[\u2014\u2015]/g, '--')
+      .replace(/[\u2012\u2013]/g, '-')
+    const parts = sanitized.split('₱')
+    const ops = []
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].length > 0) {
+        const safe = parts[i].replace(/[()\\]/g, '\\$&')
+        ops.push(`/F1 9 Tf (${safe}) Tj`)
       }
-      doc.text(r.join('  |  '), 14, y)
-      y += 7
-    })
-    const blob = doc.output ? doc.output('blob') : new Blob([doc.output()], { type: 'application/pdf' })
-    downloadBlob(blob, filename)
-    return blob
+      if (i < parts.length - 1) {
+        ops.push('/F2 9 Tf (\\200) Tj')
+      }
+    }
+    ops.push('T*')
+    return ops.join('\n')
   }
 
-  const lines = [
+  const headerSep = '-'.repeat(Math.min(95, headers.join(' | ').length))
+  const dataLines = rows.map((r) => r.join(' | '))
+
+  const ROWS_PER_PAGE_FIRST = 38
+  const ROWS_PER_PAGE_SUB = 45
+
+  const pagesData = []
+  const remaining = [...dataLines]
+
+  // Page 1 with Title, Timestamp, Prepared By, and Headers
+  const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
+  pagesData.push([
     title,
     `Generated: ${new Date().toLocaleString()}`,
     preparedByText,
     '',
     headers.join(' | '),
-    '-'.repeat(Math.min(80, headers.join(' | ').length)),
-    ...rows.map((r) => r.join(' | ')),
-  ]
+    headerSep,
+    ...page1Rows,
+  ])
 
-  const pdfStream = [
-    'BT',
-    '/F1 10 Tf',
-    '40 760 Td',
-    '14 TL',
-    ...lines.map((l) => `(${String(l).replace(/[()\\]/g, '\\$&')}) '`),
-    'ET',
-  ].join('\n')
+  // Subsequent pages with Continued title and Headers
+  while (remaining.length > 0) {
+    const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
+    pagesData.push([
+      `${title} (Continued)`,
+      headers.join(' | '),
+      headerSep,
+      ...subRows,
+    ])
+  }
 
-  const header = '%PDF-1.4\n'
-  const obj1 = '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'
-  const obj2 = '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n'
-  const obj3 = '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n'
-  const obj4 = `4 0 obj << /Length ${pdfStream.length} >> stream\n${pdfStream}\nendstream endobj\n`
-  const obj5 = '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n'
+  const numPages = pagesData.length
+  const pageObjNums = []
+  for (let i = 0; i < numPages; i++) {
+    pageObjNums.push(7 + 2 * i)
+  }
 
-  const offset1 = header.length
-  const offset2 = offset1 + obj1.length
-  const offset3 = offset2 + obj2.length
-  const offset4 = offset3 + obj3.length
-  const offset5 = offset4 + obj4.length
-  const xrefOffset = offset5 + obj5.length
+  let body = '%PDF-1.4\n'
+  const offsets = []
 
+  function addObj(num, content) {
+    offsets[num] = enc.encode(body).length
+    body += `${num} 0 obj ${content} endobj\n`
+  }
+
+  addObj(1, '<< /Type /Catalog /Pages 2 0 R >>')
+  addObj(2, `<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(' ')}] /Count ${numPages} >>`)
+  addObj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+  addObj(4, '<< /Type /Font /Subtype /Type3 /FontBBox [0 -100 600 800] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /peso 5 0 R >> /Encoding << /Type /Encoding /Differences [128 /peso] >> /FirstChar 128 /LastChar 128 /Widths [600] /ToUnicode 6 0 R >>')
+  addObj(5, `<< /Length ${enc.encode(charProc).length} >> stream\n${charProc}\nendstream`)
+  addObj(6, `<< /Length ${enc.encode(toUnicodeCMap).length} >> stream\n${toUnicodeCMap}\nendstream`)
+
+  for (let i = 0; i < numPages; i++) {
+    const pageNum = 7 + 2 * i
+    const streamNum = 8 + 2 * i
+
+    addObj(pageNum, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${streamNum} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`)
+
+    const lines = pagesData[i]
+    const streamOps = ['BT', '40 750 Td', '14 TL', ...lines.map(encodeLineToOps), 'ET'].join('\n')
+    const streamByteLen = enc.encode(streamOps).length
+    addObj(streamNum, `<< /Length ${streamByteLen} >> stream\n${streamOps}\nendstream`)
+  }
+
+  const totalObjs = 6 + 2 * numPages
+  const startXref = enc.encode(body).length
   const pad = (n) => String(n).padStart(10, '0')
-  const xref = [
-    'xref',
-    '0 6',
-    '0000000000 65535 f ',
-    `${pad(offset1)} 00000 n `,
-    `${pad(offset2)} 00000 n `,
-    `${pad(offset3)} 00000 n `,
-    `${pad(offset4)} 00000 n `,
-    `${pad(offset5)} 00000 n `,
-    'trailer << /Size 6 /Root 1 0 R >>',
-    'startxref',
-    String(xrefOffset),
-    '%%EOF',
-  ].join('\n')
+  let xref = `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`
+  for (let i = 1; i <= totalObjs; i++) {
+    xref += `${pad(offsets[i])} 00000 n \n`
+  }
+  xref += `trailer << /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`
 
-  const pdfBody = header + obj1 + obj2 + obj3 + obj4 + obj5 + xref
+  const pdfBody = body + xref
   const blob = new Blob([pdfBody], { type: 'application/pdf' })
   downloadBlob(blob, filename)
   return blob
@@ -246,6 +307,27 @@ function getItemCategory(name) {
   if (n.includes('ube') || n.includes('cake') || n.includes('dessert') || n.includes('ice cream')) return 'Dessert'
   if (n.includes('meal') || n.includes('deal') || n.includes('combo')) return 'Combos'
   return 'Main'
+}
+
+function formatTrendBadge(item) {
+  const raw = String(item?.change ?? '').trim()
+  const dir = item?.trend_direction
+
+  if (dir === 'up' || raw.startsWith('+') || raw.includes('↑')) {
+    const clean = raw.replace(/^[+↑\s]+/, '')
+    return { label: `↑ ${clean}`, badgeClass: 'up' }
+  }
+  if (dir === 'down' || (raw.startsWith('-') && raw !== '-' && raw !== '—') || raw.includes('↓')) {
+    const clean = raw.replace(/^[-↓\s]+/, '')
+    return { label: `↓ ${clean}`, badgeClass: 'down' }
+  }
+  if (dir === 'flat' || raw === '0%') {
+    return { label: '0%', badgeClass: 'neutral' }
+  }
+  if (raw.toLowerCase() === 'new') {
+    return { label: 'New', badgeClass: 'neutral' }
+  }
+  return { label: 'No prior data', badgeClass: 'neutral' }
 }
 
 function getStatusBadgeClass(status) {
@@ -303,6 +385,7 @@ export default function RecordsReports({ user: propUser }) {
       .catch(console.error)
   }, [])
   const [salesSearch, setSalesSearch] = useState('')
+  const [salesStatus, setSalesStatus] = useState('Completed')
   const [deliverySearch, setDeliverySearch] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
   const [deliveryStatus, setDeliveryStatus] = useState('All Statuses')
@@ -315,11 +398,79 @@ export default function RecordsReports({ user: propUser }) {
   const [historySearch, setHistorySearch] = useState('')
   const [historyFormat, setHistoryFormat] = useState('All Format')
   const [historyDate, setHistoryDate] = useState('All Dates')
-  const [period, setPeriod] = useState('Weekly')
   const [format, setFormat] = useState('Sales Summary Report')
   const [exportAs, setExportAs] = useState('PDF')
   const [page, setPage] = useState(1)
-  const [reportDate, setReportDate] = useState(() => new Date().toISOString().slice(0, 10))
+
+  /*
+   * PROMPT 47 DIAGNOSTIC REPORT — Replace Period Dropdown with From/To Date Range:
+   * 1. Previous `Period` Dropdown Values:
+   *    - Supported 4 options: `'Daily'`, `'Weekly'` (default), `'Monthly'`, and `'Yearly'`.
+   * 2. How `Period` and Single `Date` (`reportDate`) Were Previously Used:
+   *    - `reportDate` (`useState(() => new Date().toISOString().slice(0, 10))`) was bound only to
+   *      the single `<input type="date">` in the Generate Report modal and reset in `handleCancel()`.
+   *      It was never read by `getReportData()`, `triggerFileDownload()`, or `generateReport()`, and
+   *      was never sent to the backend.
+   *    - `period` was only interpolated as a text label into the exported report title
+   *      (`Sales Summary Report (${periodValue})`) and filename (`${selectedFormat}_${selectedPeriod}.${ext}`).
+   *      Neither the frontend nor the backend computed an actual date range from `period` + `reportDate`
+   *      or filtered records by it.
+   * 3. Endpoint & Parameter Names on "Generate & Download":
+   *    - Previously, `generateReport()` built the file client-side from unfiltered state arrays and
+   *      called `POST /api/reports/log-export` (`reportsApi.logExport`) with
+   *      `{ name, format, size, size_bytes, type, role }`, while `POST /api/reports/generate`
+   *      (`reportsApi.generate`) expected `{ period, format_type, export_as, size, size_bytes }`.
+   *    - Now, `generateReport()` validates `reportFromDate` and `reportToDate` (ensuring `From <= To`
+   *      and neither date is in the future relative to today without silently auto-correcting), sends
+   *      `from_date` and `to_date` (`YYYY-MM-DD`) to `POST /api/reports/generate` (`ReportController::generate`)
+   *      to retrieve records filtered to `[from_date, to_date]`, exports the filtered file, and logs the
+   *      export with `from_date` and `to_date` via `POST /api/reports/log-export`.
+   */
+  function getLocalTodayString() {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  function validateReportDateRange(fromVal, toVal) {
+    if (!fromVal || !toVal) {
+      return 'Please select both From and To dates.'
+    }
+    const today = getLocalTodayString()
+    if (fromVal > today && toVal > today) {
+      return 'Neither the "From" date nor the "To" date can be in the future.'
+    }
+    if (fromVal > today) {
+      return 'The "From" date cannot be in the future.'
+    }
+    if (toVal > today) {
+      return 'The "To" date cannot be in the future.'
+    }
+    if (fromVal > toVal) {
+      return 'The "From" date cannot be later than the "To" date.'
+    }
+    return ''
+  }
+
+  function filterArrayByDateRange(items, fromVal, toVal, field = 'datetime') {
+    if (!Array.isArray(items)) return []
+    if (!fromVal && !toVal) return items
+    return items.filter((item) => {
+      const raw = item?.[field]
+      if (!raw || raw === '—') return false
+      const datePart = String(raw).slice(0, 10)
+      if (fromVal && datePart < fromVal) return false
+      if (toVal && datePart > toVal) return false
+      return true
+    })
+  }
+
+  const [reportFromDate, setReportFromDate] = useState(() => getLocalTodayString())
+  const [reportToDate, setReportToDate] = useState(() => getLocalTodayString())
+  const [reportDateError, setReportDateError] = useState('')
+  const [generatingReport, setGeneratingReport] = useState(false)
   const [sections, setSections] = useState({
     sales: true,
     delivery: true,
@@ -327,10 +478,22 @@ export default function RecordsReports({ user: propUser }) {
     items: true,
   })
 
-  function getReportData(formatType, periodValue) {
+  function getReportData(formatType, rangeLabel, recordsOverride = null) {
+    let sourceAll = recordsOverride?.all_records ?? allRecords
+    if (salesStatus !== 'All Statuses') {
+      sourceAll = sourceAll.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
+    }
+    let sourceDelivery = recordsOverride?.delivery_records ?? deliveryRecords
+    if (salesStatus !== 'All Statuses') {
+      sourceDelivery = sourceDelivery.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
+    }
+    const sourceCustomer = recordsOverride?.customer_records ?? customerRecords
+    const sourceTopItems = recordsOverride?.top_items ?? topItems
+    const statusSuffix = salesStatus !== 'All Statuses' ? ` - ${salesStatus}` : ''
+
     if (formatType === 'Sales Per Delivery Person' || formatType === 'Delivery Records' || formatType === 'Delivery Summary Report') {
       const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Status']
-      const rows = deliveryRecords.map((r) => [
+      const rows = sourceDelivery.map((r) => [
         r.id,
         r.driver,
         r.datetime,
@@ -338,37 +501,67 @@ export default function RecordsReports({ user: propUser }) {
         r.distance,
         r.status,
       ])
-      return { title: `Sales Per Delivery Person (${periodValue})`, headers, rows }
+      return { title: `Sales Per Delivery Person${statusSuffix} (${rangeLabel})`, headers, rows }
     }
 
+    /* PROMPT 39 DIAGNOSTIC NOTE:
+     * Removed 'Email' header and `r.email` data cell from Customer Records export.
+     * In RecordsReports.jsx ("Customer Records" tab table, lines 930-979), the table
+     * already displays only: Customer Name, Total Orders, Total Spent, Loyalty Points,
+     * Last Order Date, and Status (no Customer ID or Email Address columns).
+     * In CustomerManagement.jsx ("Registered Customers" screen), Customer ID and Email Address
+     * were removed from the table columns, Customer Details modal, and search filter.
+     */
     if (formatType === 'Customer Records' || formatType === 'Customer Summary Report') {
-      const headers = ['Customer Name', 'Contact Number', 'Email', 'Total Orders', 'Total Spent', 'Status']
-      const rows = customerRecords.map((r) => [
+      const headers = ['Customer Name', 'Contact Number', 'Total Orders', 'Total Spent', 'Status']
+      const rows = sourceCustomer.map((r) => [
         r.name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Customer',
         r.phone || '--',
-        r.email || '--',
-        String(r.total_orders ?? r.totalOrders ?? 0),
-        peso(r.total_spent ?? r.totalSpent ?? 0),
-        r.status || 'Active',
+        String(r.total_orders ?? r.totalOrders ?? r.orders_count ?? r.orders ?? 0),
+        peso(r.total_spent ?? r.totalSpent ?? r.spent ?? 0),
+        r.status || r.freq || 'Active',
       ])
-      return { title: `Customer Records (${periodValue})`, headers, rows }
+      return { title: `Customer Records (${rangeLabel})`, headers, rows }
     }
 
+    /* PROMPT 42 DIAGNOSTIC REPORT:
+     * 1. Top Selling Items Trend Calculation:
+     *    - Backend `TopSellingService::getTopSelling()` compares units sold in the current 30-day
+     *      window (`now()-30d` to `now()`) against the previous 30-day window (`now()-60d` to `now()-30d`).
+     *    - Why every item previously displayed "—":
+     *      All 15 existing orders in the `orders` table were created between `2026-09-02` and `2026-09-24`
+     *      (< 30 days of order history), so the previous 30-day window (`60d..30d`) legitimately returned
+     *      0 rows (`$priorUnitsMap = []`), causing every item to fall back to `'—'`.
+     *    - Replaced the unexplained `'—'` fallback with a clear `'No prior data'` muted badge when
+     *      prior-period sales are 0, while automatically rendering `↑ X%` (green) or `↓ X%` (red)
+     *      when prior-period sales exist.
+     *    - Cleaned up and archived the test menu item `"Try kog add"` (`menu_items.id = 18`) so it no
+     *      longer skews Top Selling Items rankings.
+     * 2. Recent Exported Reports Hardcoded "1.2 MB" Data:
+     *    - `exportsList` reads from the real `exported_reports` MySQL table (`GET /api/reports`).
+     *    - Why 4 out of 5 entries showed `"1.2 MB"`:
+     *      Rows #1–#5 in `exported_reports` were created via `ReportController::generate()`, which had
+     *      a hardcoded default `'size' => $data['size'] ?? '1.2 MB'`, while Row #6 (`Full_Report_Weekly.pdf`)
+     *      was logged via `logExport` with its real byte size (`870.0 B`). Slicing the 5 most recent rows
+     *      displayed Row #6 (`870.0 B`) plus Rows #5–#2 (all `'1.2 MB'`).
+     *    - Removed the 5 legacy `'1.2 MB'` rows from `exported_reports` and removed all `'1.2 MB'`
+     *      fallbacks here and in `ReportController.php`, computing real byte size via `formatBytes(blob.size)`.
+     */
     if (formatType === 'Top Selling Items') {
       const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
-      const rows = topItems.slice(0, 10).map((item, i) => [
+      const rows = sourceTopItems.slice(0, 10).map((item, i) => [
         `#${i + 1}`,
         item.name,
         item.category || getItemCategory(item.name),
         `${item.units ?? item.units_sold ?? 0} units`,
-        item.change || '—',
+        formatTrendBadge(item).label,
       ])
-      return { title: `Top Selling Items (${periodValue})`, headers, rows }
+      return { title: `Top Selling Items (${rangeLabel})`, headers, rows }
     }
 
     if (formatType === 'Full Report') {
       const headers = ['Order ID', 'Customer Name', 'Date & Time', 'Order Type', 'Total Amount', 'Payment Method', 'Status']
-      const rows = allRecords.map((r) => [
+      const rows = sourceAll.map((r) => [
         r.id,
         r.customer,
         r.datetime,
@@ -377,11 +570,11 @@ export default function RecordsReports({ user: propUser }) {
         r.payment,
         r.status,
       ])
-      return { title: `Full Sales Report (${periodValue})`, headers, rows }
+      return { title: `Full Sales Report${statusSuffix} (${rangeLabel})`, headers, rows }
     }
 
     const headers = ['Order ID', 'Customer Name', 'Date & Time', 'Order Type', 'Total Amount', 'Payment Method', 'Status']
-    const rows = allRecords.map((r) => [
+    const rows = sourceAll.map((r) => [
       r.id,
       r.customer,
       r.datetime,
@@ -390,14 +583,17 @@ export default function RecordsReports({ user: propUser }) {
       r.payment,
       r.status,
     ])
-    return { title: `Sales Summary Report (${periodValue})`, headers, rows }
+    return { title: `Sales Summary Report${statusSuffix} (${rangeLabel})`, headers, rows }
   }
 
   function handleCancel() {
-    setPeriod('Weekly')
+    const today = getLocalTodayString()
     setFormat('Sales Summary Report')
     setExportAs('PDF')
-    setReportDate(new Date().toISOString().slice(0, 10))
+    setReportFromDate(today)
+    setReportToDate(today)
+    setReportDateError('')
+    setGeneratingReport(false)
     setSections({
       sales: true,
       delivery: true,
@@ -407,8 +603,8 @@ export default function RecordsReports({ user: propUser }) {
     setGenerateOpen(false)
   }
 
-  async function triggerFileDownload(fileName, formatType, periodValue, exportType) {
-    const { title, headers, rows: reportRows } = getReportData(formatType, periodValue)
+  async function triggerFileDownload(fileName, formatType, rangeLabel, exportType, recordsOverride = null) {
+    const { title, headers, rows: reportRows } = getReportData(formatType, rangeLabel, recordsOverride)
     const normalizedExport = (exportType || 'PDF').toUpperCase()
     let blob = null
     const preparedBy = getPreparedByString(currentUser)
@@ -423,29 +619,83 @@ export default function RecordsReports({ user: propUser }) {
   }
 
   async function generateReport() {
-    const selectedPeriod = period
+    const validationError = validateReportDateRange(reportFromDate, reportToDate)
+    if (validationError) {
+      setReportDateError(validationError)
+      return
+    }
+    setReportDateError('')
+
+    const selectedFrom = reportFromDate
+    const selectedTo = reportToDate
     const selectedFormat = format
     const selectedExportAs = exportAs
-    const ext = selectedExportAs.toLowerCase() === 'csv' ? 'csv' : selectedExportAs.toLowerCase() === 'pdf' ? 'pdf' : 'xlsx'
-    const fileName = `${selectedFormat.replace(/\s+/g, '_')}_${selectedPeriod}.${ext}`
+    const rangeLabel = `${selectedFrom} to ${selectedTo}`
+    const statusSlug = salesStatus !== 'All Statuses' ? `_${salesStatus.replace(/\s+/g, '_')}` : ''
+    const fileName = `${selectedFormat.replace(/\s+/g, '_')}${statusSlug}_${selectedFrom}_to_${selectedTo}.${ext}`
+
+    setGeneratingReport(true)
+
+    let filteredDataset = null
+    try {
+      const genRes = await reportsApi.generate({
+        from_date: selectedFrom,
+        to_date: selectedTo,
+        format_type: selectedFormat,
+        export_as: selectedExportAs,
+        status: salesStatus,
+        sections,
+        create_export_record: false,
+      })
+      filteredDataset = genRes?.data?.data?.records || null
+    } catch (err) {
+      if (err?.response?.status === 422) {
+        const errors = err.response?.data?.errors || {}
+        const firstMsg =
+          errors.from_date?.[0] ||
+          errors.to_date?.[0] ||
+          err.response?.data?.message ||
+          'Invalid date range selected.'
+        setReportDateError(firstMsg)
+        setGeneratingReport(false)
+        return
+      }
+      console.warn('Fallback to client-side date range filtering for report generation:', err)
+      const baseFilteredAll =
+        salesStatus === 'All Statuses'
+          ? allRecords
+          : allRecords.filter((r) => (r.status || '').toLowerCase() === salesStatus.toLowerCase())
+      filteredDataset = {
+        all_records: filterArrayByDateRange(baseFilteredAll, selectedFrom, selectedTo, 'datetime'),
+        delivery_records: filterArrayByDateRange(deliveryRecords, selectedFrom, selectedTo, 'datetime'),
+        customer_records: filterArrayByDateRange(customerRecords, selectedFrom, selectedTo, 'last'),
+        top_items: topItems,
+      }
+    }
 
     let blob = null
     try {
-      blob = await triggerFileDownload(fileName, selectedFormat, selectedPeriod, selectedExportAs)
+      blob = await triggerFileDownload(fileName, selectedFormat, rangeLabel, selectedExportAs, filteredDataset)
     } catch (err) {
       console.error(err)
+      setGeneratingReport(false)
       alert(err.message || 'Failed to generate report.')
       return
     }
 
-    const calculatedSize = blob?.size ? formatBytes(blob.size) : '1.2 MB'
+    const sizeBytes = blob?.size || 0
+    const calculatedSize = formatBytes(sizeBytes)
 
     try {
       const { data } = await reportsApi.logExport({
         name: fileName,
         format: selectedExportAs,
         size: calculatedSize,
+        size_bytes: sizeBytes,
         type: selectedFormat,
+        role: currentUser?.role || 'super_admin',
+        from_date: selectedFrom,
+        to_date: selectedTo,
       })
       const report = data?.data || data
       setExportsList((prev) => [
@@ -460,6 +710,9 @@ export default function RecordsReports({ user: propUser }) {
           size: report?.size || calculatedSize,
           format: selectedExportAs,
           type: selectedFormat,
+          role: report?.role || currentUser?.role || 'super_admin',
+          from_date: selectedFrom,
+          to_date: selectedTo,
           created_at: report?.created_at || new Date().toISOString(),
         },
         ...prev,
@@ -478,6 +731,9 @@ export default function RecordsReports({ user: propUser }) {
           size: calculatedSize,
           format: selectedExportAs,
           type: selectedFormat,
+          role: currentUser?.role || 'super_admin',
+          from_date: selectedFrom,
+          to_date: selectedTo,
           created_at: new Date().toISOString(),
         },
         ...prev,
@@ -490,7 +746,20 @@ export default function RecordsReports({ user: propUser }) {
 
   function handleDownloadExport(file) {
     const ext = file.name.split('.').pop()?.toUpperCase() || file.format?.toUpperCase() || 'PDF'
-    triggerFileDownload(file.name, file.type || 'Sales Summary Report', 'Weekly', ext).catch(console.error)
+    const rangeMatch = String(file.name || '').match(/(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})/)
+    const fromVal = file.from_date || rangeMatch?.[1] || null
+    const toVal = file.to_date || rangeMatch?.[2] || null
+    const rangeLabel = fromVal && toVal ? `${fromVal} to ${toVal}` : (file.date || getLocalTodayString())
+    const override =
+      fromVal && toVal
+        ? {
+            all_records: filterArrayByDateRange(allRecords, fromVal, toVal, 'datetime'),
+            delivery_records: filterArrayByDateRange(deliveryRecords, fromVal, toVal, 'datetime'),
+            customer_records: filterArrayByDateRange(customerRecords, fromVal, toVal, 'last'),
+            top_items: topItems,
+          }
+        : null
+    triggerFileDownload(file.name, file.type || 'Sales Summary Report', rangeLabel, ext, override).catch(console.error)
   }
   const pageSize = 5
 
@@ -548,13 +817,21 @@ export default function RecordsReports({ user: propUser }) {
         }
       }
 
-      return matchQuery && matchDate
+      let matchStatus = true
+      if (salesStatus !== 'All Statuses') {
+        matchStatus = (r.status || '').toLowerCase() === salesStatus.toLowerCase()
+      }
+
+      return matchQuery && matchDate && matchStatus
     })
-  }, [salesSearch, startDate, endDate, allRecords])
+  }, [salesSearch, startDate, endDate, salesStatus, allRecords])
 
   const filteredDeliveries = useMemo(() => {
     const q = deliverySearch.trim().toLowerCase()
     return deliveryRecords.filter((r) => {
+      const rowType = (r.order_type || r.type || 'Online Order').toLowerCase()
+      if (rowType === 'dine-in' || rowType === 'takeout') return false
+
       const matchQuery =
         !q ||
         (r.id && r.id.toLowerCase().includes(q)) ||
@@ -719,6 +996,21 @@ export default function RecordsReports({ user: propUser }) {
                     }}
                   />
                 </div>
+
+                <select
+                  className="reports-select-filter"
+                  value={salesStatus}
+                  onChange={(e) => {
+                    setSalesStatus(e.target.value)
+                    setPage(1)
+                  }}
+                >
+                  <option>Completed</option>
+                  <option>All Statuses</option>
+                  <option>Ready</option>
+                  <option>Out for Delivery</option>
+                  <option>Pending</option>
+                </select>
               </>
             )}
 
@@ -774,7 +1066,6 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Preparing</option>
                   <option>Out for Delivery</option>
                   <option>Completed</option>
-                  <option>Cancelled</option>
                 </select>
               </>
             )}
@@ -927,7 +1218,7 @@ export default function RecordsReports({ user: propUser }) {
 
           {tab === 'customer' && (
             <>
-              <table className="reports-table">
+              <table className="reports-table reports-customer-table">
                 <thead>
                   <tr>
                     <th>Customer Name</th>
@@ -988,39 +1279,40 @@ export default function RecordsReports({ user: propUser }) {
           <span className="reports-pagination-info">
             Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} {tab === 'all' ? 'transactions' : tab === 'delivery' ? 'deliveries' : 'customers'}
           </span>
-          {totalPages > 1 && (
-            <div className="reports-pagination-controls">
-              <button
-                type="button"
-                className="reports-page-btn"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                ‹
-              </button>
-              {Array.from({ length: totalPages }).map((_, idx) => {
-                const pageNum = idx + 1
-                return (
-                  <button
-                    key={pageNum}
-                    type="button"
-                    className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
-                    onClick={() => setPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                )
-              })}
-              <button
-                type="button"
-                className="reports-page-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                ›
-              </button>
-            </div>
-          )}
+          <div className="reports-pagination-controls">
+            <button
+              type="button"
+              className="reports-page-btn arrow"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const pageNum = idx + 1
+              return (
+                <button
+                  key={pageNum}
+                  type="button"
+                  className={`reports-page-btn${page === pageNum ? ' active' : ''}`}
+                  disabled={totalPages <= 1}
+                  onClick={() => setPage(pageNum)}
+                >
+                  {pageNum}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              className="reports-page-btn arrow"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1048,15 +1340,7 @@ export default function RecordsReports({ user: propUser }) {
               />
             ) : (
               topItems.slice(0, 5).map((item, idx) => {
-                const isNeutral = !item.change || item.change === '—' || item.change === '-'
-                const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                const trendDisplay = isNeutral
-                  ? '—'
-                  : String(item.change).startsWith('-')
-                  ? `↓ ${String(item.change).replace('-', '')}`
-                  : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                  ? item.change
-                  : `↑ ${String(item.change).replace('+', '')}`
+                const { label: trendDisplay, badgeClass: trendClass } = formatTrendBadge(item)
 
                 return (
                   <div key={item.id || item.name} className="reports-top-item-row">
@@ -1069,7 +1353,14 @@ export default function RecordsReports({ user: propUser }) {
                     </div>
                     <div className="reports-top-item-right">
                       <span className="reports-units-count">{item.units ?? item.units_sold ?? 0} units</span>
-                      <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
+                      <span
+                        className={`reports-trend-badge ${trendClass}`}
+                        title={
+                          trendClass === 'neutral' && trendDisplay === 'No prior data'
+                            ? 'No sales recorded in the previous 30-day period for comparison'
+                            : '30-day period-over-period sales trend'
+                        }
+                      >
                         {trendDisplay}
                       </span>
                     </div>
@@ -1096,7 +1387,7 @@ export default function RecordsReports({ user: propUser }) {
             {exportsList.length === 0 ? (
               <EmptyState
                 icon="file"
-                title="No reports exported"
+                title="No reports exported yet"
                 subtitle="Generated report files will appear here."
                 style={{ padding: '20px 12px' }}
               />
@@ -1118,7 +1409,7 @@ export default function RecordsReports({ user: propUser }) {
                     </div>
                   </div>
                   <div className="reports-recent-right">
-                    <span className="reports-recent-size">{file.size || '1.2 MB'}</span>
+                    <span className="reports-recent-size">{file.size || '0 B'}</span>
                     <button
                       type="button"
                       className="reports-download-btn"
@@ -1178,29 +1469,63 @@ export default function RecordsReports({ user: propUser }) {
               </div>
 
               <div className="reports-form-group">
-                <label className="reports-form-label">Period</label>
-                <select
-                  className="reports-select-filter"
-                  style={{ width: '100%' }}
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  <option>Daily</option>
-                  <option>Weekly</option>
-                  <option>Monthly</option>
-                  <option>Yearly</option>
-                </select>
+                <label className="reports-form-label">Date Range</label>
+                <div className="reports-modal-date-range">
+                  <div className="reports-modal-date-field">
+                    <span className="reports-modal-date-sublabel">From</span>
+                    <input
+                      type="date"
+                      aria-label="From"
+                      className={`reports-date-input${reportDateError ? ' input-error' : ''}`}
+                      value={reportFromDate}
+                      onChange={(e) => {
+                        const nextFrom = e.target.value
+                        setReportFromDate(nextFrom)
+                        setReportDateError(validateReportDateRange(nextFrom, reportToDate))
+                      }}
+                    />
+                  </div>
+                  <div className="reports-modal-date-field">
+                    <span className="reports-modal-date-sublabel">To</span>
+                    <input
+                      type="date"
+                      aria-label="To"
+                      className={`reports-date-input${reportDateError ? ' input-error' : ''}`}
+                      value={reportToDate}
+                      onChange={(e) => {
+                        const nextTo = e.target.value
+                        setReportToDate(nextTo)
+                        setReportDateError(validateReportDateRange(reportFromDate, nextTo))
+                      }}
+                    />
+                  </div>
+                </div>
+                {reportDateError && (
+                  <div className="reports-date-range-error" role="alert">
+                    {reportDateError}
+                  </div>
+                )}
               </div>
 
               <div className="reports-form-group">
-                <label className="reports-form-label">Date</label>
-                <input
-                  type="date"
-                  className="reports-date-input"
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                  value={reportDate}
-                  onChange={(e) => setReportDate(e.target.value)}
-                />
+                <label className="reports-form-label">Order Status</label>
+                <select
+                  className="reports-select-filter"
+                  style={{ width: '100%', height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px', background: '#FFFFFF', color: '#1F2937' }}
+                  value={salesStatus}
+                  onChange={(e) => setSalesStatus(e.target.value)}
+                >
+                  <option>Completed</option>
+                  <option>All Statuses</option>
+                  <option>Ready</option>
+                  <option>Out for Delivery</option>
+                  <option>Pending</option>
+                </select>
+                <p style={{ margin: '4px 0 0 2px', fontSize: '12px', color: '#6B7280' }}>
+                  {salesStatus === 'All Statuses'
+                    ? 'Exported file will include orders across all statuses.'
+                    : `Exported file will only include orders with "${salesStatus}" status.`}
+                </p>
               </div>
 
               <div className="reports-form-group">
@@ -1258,9 +1583,10 @@ export default function RecordsReports({ user: propUser }) {
                 type="button"
                 className="reports-btn-primary"
                 onClick={generateReport}
+                disabled={generatingReport}
                 aria-label="Generate & Download"
               >
-                Generate & Download
+                {generatingReport ? 'Generating...' : 'Generate & Download'}
               </button>
             </div>
           </div>
@@ -1314,15 +1640,7 @@ export default function RecordsReports({ user: propUser }) {
                     topItems.slice(0, 10).map((item, i) => {
                       const rankNum = i + 1
                       const category = item.category || getItemCategory(item.name)
-                      const isNeutral = !item.change || item.change === '—' || item.change === '-'
-                      const isTrendDown = String(item.change).startsWith('-') || String(item.change).includes('↓')
-                      const trendDisplay = isNeutral
-                        ? '—'
-                        : String(item.change).startsWith('-')
-                        ? `↓ ${String(item.change).replace('-', '')}`
-                        : String(item.change).startsWith('↑') || String(item.change).startsWith('↓')
-                        ? item.change
-                        : `↑ ${String(item.change).replace('+', '')}`
+                      const { label: trendDisplay, badgeClass: trendClass } = formatTrendBadge(item)
 
                       return (
                         <tr key={item.id || item.name}>
@@ -1331,7 +1649,7 @@ export default function RecordsReports({ user: propUser }) {
                           <td className="reports-top10-category">{category}</td>
                           <td className="reports-top10-units">{item.units ?? item.units_sold ?? 0} units</td>
                           <td>
-                            <span className={`reports-trend-badge ${isNeutral ? 'neutral' : isTrendDown ? 'down' : 'up'}`}>
+                            <span className={`reports-trend-badge ${trendClass}`}>
                               {trendDisplay}
                             </span>
                           </td>
@@ -1361,17 +1679,20 @@ export default function RecordsReports({ user: propUser }) {
                     item.name,
                     item.category || getItemCategory(item.name),
                     `${item.units ?? item.units_sold ?? 0} units`,
-                    item.change || '—',
+                    formatTrendBadge(item).label,
                   ])
                   const fileName = 'Top_10_Selling_Items_Full_List.csv'
                   const blob = exportCsv(fileName, headers, reportRows)
                   try {
-                    const sizeStr = blob?.size ? formatBytes(blob.size) : '1.0 KB'
+                    const sizeBytes = blob?.size || 0
+                    const sizeStr = formatBytes(sizeBytes)
                     const { data } = await reportsApi.logExport({
                       name: fileName,
                       format: 'CSV',
                       size: sizeStr,
+                      size_bytes: sizeBytes,
                       type: 'Top Selling Items',
+                      role: currentUser?.role || 'super_admin',
                     })
                     const report = data?.data || data
                     setExportsList((prev) => [
@@ -1386,6 +1707,7 @@ export default function RecordsReports({ user: propUser }) {
                         size: report?.size || sizeStr,
                         format: 'CSV',
                         type: 'Top Selling Items',
+                        role: report?.role || currentUser?.role || 'super_admin',
                         created_at: report?.created_at || new Date().toISOString(),
                       },
                       ...prev,
@@ -1499,7 +1821,7 @@ export default function RecordsReports({ user: propUser }) {
                           </div>
                         </div>
                         <div className="reports-recent-right">
-                          <span className="reports-recent-size">{file.size || '1.2 MB'}</span>
+                          <span className="reports-recent-size">{file.size || '0 B'}</span>
                           <button
                             type="button"
                             className="reports-download-btn"

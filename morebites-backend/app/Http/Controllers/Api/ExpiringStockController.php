@@ -11,6 +11,38 @@ use App\Models\MenuItemIngredient;
 use App\Services\InventoryDeductionService;
 use Illuminate\Http\Request;
 
+/* ============================================================================
+ * PROMPT 60 DIAGNOSTIC REPORT:
+ * 1. Where disposition actions are set in the backend:
+ *    - Handled by `App\Http\Controllers\Api\ExpiringStockController.php` across 4 dedicated endpoints:
+ *      • Waste (`markWaste` -> POST /api/inventory/{inventory}/expiring/waste):
+ *        Zeroes stock (`inventory_items.stock = 0`, `status = 'Expired'`), logs a spoilage entry in
+ *        `inventory_logs` with negative quantity and `action_label = 'Spoilage / Waste'`, resolves the disposition
+ *        in `inventory_dispositions` (`disposition = 'waste'`, `resolved_at = now()`), and clears any active
+ *        promo on linked menu items (`clearPromosForInventory`).
+ *      • Kitchen (`setKitchenPriority` -> POST /api/inventory/{inventory}/expiring/kitchen-priority):
+ *        Updates `inventory_dispositions` with `disposition = 'kitchen_priority'`, `resolved_at = null`, and `notes`.
+ *        Leaves physical inventory stock intact as an internal kitchen priority indicator.
+ *      • Promo (`setPromo` -> POST /api/inventory/{inventory}/expiring/promo):
+ *        Updates `inventory_dispositions` with `disposition = 'promo'`, `promo_menu_item_id`, `promo_discount_percent`,
+ *        and flags the linked `menu_items` with `promo_active = true`, `promo_discount_percent`, and `promo_label`.
+ *      • Resolve (`resolve` -> POST /api/inventory/{inventory}/expiring/resolve):
+ *        Sets `inventory_dispositions.disposition = 'resolved'`, `resolved_at = now()`, and clears promos.
+ *
+ * 2. Where the four action buttons are rendered on the Expiring Stock frontend page:
+ *    - In `morebites-frontend/src/components/ExpiringStock.jsx` (within `.exp-actions`, lines 260–295):
+ *      rendered as four buttons: Promo (`.exp-action.promo`), Kitchen (`.exp-action.kitchen`),
+ *      Waste (`.exp-action.waste`), and Resolve (`.exp-action.resolve`).
+ *
+ * 3. What Resolve currently does and whether it depends on Promo/Kitchen/Waste:
+ *    - Resolve is fully independent and non-destructive. It can be clicked at any time (even directly from
+ *      'Pending review') without Promo, Kitchen, or Waste having been selected first. It updates the disposition
+ *      to 'resolved' and sets `resolved_at = now()` while leaving physical stock unchanged.
+ *    - Per Prompt 60 guidelines ("If Resolve is confirmed to be independent of the other three and non-destructive,
+ *      keep it available on overdue rows too"), Resolve remains available on overdue rows, while Promo and Kitchen
+ *      are strictly restricted/blocked on overdue batches both client-side and server-side.
+ * ============================================================================
+ */
 class ExpiringStockController extends Controller
 {
     public function index(Request $request)
@@ -94,6 +126,11 @@ class ExpiringStockController extends Controller
     {
         abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
 
+        $daysUntil = $inventory->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $inventory->isExpired()) {
+            abort(422, 'This item is expired and can only be marked as Waste.');
+        }
+
         $this->upsertDisposition($inventory, [
             'disposition' => InventoryDisposition::KITCHEN_PRIORITY,
             'notes' => $request->input('notes'),
@@ -106,6 +143,11 @@ class ExpiringStockController extends Controller
     public function setPromo(Request $request, InventoryItem $inventory)
     {
         abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
+
+        $daysUntil = $inventory->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $inventory->isExpired()) {
+            abort(422, 'This item is expired and can only be marked as Waste.');
+        }
 
         $data = $request->validate([
             'menu_item_id' => ['required', 'integer', 'exists:menu_items,id'],

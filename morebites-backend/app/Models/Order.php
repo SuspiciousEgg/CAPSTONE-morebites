@@ -88,4 +88,31 @@ class Order extends Model
             ->orWhere('order_code', $code)
             ->first();
     }
+
+    /**
+     * Format a distinct Digital Receipt number derived from the order code (e.g. #ORD-00030 -> RCPT-00030).
+     */
+    public function receiptNumber(): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $this->order_code);
+        if ($digits === '' || $digits === null) {
+            $digits = (string) $this->id;
+        }
+
+        return 'RCPT-'.str_pad($digits, 5, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Calculate loyalty points earned on order completion using the established
+     * system-wide formula from ReportController (round(total / 2) pts).
+     */
+    public function loyaltyPointsEarned(): int
+    {
+        if (! in_array($this->status, ['Completed', 'Delivered'], true)) {
+            return 0;
+        }
+
+        return (int) round(((float) $this->total) / 2);
+    }
 }
+

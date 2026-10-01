@@ -45,4 +45,12 @@ return [
         'default_delivery_fee' => env('DEFAULT_DELIVERY_FEE', 40),
     ],
 
+    'sms' => [
+        'driver' => env('SMS_DRIVER', 'log'),
+        'api_key' => env('SMS_API_KEY'),
+        'sender_id' => env('SMS_SENDER_ID', 'MoreBites'),
+        'endpoint' => env('SMS_ENDPOINT'),
+    ],
+
 ];
+

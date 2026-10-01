@@ -122,6 +122,7 @@ class DriverAppController extends Controller
         $payload = ['status' => $status];
         if ($status === 'Completed') {
             $payload['delivered_at'] = now();
+            $payload['payment_status'] = 'Paid';
             if ($order->assigned_at) {
                 $payload['delivery_minutes'] = max(1, $order->assigned_at->diffInMinutes(now()));
             }

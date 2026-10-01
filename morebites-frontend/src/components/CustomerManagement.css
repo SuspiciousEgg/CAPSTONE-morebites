@@ -235,10 +235,11 @@
   border-collapse: collapse;
   font-size: 14px;
   text-align: left;
+  table-layout: auto;
 }
 
 .cm-table th {
-  padding: 14px 16px;
+  padding: 14px 18px;
   font-size: 13px;
   font-weight: 600;
   color: #6B7280;
@@ -248,19 +249,59 @@
 }
 
 .cm-table td {
-  padding: 16px 16px;
+  padding: 16px 18px;
   color: #1C1B18;
   border-bottom: 1px solid #F3F4F6;
   vertical-align: middle;
   white-space: nowrap;
 }
 
+.cm-table th:nth-child(1),
+.cm-table td:nth-child(1) {
+  width: 20%;
+}
+
+.cm-table th:nth-child(2),
+.cm-table td:nth-child(2) {
+  width: 15%;
+}
+
+.cm-table th:nth-child(3),
+.cm-table td:nth-child(3),
+.cm-table td.cm-address-cell {
+  width: 24%;
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-table th:nth-child(4),
+.cm-table td:nth-child(4) {
+  width: 14%;
+}
+
+.cm-table th:nth-child(5),
+.cm-table td:nth-child(5) {
+  width: 10%;
+}
+
+.cm-table th:nth-child(6),
+.cm-table td:nth-child(6) {
+  width: 9%;
+}
+
+.cm-table th:nth-child(7),
+.cm-table td:nth-child(7) {
+  width: 8%;
+}
+
 .cm-table tr:last-child td {
   border-bottom: none;
 }
 
-.cm-id {
-  font-weight: 700;
+.cm-name {
+  font-weight: 600;
   color: #1C1B18;
 }
 
@@ -649,6 +690,9 @@
   font-size: 13.5px;
   font-weight: 600;
   color: #1C1B18;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
   word-break: break-word;
   line-height: 1.4;
 }

@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\MenuItem;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\PasswordResetOtp;
 use App\Models\TrustedDevice;
 use App\Models\User;
 use App\Services\DeliveryRateService;
 use App\Services\InventoryDeductionService;
+use App\Services\SmsOtpService;
 use App\Services\TopSellingService;
 use App\Services\TrackingService;
 use App\Support\Media;
@@ -20,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -155,6 +159,275 @@ class CustomerAppController extends Controller
         ]);
     }
 
+    /**
+     * PROMPT 46 DIAGNOSTIC REPORT — Forgot-Password / OTP End-to-End Audit:
+     *
+     * 1. Mobile Flow Screens & API Calls (`morebites-customer/app/(auth)/`) — Classification: UI-only
+     *    - `forgot-password.jsx`: Validated phone against `/^09\d{9}$/` on the client, then navigated
+     *      directly to `/(auth)/verify-otp` with zero network call.
+     *    - `verify-otp.jsx`: Checked `if (entered !== "123456")` against a hardcoded static string
+     *      on the client, with a fake 20s local timer and zero network call.
+     *    - `reset-password.jsx`: Checked `password === confirm` locally, ignored `phone`/tokens, and
+     *      navigated directly to `/(auth)/reset-success` without updating any database record.
+     *    - `reset-success.jsx`: Static confirmation screen navigating back to `/(auth)/login`.
+     *    - `src/api/client.js`: Contained no forgot-password, verify-otp, or reset-password methods.
+     *
+     * 2. Laravel Backend Audit (`morebites-backend`) — Classification: UI-only (Missing)
+     *    - Routes (`routes/api.php`), Controller Methods, & Form Requests: None existed (`UI-only`).
+     *    - OTP / Password-Reset Table & Migration: Only the unused default `password_reset_tokens`
+     *      (keyed by `email`) existed; no phone-based OTP table, expiry, attempt counter, cooldown,
+     *      or single-use reset token existed (`UI-only`).
+     *    - SMS Gateway Config (`.env` / `config/services.php`): `.env` has `MAIL_MAILER=log` and no
+     *      SMS gateway credentials (`UI-only`).
+     *
+     * 3. Real Backend Implementation:
+     *    - `requestPasswordResetOtp`: Validates `^09\d{9}$`, enforces a 60-second resend cooldown,
+     *      generates a CSPRNG 6-digit code (`random_int(0, 999999)`), stores only `Hash::make($code)`
+     *      with a 5-minute expiry in `password_reset_otps`, dispatches via `SmsOtpService::sendOtp()`
+     *      (which logs to `storage/logs/laravel.log` in local/testing when no SMS provider is configured),
+     *      and returns an identical generic response whether or not the phone is registered.
+     *    - `verifyPasswordResetOtp`: Enforces the 5-minute expiry and a strict limit of 5 wrong
+     *      attempts (invalidating the OTP on the 5th failed attempt), and issues a short-lived (10-min),
+     *      single-use 64-char `reset_token` (stored hashed with SHA-256).
+     *    - `resetPasswordWithToken`: Requires the valid, unconsumed `reset_token` + confirmed new
+     *      password, updates the customer's hashed password, and immediately invalidates the token.
+     */
+    public function requestPasswordResetOtp(Request $request, SmsOtpService $smsService)
+    {
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+        $existing = PasswordResetOtp::query()->where('phone', $phone)->first();
+
+        if ($existing && $existing->last_sent_at) {
+            $elapsed = (int) $existing->last_sent_at->diffInSeconds(now());
+            if ($elapsed < PasswordResetOtp::RESEND_COOLDOWN_SECONDS) {
+                $remaining = max(1, PasswordResetOtp::RESEND_COOLDOWN_SECONDS - $elapsed);
+
+                return response()->json([
+                    'message' => "Please wait {$remaining} seconds before requesting another code.",
+                    'retry_after' => $remaining,
+                ], 429);
+            }
+        }
+
+        $user = User::query()
+            ->where('role', 'customer')
+            ->whereNull('archived_at')
+            ->where(function ($query) use ($phone, $data) {
+                $query->where('phone', $data['phone'])
+                    ->orWhere('phone', $phone)
+                    ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$phone]);
+            })
+            ->first();
+
+        if ($user && $user->status === 'Active') {
+            $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+            PasswordResetOtp::query()->updateOrCreate(
+                ['phone' => $phone],
+                [
+                    'user_id' => $user->id,
+                    'otp_hash' => Hash::make($code),
+                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                    'attempts' => 0,
+                    'last_sent_at' => now(),
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                    'consumed_at' => null,
+                ]
+            );
+
+            $smsService->sendOtp($phone, $code);
+        } else {
+            PasswordResetOtp::query()->updateOrCreate(
+                ['phone' => $phone],
+                [
+                    'user_id' => null,
+                    'otp_hash' => null,
+                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                    'attempts' => 0,
+                    'last_sent_at' => now(),
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                    'consumed_at' => null,
+                ]
+            );
+        }
+
+        return response()->json([
+            'message' => 'If this phone number is registered, a 6-digit verification code has been sent.',
+            'cooldown_seconds' => PasswordResetOtp::RESEND_COOLDOWN_SECONDS,
+            'expires_in_seconds' => PasswordResetOtp::OTP_EXPIRY_MINUTES * 60,
+        ]);
+    }
+
+    public function verifyPasswordResetOtp(Request $request)
+    {
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ], [
+            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
+            'code.regex' => 'Please enter a valid 6-digit verification code.',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+        $record = PasswordResetOtp::query()->where('phone', $phone)->first();
+
+        if (! $record || ! $record->otp_hash || $record->consumed_at !== null) {
+            if ($record) {
+                if ($record->attempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                    ]);
+                }
+
+                $nextAttempts = $record->attempts + 1;
+                $record->update(['attempts' => $nextAttempts]);
+
+                if ($nextAttempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                    ]);
+                }
+            }
+
+            throw ValidationException::withMessages([
+                'code' => ['Incorrect OTP. Please try again.'],
+            ]);
+        }
+
+        if ($record->attempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+            $record->update(['otp_hash' => null]);
+
+            throw ValidationException::withMessages([
+                'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+            ]);
+        }
+
+        if (! $record->otp_expires_at || $record->otp_expires_at->isPast()) {
+            $record->update(['otp_hash' => null]);
+
+            throw ValidationException::withMessages([
+                'code' => ['This verification code has expired. Please request a new code.'],
+            ]);
+        }
+
+        if (! Hash::check($data['code'], $record->otp_hash)) {
+            $nextAttempts = $record->attempts + 1;
+
+            if ($nextAttempts >= PasswordResetOtp::MAX_ATTEMPTS) {
+                $record->update([
+                    'attempts' => $nextAttempts,
+                    'otp_hash' => null,
+                ]);
+
+                throw ValidationException::withMessages([
+                    'code' => ['Too many incorrect attempts. This code has been invalidated. Please request a new code.'],
+                ]);
+            }
+
+            $record->update(['attempts' => $nextAttempts]);
+
+            throw ValidationException::withMessages([
+                'code' => ['Incorrect OTP. Please try again.'],
+            ]);
+        }
+
+        $plainResetToken = Str::random(64);
+
+        $record->update([
+            'otp_hash' => null,
+            'otp_expires_at' => null,
+            'attempts' => 0,
+            'reset_token_hash' => hash('sha256', $plainResetToken),
+            'reset_token_expires_at' => now()->addMinutes(PasswordResetOtp::RESET_TOKEN_EXPIRY_MINUTES),
+            'consumed_at' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'OTP verified successfully.',
+            'reset_token' => $plainResetToken,
+            'expires_in_seconds' => PasswordResetOtp::RESET_TOKEN_EXPIRY_MINUTES * 60,
+        ]);
+    }
+
+    public function resetPasswordWithToken(Request $request)
+    {
+        $data = $request->validate([
+            'reset_token' => ['required', 'string', 'min:32'],
+            'password' => ['required', 'string', 'min:6', 'confirmed'],
+        ]);
+
+        $tokenHash = hash('sha256', $data['reset_token']);
+        $record = PasswordResetOtp::query()
+            ->where('reset_token_hash', $tokenHash)
+            ->whereNull('consumed_at')
+            ->first();
+
+        if (! $record || ! $record->reset_token_expires_at || $record->reset_token_expires_at->isPast()) {
+            if ($record) {
+                $record->update([
+                    'reset_token_hash' => null,
+                    'reset_token_expires_at' => null,
+                ]);
+            }
+
+            throw ValidationException::withMessages([
+                'reset_token' => ['Your password reset session is invalid or has expired. Please request a new OTP code.'],
+            ]);
+        }
+
+        $user = $record->user_id
+            ? User::query()
+                ->where('id', $record->user_id)
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->first()
+            : User::query()
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->where('phone', $record->phone)
+                ->first();
+
+        if (! $user || $user->status !== 'Active') {
+            $record->update([
+                'reset_token_hash' => null,
+                'reset_token_expires_at' => null,
+                'consumed_at' => now(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'reset_token' => ['Your password reset session is invalid or has expired. Please request a new OTP code.'],
+            ]);
+        }
+
+        DB::transaction(function () use ($user, $record, $data) {
+            $user->update([
+                'password' => $data['password'],
+            ]);
+
+            $record->update([
+                'otp_hash' => null,
+                'otp_expires_at' => null,
+                'reset_token_hash' => null,
+                'reset_token_expires_at' => null,
+                'consumed_at' => now(),
+            ]);
+
+            $user->tokens()->delete();
+        });
+
+        return response()->json([
+            'message' => 'Your password has been reset successfully.',
+        ]);
+    }
+
     public function me(Request $request)
     {
         return response()->json(['user' => $this->userPayload($this->customerUser($request))]);
@@ -226,6 +499,184 @@ class CustomerAppController extends Controller
         ]);
 
         return response()->json(['user' => $this->userPayload($user->fresh())]);
+    }
+
+    /**
+     * Prompt 40 — Saved Addresses Persistence & Retrieval Scoped to customer_id:
+     * Queries and persists rows in `customer_addresses` strictly scoped to the
+     * currently authenticated customer's `customer_id`.
+     */
+    public function addresses(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function storeAddress(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:100'],
+            'street' => ['required', 'string', 'max:255'],
+            'barangay' => ['required', 'string', 'max:255'],
+            'city' => ['required', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'is_default' => ['nullable', 'boolean'],
+            'isDefault' => ['nullable', 'boolean'],
+        ]);
+
+        $address = DB::transaction(function () use ($customer, $data, $request) {
+            $hasExisting = CustomerAddress::query()
+                ->where('customer_id', $customer->id)
+                ->exists();
+
+            $requestedDefault = $request->has('is_default')
+                ? (bool) $request->boolean('is_default')
+                : ($request->has('isDefault') ? (bool) $request->boolean('isDefault') : false);
+
+            $isDefault = ! $hasExisting || $requestedDefault;
+
+            if ($isDefault) {
+                CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->update(['is_default' => false]);
+            }
+
+            $created = CustomerAddress::query()->create([
+                'customer_id' => $customer->id,
+                'label' => trim($data['label']),
+                'street' => trim($data['street']),
+                'barangay' => trim($data['barangay']),
+                'city' => trim($data['city']),
+                'landmark' => isset($data['landmark']) && trim((string) $data['landmark']) !== '' ? trim((string) $data['landmark']) : null,
+                'latitude' => isset($data['latitude']) && $data['latitude'] !== null ? (float) $data['latitude'] : null,
+                'longitude' => isset($data['longitude']) && $data['longitude'] !== null ? (float) $data['longitude'] : null,
+                'is_default' => $isDefault,
+            ]);
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+
+            return $created;
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ], 201);
+    }
+
+    public function updateAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:100'],
+            'street' => ['required', 'string', 'max:255'],
+            'barangay' => ['required', 'string', 'max:255'],
+            'city' => ['required', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'is_default' => ['nullable', 'boolean'],
+            'isDefault' => ['nullable', 'boolean'],
+        ]);
+
+        DB::transaction(function () use ($customer, $address, $data, $request) {
+            $requestedDefault = $request->has('is_default')
+                ? (bool) $request->boolean('is_default')
+                : ($request->has('isDefault') ? (bool) $request->boolean('isDefault') : (bool) $address->is_default);
+
+            if ($requestedDefault) {
+                CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->where('id', '!=', $address->id)
+                    ->update(['is_default' => false]);
+            }
+
+            $address->update([
+                'label' => trim($data['label']),
+                'street' => trim($data['street']),
+                'barangay' => trim($data['barangay']),
+                'city' => trim($data['city']),
+                'landmark' => isset($data['landmark']) && trim((string) $data['landmark']) !== '' ? trim((string) $data['landmark']) : null,
+                'latitude' => array_key_exists('latitude', $data) && $data['latitude'] !== null ? (float) $data['latitude'] : null,
+                'longitude' => array_key_exists('longitude', $data) && $data['longitude'] !== null ? (float) $data['longitude'] : null,
+                'is_default' => $requestedDefault,
+            ]);
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address->fresh()),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function setDefaultAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        DB::transaction(function () use ($customer, $address) {
+            CustomerAddress::query()
+                ->where('customer_id', $customer->id)
+                ->update(['is_default' => false]);
+
+            $address->update(['is_default' => true]);
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'data' => $this->addressPayload($address->fresh()),
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
+    }
+
+    public function destroyAddress(Request $request, CustomerAddress $address)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+        abort_unless((int) $address->customer_id === (int) $customer->id, 403);
+
+        DB::transaction(function () use ($customer, $address) {
+            $wasDefault = (bool) $address->is_default;
+            $address->delete();
+
+            if ($wasDefault) {
+                $nextDefault = CustomerAddress::query()
+                    ->where('customer_id', $customer->id)
+                    ->orderBy('id')
+                    ->first();
+
+                if ($nextDefault) {
+                    $nextDefault->update(['is_default' => true]);
+                }
+            }
+
+            $this->syncCustomerDefaultDeliveryAddress($customer);
+        });
+
+        return response()->json([
+            'customer_id' => $customer->id,
+            'message' => 'Address removed.',
+            'addresses' => $this->customerAddressesPayload($customer),
+        ]);
     }
 
     public function menu()
@@ -505,10 +956,11 @@ class CustomerAppController extends Controller
 
     private function userPayload(User $user): array
     {
-        $customer = Customer::query()->where('user_id', $user->id)->first();
+        $customer = $this->ensureCustomerRecord($user);
 
         return [
             'id' => $user->id,
+            'customer_id' => $customer->id,
             'fullName' => $user->name,
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,
@@ -517,9 +969,58 @@ class CustomerAppController extends Controller
             'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'status' => $user->status,
-            'delivery_address' => $customer?->delivery_address,
-            'customer_code' => $customer?->customer_code,
+            'delivery_address' => $customer->delivery_address,
+            'customer_code' => $customer->customer_code,
         ];
+    }
+
+    private function customerAddressesPayload(Customer $customer): array
+    {
+        return CustomerAddress::query()
+            ->where('customer_id', $customer->id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (CustomerAddress $addr) => $this->addressPayload($addr))
+            ->values()
+            ->all();
+    }
+
+    private function addressPayload(CustomerAddress $addr): array
+    {
+        return [
+            'id' => $addr->id,
+            'customer_id' => $addr->customer_id,
+            'label' => $addr->label,
+            'street' => $addr->street,
+            'barangay' => $addr->barangay,
+            'city' => $addr->city,
+            'landmark' => $addr->landmark ?? '',
+            'latitude' => $addr->latitude !== null ? (float) $addr->latitude : null,
+            'longitude' => $addr->longitude !== null ? (float) $addr->longitude : null,
+            'isDefault' => (bool) $addr->is_default,
+            'is_default' => (bool) $addr->is_default,
+        ];
+    }
+
+    private function syncCustomerDefaultDeliveryAddress(Customer $customer): void
+    {
+        $defaultAddr = CustomerAddress::query()
+            ->where('customer_id', $customer->id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->first();
+
+        if ($defaultAddr) {
+            $formatted = collect([
+                $defaultAddr->street,
+                $defaultAddr->barangay,
+                $defaultAddr->city,
+                $defaultAddr->landmark,
+            ])->filter(fn ($v) => $v !== null && trim((string) $v) !== '')->implode(', ');
+
+            $customer->update(['delivery_address' => $formatted]);
+        }
     }
 
     private function menuPayload(MenuItem $m, ?InventoryDeductionService $service = null, $ratingStat = null): array
@@ -548,6 +1049,7 @@ class CustomerAppController extends Controller
             'db_id' => $m->id,
             'name' => $m->name,
             'category' => $m->category,
+            'subcategory' => $m->subcategory,
             'description' => $m->description,
             'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
             'priceLabel' => $priceLabel,
@@ -574,16 +1076,21 @@ class CustomerAppController extends Controller
             'Picked Up' => 'Out for Delivery',
             default => $o->status,
         };
+        $isCompleted = in_array($o->status, ['Completed', 'Delivered'], true) || $displayStatus === 'Delivered';
         $date = $o->created_at;
+        $deliveredAt = $o->delivered_at ?? ($isCompleted ? $o->updated_at : null);
         $firstItem = $o->items->first();
 
         return [
             'id' => $o->order_code,
             'db_id' => $o->id,
+            'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
             'date' => $date?->toIso8601String(),
             'dateLabel' => $date?->format('M j, Y · g:i A'),
+            'ordered_at' => $date?->toIso8601String(),
+            'ordered_at_label' => $date?->format('M j, Y · g:i A'),
             'total' => (float) $o->total,
             'delivery_fee' => (float) ($o->delivery_fee ?? app(DeliveryRateService::class)->defaultFee()),
             'service_fee' => (float) ($o->service_fee ?? app(DeliveryRateService::class)->serviceFee()),
@@ -599,6 +1106,7 @@ class CustomerAppController extends Controller
             'food_price' => (float) ($firstItem?->unit_price ?? $o->total),
             'address' => $o->delivery_address,
             'payment_method' => $o->payment_method ?: 'COD',
+            'payment_status' => $isCompleted ? 'Paid' : ($o->payment_status ?: 'Unpaid'),
             'customer' => $o->customer_name,
             'driver' => $o->driver?->name,
             'driver_phone' => $o->driver?->phone,
@@ -613,8 +1121,11 @@ class CustomerAppController extends Controller
             'food_rating' => $o->food_rating ? (int) $o->food_rating : null,
             'rider_rating' => $o->rider_rating ? (int) $o->rider_rating : null,
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
-            'delivered_at' => $o->delivered_at?->toIso8601String(),
-            'delivered_at_label' => $o->delivered_at?->format('M j, Y · g:i A'),
+            'delivered_at' => $deliveredAt?->toIso8601String(),
+            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
+            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_earned' => $o->loyaltyPointsEarned(),
         ];
     }
 }

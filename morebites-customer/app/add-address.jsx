@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -16,8 +15,8 @@ import {
 } from "react-native";
 import MapView, { Marker } from "../src/components/AppMap";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { addressStorage, customerApi } from "../src/api/client";
 
-const STORAGE_KEY = "saved_addresses";
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 
@@ -52,6 +51,33 @@ function FormField({ name, label, required, error, focusedField, setFocusedField
   );
 }
 
+/**
+ * Prompt 40 — Step-by-Step Diagnosis of Why Saved Addresses Were Not Persisting:
+ *
+ * 1. Step 1 (Frontend Network Request Check):
+ *    - Previously, submitting `saveAddress()` in `add-address.jsx` NEVER fired any HTTP request
+ *      to the backend (`customerApi` was not imported and had no address endpoints in `src/api/client.js`).
+ *    - Request payload sent to backend previously: NONE (0 network requests fired).
+ *    - Response received previously: NONE.
+ *    - Instead, `saveAddress()` only wrote to unscoped local `AsyncStorage.setItem("saved_addresses", ...)`.
+ *
+ * 2. Step 2 (Database Table `customer_addresses` & Backend Endpoint Check):
+ *    - Querying the database directly via `Schema::hasTable('customer_addresses')` returned `false`.
+ *    - `routes/api.php` and `CustomerAppController.php` had no `/api/customer/addresses` routes and no
+ *      `customer_addresses` table or `CustomerAddress` model existed, so nothing was ever inserted server-side.
+ *
+ * 3. Step 3 (Saved Addresses Screen Fetch & `customer_id` Scoping Check):
+ *    - `saved-addresses.jsx` and `checkout.jsx` only read the unscoped `"saved_addresses"` key from
+ *      device-local `AsyncStorage` instead of querying the backend scoped to the logged-in customer's
+ *      `customer_id`.
+ *
+ * Fix Applied:
+ * - Created the `customer_addresses` table (scoped by `customer_id` foreign key to `customers.id`),
+ *   `CustomerAddress` model, and `/api/customer/addresses` CRUD + `setDefault` endpoints in `CustomerAppController`.
+ * - `saveAddress()` now sends `POST /api/customer/addresses` with `{ label, street, barangay, city, landmark, latitude, longitude }`,
+ *   persists the new row into `customer_addresses` for the authenticated customer's `customer_id`, and syncs the
+ *   customer-scoped local cache before navigating to `/saved-addresses`.
+ */
 export default function AddAddressScreen() {
   const params = useLocalSearchParams();
   const initialDraft = parseDraft(params.draft);
@@ -75,25 +101,44 @@ export default function AddAddressScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (paramStreet !== undefined || paramBarangay !== undefined || paramCity !== undefined || Number.isFinite(paramLatitude)) {
+    const draftObj = parseDraft(params.draft);
+    if (
+      paramStreet !== undefined ||
+      paramBarangay !== undefined ||
+      paramCity !== undefined ||
+      Number.isFinite(paramLatitude) ||
+      Object.keys(draftObj).length > 0
+    ) {
       setForm((current) => ({
         ...current,
-        ...(paramStreet !== undefined && paramStreet !== "" ? { street: paramStreet } : {}),
-        ...(paramBarangay !== undefined && paramBarangay !== "" ? { barangay: paramBarangay } : {}),
-        ...(paramCity !== undefined && paramCity !== "" ? { city: paramCity } : {}),
+        label: current.label || draftObj.label || "",
+        landmark: current.landmark || draftObj.landmark || "",
+        street:
+          paramStreet !== undefined && paramStreet !== ""
+            ? paramStreet
+            : current.street || draftObj.street || "",
+        barangay:
+          paramBarangay !== undefined && paramBarangay !== ""
+            ? paramBarangay
+            : current.barangay || draftObj.barangay || "",
+        city:
+          paramCity !== undefined && paramCity !== ""
+            ? paramCity
+            : current.city || draftObj.city || "",
         ...(Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
           ? { latitude: paramLatitude, longitude: paramLongitude }
           : {}),
       }));
       setErrors((prev) => {
         const next = { ...prev };
-        if (paramStreet) delete next.street;
-        if (paramBarangay) delete next.barangay;
-        if (paramCity) delete next.city;
+        if (paramStreet || draftObj.street) delete next.street;
+        if (paramBarangay || draftObj.barangay) delete next.barangay;
+        if (paramCity || draftObj.city) delete next.city;
+        if (draftObj.label) delete next.label;
         return next;
       });
     }
-  }, [paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
+  }, [params.draft, paramStreet, paramBarangay, paramCity, paramLatitude, paramLongitude]);
 
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
@@ -130,25 +175,28 @@ export default function AddAddressScreen() {
     if (!validate() || saving) return;
     setSaving(true);
 
+    const payload = {
+      label: form.label.trim(),
+      street: form.street.trim(),
+      barangay: form.barangay.trim(),
+      city: form.city.trim(),
+      landmark: form.landmark.trim() || null,
+      latitude: Number.isFinite(form.latitude) ? form.latitude : null,
+      longitude: Number.isFinite(form.longitude) ? form.longitude : null,
+    };
+
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsed = stored ? JSON.parse(stored) : [];
-      const addresses = Array.isArray(parsed) ? parsed : [];
-      const newAddress = {
-        id: Date.now(),
-        label: form.label.trim(),
-        street: form.street.trim(),
-        barangay: form.barangay.trim(),
-        city: form.city.trim(),
-        landmark: form.landmark.trim(),
-        latitude: form.latitude,
-        longitude: form.longitude,
-        isDefault: addresses.length === 0,
-      };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...addresses, newAddress]));
+      const res = await customerApi.addAddress(payload);
+      const updatedList = Array.isArray(res?.addresses)
+        ? res.addresses
+        : res?.data
+          ? [...(await addressStorage.getForCurrentUser()), res.data]
+          : await addressStorage.getForCurrentUser();
+
+      await addressStorage.saveForCurrentUser(updatedList);
       router.replace("/saved-addresses");
-    } catch {
-      Alert.alert("Unable to save address", "Please try again.");
+    } catch (err) {
+      Alert.alert("Unable to save address", err?.message || "Please try again.");
       setSaving(false);
     }
   };

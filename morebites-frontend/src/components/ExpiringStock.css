@@ -320,6 +320,9 @@
 .exp-action:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  border-color: #E5E7EB !important;
+  color: #9CA3AF !important;
+  background: #F9FAFB !important;
 }
 
 .exp-action.promo {

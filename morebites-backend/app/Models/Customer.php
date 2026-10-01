@@ -28,6 +28,11 @@ class Customer extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function addresses(): HasMany
+    {
+        return $this->hasMany(CustomerAddress::class);
+    }
+
     public static function generateCustomerCode(): string
     {
         $max = 0;

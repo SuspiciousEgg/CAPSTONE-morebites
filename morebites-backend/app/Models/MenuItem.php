@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class MenuItem extends Model
 {
     protected $fillable = [
-        'name', 'description', 'category', 'image',
+        'name', 'description', 'category', 'subcategory', 'image',
         'has_sizes', 'price', 'available', 'archived', 'is_featured',
         'promo_active', 'promo_discount_percent', 'promo_label',
     ];

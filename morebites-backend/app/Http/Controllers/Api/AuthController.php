@@ -70,6 +70,7 @@ class AuthController extends Controller
     {
         return [
             'id' => $user->id,
+            'admin_id' => $user->adminDisplayId(),
             'name' => $user->name,
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,

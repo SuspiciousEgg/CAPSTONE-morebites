@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
@@ -14,11 +13,21 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { addressStorage, customerApi } from "../src/api/client";
 
-const STORAGE_KEY = "saved_addresses";
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 
+/**
+ * Prompt 40 — Saved Addresses Retrieval & Actions Scoped to `customer_id`:
+ * - Fetches the authenticated customer's saved addresses from `GET /api/customer/addresses`
+ *   (which queries `customer_addresses` filtered by the logged-in customer's `customer_id`).
+ * - If any legacy local-only addresses exist in `AsyncStorage` for a customer whose server
+ *   `customer_addresses` list is still empty, automatically migrates them to the database
+ *   so no previously entered address is lost.
+ * - Persists Set Default (`PATCH /api/customer/addresses/{id}/default`) and Delete
+ *   (`DELETE /api/customer/addresses/{id}`) directly to the database and syncs local cache.
+ */
 export default function SavedAddressesScreen() {
   const [addresses, setAddresses] = useState([]);
   const [addressToDelete, setAddressToDelete] = useState(null);
@@ -29,12 +38,43 @@ export default function SavedAddressesScreen() {
 
       const loadAddresses = async () => {
         try {
-          const stored = await AsyncStorage.getItem(STORAGE_KEY);
-          const parsed = stored ? JSON.parse(stored) : [];
-          if (active) setAddresses(Array.isArray(parsed) ? parsed : []);
+          const cached = await addressStorage.getForCurrentUser();
+          if (active && cached.length > 0) {
+            setAddresses(cached);
+          }
+
+          const res = await customerApi.addresses();
+          let serverList = Array.isArray(res?.data) ? res.data : [];
+
+          if (serverList.length === 0 && cached.length > 0) {
+            for (const item of cached) {
+              if (item?.label && item?.street && item?.barangay && item?.city) {
+                try {
+                  const created = await customerApi.addAddress({
+                    label: String(item.label).trim(),
+                    street: String(item.street).trim(),
+                    barangay: String(item.barangay).trim(),
+                    city: String(item.city).trim(),
+                    landmark: item.landmark ? String(item.landmark).trim() : null,
+                    latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : null,
+                    longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : null,
+                    is_default: Boolean(item.isDefault ?? item.is_default),
+                  });
+                  if (Array.isArray(created?.addresses)) {
+                    serverList = created.addresses;
+                  }
+                } catch {
+                  // ignore individual migration error
+                }
+              }
+            }
+          }
+
+          await addressStorage.saveForCurrentUser(serverList);
+          if (active) setAddresses(serverList);
         } catch {
-          if (active) setAddresses([]);
-          Alert.alert("Unable to load addresses", "Please try again.");
+          const fallback = await addressStorage.getForCurrentUser();
+          if (active) setAddresses(fallback);
         }
       };
 
@@ -45,35 +85,50 @@ export default function SavedAddressesScreen() {
     }, []),
   );
 
-  const persistAddresses = async (nextAddresses) => {
+  const setDefaultAddress = async (id) => {
+    const optimistic = addresses.map((address) => ({
+      ...address,
+      isDefault: String(address.id) === String(id),
+      is_default: String(address.id) === String(id),
+    }));
+    setAddresses(optimistic);
+
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextAddresses));
+      const res = await customerApi.setDefaultAddress(id);
+      const nextAddresses = Array.isArray(res?.addresses) ? res.addresses : optimistic;
+      await addressStorage.saveForCurrentUser(nextAddresses);
       setAddresses(nextAddresses);
-    } catch {
-      Alert.alert("Unable to update addresses", "Please try again.");
+    } catch (err) {
+      Alert.alert("Unable to update default address", err?.message || "Please try again.");
     }
   };
 
-  const setDefaultAddress = (id) => {
-    const nextAddresses = addresses.map((address) => ({
-      ...address,
-      isDefault: address.id === id,
-    }));
-    persistAddresses(nextAddresses);
-  };
-
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!addressToDelete) return;
+    const target = addressToDelete;
 
-    const wasDefault = addressToDelete.isDefault;
-    const remaining = addresses.filter((address) => address.id !== addressToDelete.id);
-    const nextAddresses =
+    const wasDefault = Boolean(target.isDefault ?? target.is_default);
+    const remaining = addresses.filter((address) => String(address.id) !== String(target.id));
+    const optimistic =
       wasDefault && remaining.length > 0
-        ? remaining.map((address, index) => ({ ...address, isDefault: index === 0 }))
+        ? remaining.map((address, index) => ({
+            ...address,
+            isDefault: index === 0,
+            is_default: index === 0,
+          }))
         : remaining;
 
     setAddressToDelete(null);
-    persistAddresses(nextAddresses);
+    setAddresses(optimistic);
+
+    try {
+      const res = await customerApi.deleteAddress(target.id);
+      const nextAddresses = Array.isArray(res?.addresses) ? res.addresses : optimistic;
+      await addressStorage.saveForCurrentUser(nextAddresses);
+      setAddresses(nextAddresses);
+    } catch (err) {
+      Alert.alert("Unable to delete address", err?.message || "Please try again.");
+    }
   };
 
   const editAddress = (address) => {

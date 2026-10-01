@@ -108,7 +108,45 @@ export const authStorage = {
     return AsyncStorage.getItem(TOKEN_KEY);
   },
   async clear() {
-    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, "saved_addresses"]);
+  },
+};
+
+export const addressStorage = {
+  async keyForCurrentUser() {
+    const user = await authStorage.getUser();
+    const scope = user?.customer_id || user?.id || user?.phone || "guest";
+    return `saved_addresses_customer_${scope}`;
+  },
+  async getForCurrentUser() {
+    const key = await this.keyForCurrentUser();
+    const raw = await AsyncStorage.getItem(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // ignore parse error
+      }
+    }
+    const legacyRaw = await AsyncStorage.getItem("saved_addresses");
+    if (legacyRaw) {
+      try {
+        const legacyParsed = JSON.parse(legacyRaw);
+        if (Array.isArray(legacyParsed)) return legacyParsed;
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  },
+  async saveForCurrentUser(addresses) {
+    const list = Array.isArray(addresses) ? addresses : [];
+    const key = await this.keyForCurrentUser();
+    const serialized = JSON.stringify(list);
+    await AsyncStorage.setItem(key, serialized);
+    await AsyncStorage.setItem("saved_addresses", serialized);
+    return list;
   },
 };
 
@@ -121,9 +159,36 @@ export const customerApi = {
       body: { phone, password, device_id },
       auth: false,
     }),
+  requestPasswordResetOtp: (phone) =>
+    request("/customer/forgot-password", {
+      method: "POST",
+      body: { phone },
+      auth: false,
+    }),
+  verifyPasswordResetOtp: (phone, code) =>
+    request("/customer/verify-otp", {
+      method: "POST",
+      body: { phone, code },
+      auth: false,
+    }),
+  resetPassword: (payload) =>
+    request("/customer/reset-password", {
+      method: "POST",
+      body: payload,
+      auth: false,
+    }),
   me: () => request("/customer/me"),
   updateProfile: (payload) =>
     request("/customer/profile", { method: "PATCH", body: payload }),
+  addresses: () => request("/customer/addresses"),
+  addAddress: (payload) =>
+    request("/customer/addresses", { method: "POST", body: payload }),
+  updateAddress: (id, payload) =>
+    request(`/customer/addresses/${id}`, { method: "PUT", body: payload }),
+  setDefaultAddress: (id) =>
+    request(`/customer/addresses/${id}/default`, { method: "PATCH" }),
+  deleteAddress: (id) =>
+    request(`/customer/addresses/${id}`, { method: "DELETE" }),
   menu: () => request("/customer/menu", { auth: false }),
   topSelling: () => request("/menu/top-selling", { auth: false }),
   quoteFees: (km = null, address = null, coords = null) => {

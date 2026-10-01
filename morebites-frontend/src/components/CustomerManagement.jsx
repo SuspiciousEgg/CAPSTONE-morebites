@@ -18,7 +18,7 @@ import { customersApi, mediaUrl } from '../api/client'
 import EmptyState from './EmptyState'
 import './CustomerManagement.css'
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 5
 
 function CustomerAvatar({ photo, name }) {
   const [failed, setFailed] = useState(false)
@@ -77,6 +77,37 @@ function FilterSelect({ value, options, open, onToggle, onSelect, menuRef, icon:
     </div>
   )
 }
+
+/* ============================================================================
+ * PROMPT 41 DIAGNOSTIC REPORT: Delivery Address Truncation & Customer ID Scope
+ * ============================================================================
+ * 1. Delivery Address Column CSS Investigation:
+ *    - Owner / Super Admin Web (`morebites-frontend/src/components/CustomerManagement.jsx` & `.css`):
+ *      Previously, `.cm-table` used `table-layout: auto` and `.cm-table td` had `white-space: nowrap`,
+ *      while `.cm-table th:nth-child(3), .cm-table td:nth-child(3)` only had `width: 24%` with NO
+ *      `max-width`, NO `overflow: hidden`, and NO `text-overflow: ellipsis`. As a result, the
+ *      Delivery Address column expanded to the natural full-text width of long addresses (such as
+ *      "Poblacion, Dangcagan, Bukidnon, Barangay 17, Cagayan De Oro"), forcing `.cm-table-wrap`
+ *      into horizontal scrolling.
+ *    - Admin / Supervisor Web (`admin-morebytes`):
+ *      Does not have a standalone Customer Management screen, and its Customer Records report table
+ *      (`src/pages/supervisor/Reports.jsx`) does not include a Delivery Address column.
+ * 2. Customer ID Visibility Investigation:
+ *    - Table Columns: `Customer ID` was already absent from the table columns in both web codebases
+ *      (used only internally for the React row `key` prop and modal lookup).
+ *    - View Customer Details Modal: `Customer ID` was also missing from the View Customer Details
+ *      modal in `CustomerManagement.jsx` following the earlier column removal.
+ * 3. Fixes Applied:
+ *    - Applied `max-width: 240px`, `white-space: nowrap`, `overflow: hidden`, and
+ *      `text-overflow: ellipsis` to the Delivery Address table column (`.cm-address-cell` /
+ *      `td:nth-child(3)`), plus a native `title` attribute showing the full untruncated address on hover.
+ *    - Kept Delivery Address untruncated with full multi-line wrapping inside the View Customer
+ *      Details modal (`.cm-info-card.cm-span-2`).
+ *    - Restored `Customer ID` strictly inside the View Customer Details modal (both in the modal
+ *      header badge `Customer ID: ...` and as a labeled detail card in `.cm-info-grid`) while keeping
+ *      it completely excluded from the table columns.
+ * ============================================================================
+ */
 
 export default function CustomerManagement() {
   const [customers, setCustomers] = useState([])
@@ -148,9 +179,7 @@ export default function CustomerManagement() {
       list = list.filter(
         (c) =>
           (c.name && c.name.toLowerCase().includes(q)) ||
-          (c.email && c.email.toLowerCase().includes(q)) ||
-          (c.phone && c.phone.toLowerCase().includes(q)) ||
-          (c.id && c.id.toLowerCase().includes(q)),
+          (c.phone && c.phone.toLowerCase().includes(q)),
       )
     }
     if (sort === 'Highest Order') list.sort((a, b) => b.orders - a.orders)
@@ -266,10 +295,8 @@ export default function CustomerManagement() {
           <table className="cm-table">
             <thead>
               <tr>
-                <th>Customer ID</th>
                 <th>Full Name</th>
                 <th>Contact Number</th>
-                <th>Email Address</th>
                 <th>Delivery Address</th>
                 <th>Registration Date</th>
                 <th>Total Orders</th>
@@ -280,7 +307,7 @@ export default function CustomerManagement() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: '24px 16px', borderBottom: 'none' }}>
+                  <td colSpan={7} style={{ padding: '24px 16px', borderBottom: 'none' }}>
                     <EmptyState
                       icon="users"
                       title="No customer records found"
@@ -294,12 +321,12 @@ export default function CustomerManagement() {
                 </tr>
               ) : (
                 rows.map((c) => (
-                <tr key={c.id}>
-                  <td className="cm-id">{c.id}</td>
-                  <td>{c.name}</td>
+                <tr key={c.db_id || c.id || c.name}>
+                  <td className="cm-name">{c.name}</td>
                   <td>{c.phone ? c.phone : <span className="cm-empty">Not provided yet</span>}</td>
-                  <td>{c.email ? c.email : <span className="cm-empty">Not provided yet</span>}</td>
-                  <td>{c.address ? c.address : <span className="cm-empty">Not provided yet</span>}</td>
+                  <td className="cm-address-cell" title={c.address || undefined}>
+                    {c.address ? c.address : <span className="cm-empty">Not provided yet</span>}
+                  </td>
                   <td>{c.registered || <span className="cm-empty">—</span>}</td>
                   <td>{c.orders}</td>
                   <td>
@@ -323,38 +350,37 @@ export default function CustomerManagement() {
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} customers
           </span>
-          {totalPages > 1 && (
-            <div className="cm-pages">
+          <div className="cm-pages">
+            <button
+              type="button"
+              className="cm-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
               <button
+                key={n}
                 type="button"
-                className="cm-page-btn arrow"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className={`cm-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
               >
-                <LuChevronLeft size={16} />
+                {n}
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`cm-page-btn${n === currentPage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="cm-page-btn arrow"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                aria-label="Next page"
-              >
-                <LuChevronRight size={16} />
-              </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="cm-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -364,7 +390,9 @@ export default function CustomerManagement() {
             <div className="cm-modal-head">
               <div className="cm-modal-title-wrap">
                 <h2>Customer Details</h2>
-                <span className="cm-modal-code">{selected.id}</span>
+                {selected.id && (
+                  <span className="cm-modal-code">Customer ID: {selected.id}</span>
+                )}
               </div>
               <button
                 type="button"
@@ -431,6 +459,10 @@ export default function CustomerManagement() {
                 </div>
                 <div className="cm-info-grid">
                   <div className="cm-info-card">
+                    <span className="cm-info-label">Customer ID</span>
+                    <span className="cm-info-value">{selected.id || '—'}</span>
+                  </div>
+                  <div className="cm-info-card">
                     <span className="cm-info-label">Full Name</span>
                     <span className="cm-info-value">{selected.name || '—'}</span>
                   </div>
@@ -438,12 +470,6 @@ export default function CustomerManagement() {
                     <span className="cm-info-label">Contact Number</span>
                     <span className={`cm-info-value${!selected.phone ? ' cm-empty' : ''}`}>
                       {selected.phone || 'Not provided yet'}
-                    </span>
-                  </div>
-                  <div className="cm-info-card">
-                    <span className="cm-info-label">Email Address</span>
-                    <span className={`cm-info-value${!selected.email ? ' cm-empty' : ''}`}>
-                      {selected.email || 'Not provided yet'}
                     </span>
                   </div>
                   <div className="cm-info-card">

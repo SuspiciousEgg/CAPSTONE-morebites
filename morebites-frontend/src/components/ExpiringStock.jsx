@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -9,6 +10,41 @@ import {
 import { expiringStockApi } from '../api/client'
 import EmptyState from './EmptyState'
 import './ExpiringStock.css'
+
+/* ============================================================================
+ * PROMPT 60 DIAGNOSTIC REPORT:
+ * 1. Where disposition actions are set in the backend:
+ *    - Handled by `App\Http\Controllers\Api\ExpiringStockController.php` across 4 dedicated endpoints:
+ *      • Waste (`markWaste` -> POST /api/inventory/{inventory}/expiring/waste):
+ *        Zeroes stock (`inventory_items.stock = 0`, `status = 'Expired'`), logs a spoilage entry in
+ *        `inventory_logs` with negative quantity and `action_label = 'Spoilage / Waste'`, resolves the disposition
+ *        in `inventory_dispositions` (`disposition = 'waste'`, `resolved_at = now()`), and clears any active
+ *        promo on linked menu items (`clearPromosForInventory`).
+ *      • Kitchen (`setKitchenPriority` -> POST /api/inventory/{inventory}/expiring/kitchen-priority):
+ *        Updates `inventory_dispositions` with `disposition = 'kitchen_priority'`, `resolved_at = null`, and `notes`.
+ *        Leaves physical inventory stock intact as an internal kitchen priority indicator.
+ *      • Promo (`setPromo` -> POST /api/inventory/{inventory}/expiring/promo):
+ *        Updates `inventory_dispositions` with `disposition = 'promo'`, `promo_menu_item_id`, `promo_discount_percent`,
+ *        and flags the linked `menu_items` with `promo_active = true`, `promo_discount_percent`, and `promo_label`.
+ *      • Resolve (`resolve` -> POST /api/inventory/{inventory}/expiring/resolve):
+ *        Sets `inventory_dispositions.disposition = 'resolved'`, `resolved_at = now()`, and clears promos.
+ *
+ * 2. Where the four action buttons are rendered on the Expiring Stock frontend page:
+ *    - In `morebites-frontend/src/components/ExpiringStock.jsx` (within `.exp-actions`, lines 260–295):
+ *      rendered as four buttons: Promo (`.exp-action.promo`), Kitchen (`.exp-action.kitchen`),
+ *      Waste (`.exp-action.waste`), and Resolve (`.exp-action.resolve`).
+ *
+ * 3. What Resolve currently does and whether it depends on Promo/Kitchen/Waste:
+ *    - Resolve is fully independent and non-destructive. It can be clicked at any time (even directly from
+ *      'Pending review') without Promo, Kitchen, or Waste having been selected first. It updates the disposition
+ *      to 'resolved' and sets `resolved_at = now()` while leaving physical stock unchanged.
+ *    - Per Prompt 60 guidelines ("If Resolve is confirmed to be independent of the other three and non-destructive,
+ *      keep it available on overdue rows too"), Resolve remains available on overdue rows, while Promo and Kitchen
+ *      are strictly restricted/blocked on overdue batches both client-side and server-side.
+ * ============================================================================
+ */
+
+const PAGE_SIZE = 5
 
 const DISPOSITION_BADGE = {
   pending: 'pending',
@@ -35,6 +71,7 @@ function formatDaysUntil(days) {
 
 export default function ExpiringStock() {
   const [rows, setRows] = useState([])
+  const [page, setPage] = useState(1)
   const [stats, setStats] = useState({
     expiring_soon: 0,
     expires_today: 0,
@@ -80,6 +117,10 @@ export default function ExpiringStock() {
   }
 
   async function setKitchenPriority(row) {
+    if (row.days_until_expiry != null && row.days_until_expiry < 0) {
+      alert('This item is expired and can only be marked as Waste.')
+      return
+    }
     setSaving(true)
     try {
       await expiringStockApi.setKitchenPriority(row.id)
@@ -104,6 +145,10 @@ export default function ExpiringStock() {
   }
 
   function openPromo(row) {
+    if (row.days_until_expiry != null && row.days_until_expiry < 0) {
+      alert('This item is expired and can only be marked as Waste.')
+      return
+    }
     setPromoRow(row)
     setPromoMenuId(row.linked_menus?.[0]?.id ? String(row.linked_menus[0].id) : '')
     setPromoDiscount(String(row.promo_discount_percent || 15))
@@ -111,6 +156,11 @@ export default function ExpiringStock() {
 
   async function savePromo() {
     if (!promoRow) return
+    if (promoRow.days_until_expiry != null && promoRow.days_until_expiry < 0) {
+      alert('This item is expired and can only be marked as Waste.')
+      setPromoRow(null)
+      return
+    }
     if (!promoMenuId) {
       alert('Select a menu item for this promo.')
       return
@@ -129,6 +179,10 @@ export default function ExpiringStock() {
       setSaving(false)
     }
   }
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pagedRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   return (
     <div className="exp-page">
@@ -216,80 +270,133 @@ export default function ExpiringStock() {
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <div className="exp-item-name">{row.name}</div>
-                    </td>
-                    <td>{row.category_label || row.category}</td>
-                    <td>
-                      {row.stock} {row.unit}
-                    </td>
-                    <td>{row.expiry_date || '—'}</td>
-                    <td className={`exp-days ${daysLeftClass(row.days_until_expiry)}`}>
-                      {formatDaysUntil(row.days_until_expiry)}
-                    </td>
-                    <td>
-                      {row.linked_menus?.length ? (
-                        <ul className="exp-menu-list">
-                          {row.linked_menus.map((m) => (
-                            <li key={m.id}>
-                              {m.name}
-                              {m.promo_active ? <span className="exp-promo-tag">Promo</span> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="exp-muted">No linked menu</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`exp-badge ${DISPOSITION_BADGE[row.disposition] || 'pending'}`}>
-                        {row.disposition_label}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="exp-actions">
-                        <button
-                          type="button"
-                          className="exp-action promo"
-                          disabled={saving || !row.linked_menus?.length}
-                          onClick={() => openPromo(row)}
-                          title={row.linked_menus?.length ? 'Create promo' : 'No linked menu items'}
-                        >
-                          Promo
-                        </button>
-                        <button
-                          type="button"
-                          className="exp-action kitchen"
-                          disabled={saving}
-                          onClick={() => setKitchenPriority(row)}
-                        >
-                          Kitchen
-                        </button>
-                        <button
-                          type="button"
-                          className="exp-action waste"
-                          disabled={saving}
-                          onClick={() => markWaste(row)}
-                        >
-                          Waste
-                        </button>
-                        <button
-                          type="button"
-                          className="exp-action resolve"
-                          disabled={saving}
-                          onClick={() => resolveRow(row)}
-                        >
-                          Resolve
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                pagedRows.map((row) => {
+                  const isOverdue = row.days_until_expiry != null && row.days_until_expiry < 0
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <div className="exp-item-name">{row.name}</div>
+                      </td>
+                      <td>{row.category_label || row.category}</td>
+                      <td>
+                        {row.stock} {row.unit}
+                      </td>
+                      <td>{row.expiry_date || '—'}</td>
+                      <td className={`exp-days ${daysLeftClass(row.days_until_expiry)}`}>
+                        {formatDaysUntil(row.days_until_expiry)}
+                      </td>
+                      <td>
+                        {row.linked_menus?.length ? (
+                          <ul className="exp-menu-list">
+                            {row.linked_menus.map((m) => (
+                              <li key={m.id}>
+                                {m.name}
+                                {m.promo_active ? <span className="exp-promo-tag">Promo</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="exp-muted">No linked menu</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`exp-badge ${DISPOSITION_BADGE[row.disposition] || 'pending'}`}>
+                          {row.disposition_label}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="exp-actions">
+                          <button
+                            type="button"
+                            className="exp-action promo"
+                            disabled={saving || isOverdue || !row.linked_menus?.length}
+                            onClick={() => openPromo(row)}
+                            title={
+                              isOverdue
+                                ? 'This item is expired and can only be marked as Waste.'
+                                : row.linked_menus?.length
+                                ? 'Create promo'
+                                : 'No linked menu items'
+                            }
+                          >
+                            Promo
+                          </button>
+                          <button
+                            type="button"
+                            className="exp-action kitchen"
+                            disabled={saving || isOverdue}
+                            onClick={() => setKitchenPriority(row)}
+                            title={
+                              isOverdue
+                                ? 'This item is expired and can only be marked as Waste.'
+                                : 'Kitchen priority'
+                            }
+                          >
+                            Kitchen
+                          </button>
+                          <button
+                            type="button"
+                            className="exp-action waste"
+                            disabled={saving}
+                            onClick={() => markWaste(row)}
+                            title="Mark as waste"
+                          >
+                            Waste
+                          </button>
+                          <button
+                            type="button"
+                            className="exp-action resolve"
+                            disabled={saving}
+                            onClick={() => resolveRow(row)}
+                            title="Resolve disposition"
+                          >
+                            Resolve
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
+        </div>
+        <div className="inv-pagination">
+          <span>
+            Showing {(currentPage - 1) * PAGE_SIZE + (rows.length ? 1 : 0)} to{' '}
+            {Math.min(currentPage * PAGE_SIZE, rows.length)} of {rows.length} items
+          </span>
+          <div className="inv-pages">
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <LuChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
+                disabled={totalPages <= 1}
+                onClick={() => setPage(n)}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="inv-page-btn arrow"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <LuChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 

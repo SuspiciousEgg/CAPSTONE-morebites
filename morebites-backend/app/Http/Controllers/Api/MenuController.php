@@ -29,10 +29,16 @@ class MenuController extends Controller
                 $query->where('category', $category);
             }
         }
+        if ($subcategory = $request->query('subcategory')) {
+            if ($subcategory !== 'All Subcategories') {
+                $query->where('subcategory', $subcategory);
+            }
+        }
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('category', 'like', "%{$search}%");
+                    ->orWhere('category', 'like', "%{$search}%")
+                    ->orWhere('subcategory', 'like', "%{$search}%");
             });
         }
 
@@ -61,6 +67,7 @@ class MenuController extends Controller
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'],
+                'subcategory' => !empty($data['subcategory']) ? trim($data['subcategory']) : null,
                 'image' => $this->resolveImage($request),
                 'has_sizes' => $data['has_sizes'],
                 'price' => $data['has_sizes'] ? 0 : ($data['price'] ?? 0),
@@ -113,6 +120,7 @@ class MenuController extends Controller
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'],
+                'subcategory' => !empty($data['subcategory']) ? trim($data['subcategory']) : null,
                 'image' => $this->resolveImage($request, $menu->image),
                 'has_sizes' => $data['has_sizes'],
                 'price' => $data['has_sizes'] ? 0 : ($data['price'] ?? 0),
@@ -236,6 +244,7 @@ class MenuController extends Controller
             'name' => ['required', 'string'],
             'description' => ['nullable', 'string'],
             'category' => ['required', 'string'],
+            'subcategory' => ['nullable', 'string'],
             'has_sizes' => ['required', 'boolean'],
             'price' => ['nullable', 'numeric', 'min:0'],
             'sizes' => ['nullable', 'array'],
@@ -315,6 +324,8 @@ class MenuController extends Controller
             'name' => $m->name,
             'description' => $m->description,
             'category' => $m->category,
+            'subcategory' => $m->subcategory,
+            'category_label' => $m->subcategory ? "{$m->category} › {$m->subcategory}" : $m->category,
             'image' => Media::url($m->image),
             'hasSizes' => $m->has_sizes,
             'sizes' => $m->sizes->map(fn ($s) => [

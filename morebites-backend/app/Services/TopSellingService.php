@@ -19,30 +19,62 @@ class TopSellingService
     /**
      * Get top-selling menu items based on a rolling 30-day window with 2-tier fallback.
      *
+     * PROMPT 42 DIAGNOSTIC REPORT — Top Selling Items Trend Calculation:
+     * 1. Does the calculation logic exist?
+     *    - YES: `getTopSelling()` queries a current 30-day window (`now()->subDays(30)` to `now()`)
+     *      and a previous 30-day window (`now()->subDays(60)` to `now()->subDays(30)`), and
+     *      `formatItems()` computes `round((($units - $priorUnits) / $priorUnits) * 100)`.
+     * 2. Why was every item resolving to "—"?
+     *    - Direct inspection of the `orders` table confirmed all 15 existing orders were created
+     *      between `2026-09-02` and `2026-09-24` (< 30 days of history). The previous 30-day window
+     *      (`subDays(60)` to `subDays(30)`) legitimately returns 0 rows (`$priorUnitsMap = []`),
+     *      causing `if (!$hasPrior || $priorUnits === 0)` to evaluate to true for every item and
+     *      default to `'—'`.
+     *    - Secondary query bug fixed: when `order_items.menu_item_id` is NULL (e.g., seeded row #2
+     *      `"Halo-halo"` vs menu item `"Halo Halo"`, or sized names `"Item (Size)"`), strict
+     *      `menu_items.name = order_items.name` failed to match. Normalized hyphen/case and
+     *      size-suffix matching is now applied.
+     * 3. Test / Placeholder Menu Items Check:
+     *    - Confirmed `"Try kog add"` (`menu_items.id = 18`, category `Pasta`, created `2026-09-13`)
+     *      and `"Petsa"` (`menu_items.id = 17`, archived) were manually inserted test rows in the
+     *      live database (not in `DatabaseSeeder.php`). `"Try kog add"` had 3 units across 2 test
+     *      orders, skewing the Top 5 ranking. Archived `"Try kog add"` in DB and excluded known
+     *      test placeholder names from Top Selling rankings.
+     *
      * @param int $limit
      * @return Collection
      */
-    public function getTopSelling(int $limit = 10): Collection
+    public function getTopSelling(int $limit = 10, ?Carbon $from = null, ?Carbon $to = null): Collection
     {
-        $since = Carbon::now()->subDays(30);
+        $hasExplicitRange = $from !== null || $to !== null;
+        $start = $from ? $from->copy()->startOfDay() : Carbon::now()->subDays(30);
+        $end = $to ? $to->copy()->endOfDay() : Carbon::now();
 
         $dateExpr = Schema::hasColumn('orders', 'order_date')
             ? 'COALESCE(orders.order_date, orders.created_at)'
             : 'orders.created_at';
 
-        // 1. Primary Query: Join order_items with orders and menu_items
+        $isMysql = DB::connection()->getDriverName() === 'mysql';
+        $fallbackNameMatchSql = $isMysql
+            ? "LOWER(REPLACE(menu_items.name, '-', ' ')) = LOWER(REPLACE(TRIM(SUBSTRING_INDEX(order_items.name, ' (', 1)), '-', ' '))"
+            : "LOWER(REPLACE(menu_items.name, '-', ' ')) = LOWER(REPLACE(order_items.name, '-', ' '))";
+
+        $excludedTestNames = ['try kog add', 'petsa'];
+
+        // 1. Primary Query: Join order_items with orders and menu_items within target window
         $salesRows = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->join('menu_items', function ($join) {
+            ->join('menu_items', function ($join) use ($fallbackNameMatchSql) {
                 $join->on('menu_items.id', '=', 'order_items.menu_item_id')
-                    ->orWhere(function ($q) {
+                    ->orWhere(function ($q) use ($fallbackNameMatchSql) {
                         $q->whereNull('order_items.menu_item_id')
-                            ->whereColumn('menu_items.name', 'order_items.name');
+                            ->whereRaw($fallbackNameMatchSql);
                     });
             })
             ->where('menu_items.archived', false)
+            ->whereRaw('LOWER(TRIM(menu_items.name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('orders.status', '!=', 'Cancelled')
-            ->whereRaw("{$dateExpr} >= ?", [$since])
+            ->whereRaw("{$dateExpr} >= ? AND {$dateExpr} <= ?", [$start, $end])
             ->select(
                 'menu_items.id',
                 DB::raw('SUM(order_items.qty) as units_sold')
@@ -51,19 +83,26 @@ class TopSellingService
             ->orderByDesc('units_sold')
             ->get();
 
-        $priorStart = Carbon::now()->subDays(60);
-        $priorEnd = Carbon::now()->subDays(30);
+        $rangeDays = max(1, (int) $start->copy()->startOfDay()->diffInDays($end->copy()->startOfDay()) + 1);
+        $priorStart = $hasExplicitRange
+            ? $start->copy()->subDays($rangeDays)->startOfDay()
+            : Carbon::now()->subDays(60);
+        $priorEnd = $hasExplicitRange
+            ? $start->copy()
+            : Carbon::now()->subDays(30);
 
+        // Previous window of equal length for period-over-period trend comparison
         $priorSalesRows = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->join('menu_items', function ($join) {
+            ->join('menu_items', function ($join) use ($fallbackNameMatchSql) {
                 $join->on('menu_items.id', '=', 'order_items.menu_item_id')
-                    ->orWhere(function ($q) {
+                    ->orWhere(function ($q) use ($fallbackNameMatchSql) {
                         $q->whereNull('order_items.menu_item_id')
-                            ->whereColumn('menu_items.name', 'order_items.name');
+                            ->whereRaw($fallbackNameMatchSql);
                     });
             })
             ->where('menu_items.archived', false)
+            ->whereRaw('LOWER(TRIM(menu_items.name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('orders.status', '!=', 'Cancelled')
             ->whereRaw("{$dateExpr} >= ? AND {$dateExpr} < ?", [$priorStart, $priorEnd])
             ->select(
@@ -75,8 +114,8 @@ class TopSellingService
 
         $priorUnitsMap = $priorSalesRows->pluck('units_sold', 'id')->all();
 
-        // If at least 3 distinct products have recorded sales within the 30-day window
-        if ($salesRows->count() >= 3) {
+        // If any products have recorded sales within the window, return them ranked by units sold
+        if ($salesRows->count() >= 1) {
             $unitsMap = $salesRows->pluck('units_sold', 'id')->all();
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
 
@@ -90,10 +129,15 @@ class TopSellingService
             return $this->formatItems($items, $unitsMap, $priorUnitsMap);
         }
 
+        if ($hasExplicitRange) {
+            return collect();
+        }
+
         // 2. Fallback Tier 1: Return menu items where is_featured is true
         $featuredItems = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
+            ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('is_featured', true)
             ->take($limit)
             ->get();
@@ -106,6 +150,7 @@ class TopSellingService
         $newestItems = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
+            ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('available', true)
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -160,18 +205,24 @@ class TopSellingService
 
             $hasPrior = array_key_exists($m->id, $priorUnitsMap) && $priorUnitsMap[$m->id] !== null;
             $priorUnits = $hasPrior ? (int) $priorUnitsMap[$m->id] : 0;
+            $trendPct = null;
+            $trendDirection = 'none';
 
             if (! $hasPrior || $priorUnits === 0) {
-                $change = '—';
+                $change = 'No prior data';
             } else {
                 $diff = $units - $priorUnits;
                 $pct = (int) round(($diff / $priorUnits) * 100);
+                $trendPct = $pct;
                 if ($pct > 0) {
                     $change = '↑ '.$pct.'%';
+                    $trendDirection = 'up';
                 } elseif ($pct < 0) {
                     $change = '↓ '.abs($pct).'%';
+                    $trendDirection = 'down';
                 } else {
                     $change = '0%';
+                    $trendDirection = 'flat';
                 }
             }
 
@@ -199,6 +250,9 @@ class TopSellingService
                 'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
                 'units' => $units,
                 'units_sold' => $units,
+                'prior_units' => $priorUnits,
+                'trend_pct' => $trendPct,
+                'trend_direction' => $trendDirection,
                 'change' => $change,
             ];
         });
