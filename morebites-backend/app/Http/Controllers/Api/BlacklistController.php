@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\DriverBlacklist;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class BlacklistController extends Controller
@@ -43,6 +45,28 @@ class BlacklistController extends Controller
         $blacklist->update(['notes' => $data['notes'] ?? '']);
 
         return response()->json(['data' => $this->transform($blacklist->fresh())]);
+    }
+
+    public function unblacklist(Request $request, DriverBlacklist $blacklist)
+    {
+        $driver = $blacklist->driver ?: User::find($blacklist->driver_id);
+        if ($driver) {
+            $driver->update([
+                'status' => 'Active',
+                'archived_at' => null,
+            ]);
+
+            ActivityLog::query()->create([
+                'actor' => $request->user()?->name ?: 'Owner',
+                'action' => 'Reinstated driver '.$driver->name,
+            ]);
+        }
+
+        $blacklist->delete();
+
+        return response()->json([
+            'message' => 'Driver has been reinstated and restored to active drivers.',
+        ]);
     }
 
     private function transform(DriverBlacklist $d): array

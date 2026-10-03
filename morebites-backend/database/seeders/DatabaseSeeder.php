@@ -151,7 +151,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 40,
             'unit' => 'pcs',
             'reorder_level' => 10,
-            'days_until_expiry' => 5,
+            'days_until_expiry' => 60,
         ]);
         $chickenThigh = $this->seedInventory([
             'name' => 'Chicken Thigh',
@@ -161,7 +161,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 6,
             'unit' => 'kg',
             'reorder_level' => 3,
-            'days_until_expiry' => 3,
+            'days_until_expiry' => 45,
         ]);
         $chickenWings = $this->seedInventory([
             'name' => 'Chicken Wings',
@@ -171,7 +171,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 4.5,
             'unit' => 'kg',
             'reorder_level' => 2,
-            'days_until_expiry' => 0,
+            'days_until_expiry' => 45,
         ]);
         $ube = $this->seedInventory([
             'name' => 'Ube Mix',
@@ -180,7 +180,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 2,
             'unit' => 'kg',
             'reorder_level' => 2,
-            'days_until_expiry' => -2,
+            'days_until_expiry' => 60,
         ]);
         $soda = $this->seedInventory([
             'name' => 'Soda Bottles',
@@ -189,7 +189,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 24,
             'unit' => 'pcs',
             'reorder_level' => 6,
-            'days_until_expiry' => 14,
+            'days_until_expiry' => 90,
         ]);
         $mozzarella = $this->seedInventory([
             'name' => 'Mozzarella Cheese',
@@ -198,7 +198,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 3,
             'unit' => 'kg',
             'reorder_level' => 2,
-            'days_until_expiry' => 6,
+            'days_until_expiry' => 60,
         ]);
         $fries = $this->seedInventory([
             'name' => 'Frozen Fries',
@@ -207,7 +207,7 @@ class DatabaseSeeder extends Seeder
             'stock' => 12,
             'unit' => 'kg',
             'reorder_level' => 4,
-            'days_until_expiry' => 7,
+            'days_until_expiry' => 60,
         ]);
 
         $firstMenu = null;

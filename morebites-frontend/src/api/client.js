@@ -194,6 +194,8 @@ export const blacklistApi = {
   list: (params) => api.get('/blacklist', { params }),
   show: (id) => api.get(`/blacklist/${id}`),
   updateNotes: (id, notes) => api.patch(`/blacklist/${id}/notes`, { notes }),
+  unblacklist: (id) => api.post(`/blacklist/${id}/unblacklist`),
+  reinstate: (id) => api.post(`/blacklist/${id}/reinstate`),
 }
 
 export const notificationsApi = {

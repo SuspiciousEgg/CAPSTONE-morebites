@@ -88,6 +88,7 @@ class OrderController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.name' => ['required', 'string'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
+            'items.*.size' => ['nullable', 'string'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'delivery_address' => ['nullable', 'string'],
@@ -136,10 +137,16 @@ class OrderController extends Controller
             ]);
 
             foreach ($data['items'] as $item) {
+                $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
+                $name = ! empty($item['size']) && ! $hasSizeInName
+                    ? $item['name'].' ('.$item['size'].')'
+                    : $item['name'];
+
                 OrderItem::query()->create([
                     'order_id' => $order->id,
                     'menu_item_id' => $item['menu_item_id'] ?? null,
-                    'name' => $item['name'],
+                    'name' => $name,
+                    'size' => $item['size'] ?? null,
                     'qty' => $item['qty'],
                     'unit_price' => $item['unit_price'],
                     'line_total' => $item['qty'] * $item['unit_price'],
@@ -191,6 +198,8 @@ class OrderController extends Controller
     public function menuOptions()
     {
         $service = app(InventoryDeductionService::class);
+        $service->syncMenuAvailability();
+
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
@@ -198,17 +207,33 @@ class OrderController extends Controller
             ->orderBy('name')
             ->get()
             ->filter(fn (MenuItem $m) => $service->canServe($m))
-            ->map(fn (MenuItem $m) => [
-                'id' => $m->id,
-                'name' => $m->name,
-                'category' => $m->category,
-                'price' => (float) $m->price,
-                'has_sizes' => $m->has_sizes,
-                'sizes' => $m->sizes->map(fn ($s) => [
+            ->map(function (MenuItem $m) {
+                $sizes = $m->sizes->map(fn ($s) => [
                     'name' => $s->name,
                     'price' => (float) $s->price,
-                ]),
-            ])
+                ])->values();
+
+                $minPrice = $sizes->min('price');
+                $maxPrice = $sizes->max('price');
+                $effectivePrice = $m->has_sizes && $minPrice !== null ? (float) $minPrice : (float) $m->price;
+
+                $priceFormatted = $m->has_sizes && $minPrice !== null
+                    ? ($minPrice == $maxPrice
+                        ? '₱'.number_format($minPrice, 0)
+                        : '₱'.number_format($minPrice, 0).' - ₱'.number_format($maxPrice, 0))
+                    : '₱'.number_format((float) $m->price, 0);
+
+                return [
+                    'id' => $m->id,
+                    'name' => $m->name,
+                    'category' => $m->category,
+                    'subcategory' => $m->subcategory,
+                    'price' => $effectivePrice,
+                    'price_formatted' => $priceFormatted,
+                    'has_sizes' => (bool) $m->has_sizes,
+                    'sizes' => $sizes,
+                ];
+            })
             ->values();
 
         return response()->json(['data' => $items]);

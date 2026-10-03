@@ -1,8 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "current_user";
+
+// Inside the Android emulator, 127.0.0.1 is the emulator itself; 10.0.2.2 is the host PC.
+const ANDROID_EMULATOR_HOST = "10.0.2.2";
 
 function expoLanHost() {
   const hostUri = Constants.expoConfig?.hostUri || Constants.linkingUri || "";
@@ -16,13 +20,19 @@ function expoLanHost() {
   return null;
 }
 
+// Host that points at the PC running Laravel:
+// physical phone (Expo Go on Wi-Fi) -> Expo LAN IP; Android emulator -> 10.0.2.2.
+function pcHost() {
+  return expoLanHost() || (Platform.OS === "android" ? ANDROID_EMULATOR_HOST : null);
+}
+
 function resolveApiBase() {
   const envUrl = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/$/, "");
-  const lanHost = expoLanHost();
+  const host = pcHost();
   const envIsLoopback = !envUrl || /localhost|127\.0\.0\.1/.test(envUrl);
 
-  if (lanHost && envIsLoopback) {
-    return `http://${lanHost}:8000/api`;
+  if (host && envIsLoopback) {
+    return `http://${host}:8000/api`;
   }
   if (envUrl) return envUrl;
   return "http://127.0.0.1:8000/api";
@@ -32,10 +42,10 @@ export const API_BASE = resolveApiBase();
 
 export function mediaUrl(path) {
   if (!path) return null;
-  const lanHost = expoLanHost();
+  const host = pcHost();
   let resolved = String(path);
-  if (lanHost && /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?/i.test(resolved)) {
-    resolved = resolved.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)/i, `$1${lanHost}`);
+  if (host && /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?/i.test(resolved)) {
+    resolved = resolved.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)/i, `$1${host}`);
   }
   if (/^(https?:|blob:|data:|file:)/i.test(resolved)) return resolved;
   const origin = API_BASE.replace(/\/api\/?$/, "");
@@ -215,11 +225,50 @@ export const customerApi = {
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
   markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
-    try {
-      await request("/logout", { method: "POST" });
-    } catch {
-      // ignore
-    }
+    // Prompt 53: wipe the stored session FIRST so logout can never be undone by a
+    // slow/unreachable API, then revoke the server token in the background (time-boxed).
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
     await authStorage.clear();
+    if (token) revokeServerToken(token);
   },
 };
+
+/* ============================================================================
+ * PROMPT 53 DIAGNOSTIC REPORT — Logout not clearing session (Customer app)
+ * 1. Where the session is stored:
+ *    - AsyncStorage only (no SecureStore, no refresh token exists in this app).
+ *    - Keys: "auth_token" (Sanctum bearer token, TOKEN_KEY) and "current_user" (cached user, USER_KEY).
+ *      "saved_addresses" (legacy unscoped address cache) is also session-bound and cleared on logout.
+ *    - Auto-login: app/(auth)/splashscreen.jsx reads "auth_token"; if present and GET /customer/me
+ *      succeeds, it routes straight to /(tabs)/home.
+ * 2. What Logout did before this fix:
+ *    - profile.jsx closed the modal and called customerApi.logout(), which first AWAITED
+ *      POST /logout and only afterwards ran authStorage.clear().
+ *    - fetch() has no timeout, so on a slow, dropped, or firewalled connection the request could
+ *      hang indefinitely. The clear never executed, "auth_token" stayed in AsyncStorage, the server
+ *      token was never revoked, and on relaunch the splash screen found a valid token and auto-logged in.
+ * 3. Fix:
+ *    - Read the token, clear every stored auth key immediately, then revoke the server token
+ *      fire-and-forget with an 8s timeout. Local logout is now guaranteed regardless of network.
+ *    - Closing the app WITHOUT tapping Logout is unchanged: the token stays and splash auto-logs in.
+ * ============================================================================
+ */
+function revokeServerToken(token) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 8000) : null;
+  fetch(`${API_BASE}/logout`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    signal: controller?.signal,
+  })
+    .catch(() => {
+      // Ignore: the local session is already gone, so the user stays logged out.
+    })
+    .finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+}

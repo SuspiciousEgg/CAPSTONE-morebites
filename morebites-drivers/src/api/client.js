@@ -1,8 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "current_user";
+
+// Inside the Android emulator, 127.0.0.1 is the emulator itself; 10.0.2.2 is the host PC.
+const ANDROID_EMULATOR_HOST = "10.0.2.2";
 
 function expoLanHost() {
   const hostUri =
@@ -19,14 +23,20 @@ function expoLanHost() {
   return null;
 }
 
+// Host that points at the PC running Laravel:
+// physical phone (Expo Go on Wi-Fi) -> Expo LAN IP; Android emulator -> 10.0.2.2.
+function pcHost() {
+  return expoLanHost() || (Platform.OS === "android" ? ANDROID_EMULATOR_HOST : null);
+}
+
 function resolveApiBase() {
   const envUrl = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/$/, "");
-  const lanHost = expoLanHost();
+  const host = pcHost();
   const envIsLoopback = !envUrl || /localhost|127\.0\.0\.1/.test(envUrl);
 
-  // A phone cannot reach the PC via 127.0.0.1. Prefer the Expo LAN IP.
-  if (lanHost && envIsLoopback) {
-    return `http://${lanHost}:8000/api`;
+  // A phone cannot reach the PC via 127.0.0.1. Prefer the Expo LAN IP (or 10.0.2.2 on the emulator).
+  if (host && envIsLoopback) {
+    return `http://${host}:8000/api`;
   }
 
   if (envUrl) {
@@ -40,9 +50,14 @@ export const API_BASE = resolveApiBase();
 
 export function mediaUrl(path) {
   if (!path) return null;
-  if (/^(https?:|blob:|data:|file:)/i.test(path)) return path;
+  const host = pcHost();
+  let resolved = String(path);
+  if (host && /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?/i.test(resolved)) {
+    resolved = resolved.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)/i, `$1${host}`);
+  }
+  if (/^(https?:|blob:|data:|file:)/i.test(resolved)) return resolved;
   const origin = API_BASE.replace(/\/api\/?$/, "");
-  return `${origin}/${String(path).replace(/^\//, "")}`;
+  return `${origin}/${resolved.replace(/^\//, "")}`;
 }
 
 function sendFormDataWithXHR(path, { method = "POST", body, token, auth = true } = {}) {
@@ -270,11 +285,41 @@ export const driverApi = {
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
   markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
-    try {
-      await request("/logout", { method: "POST" });
-    } catch {
-      // Ignore network logout errors; clear local session anyway.
-    }
+    // Prompt 53: wipe the stored session FIRST so logout can never be undone by a
+    // slow/unreachable API, then revoke the server token in the background (time-boxed).
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
     await authStorage.clear();
+    if (token) revokeServerToken(token);
   },
 };
+
+/* ============================================================================
+ * PROMPT 53 DIAGNOSTIC REPORT — Logout not clearing session (Driver app)
+ * - Same auth logic as the Customer app: AsyncStorage keys "auth_token" (TOKEN_KEY) and
+ *   "current_user" (USER_KEY); no SecureStore and no refresh token.
+ * - Auto-login: app/(auth)/splash.jsx reads "auth_token" and calls GET /driver/me.
+ * - Before this fix, driverApi.logout() AWAITED POST /logout (fetch has no timeout) before
+ *   clearing storage, so a hung request left the token in place and relaunch auto-logged in.
+ * - Fix: clear storage immediately, then revoke the server token fire-and-forget (8s timeout).
+ *   Closing the app without tapping Logout still keeps the persistent session.
+ * ============================================================================
+ */
+function revokeServerToken(token) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 8000) : null;
+  fetch(`${API_BASE}/logout`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    signal: controller?.signal,
+  })
+    .catch(() => {
+      // Ignore: the local session is already gone, so the driver stays logged out.
+    })
+    .finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+}

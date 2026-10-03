@@ -671,6 +671,7 @@
   transition: all 0.15s ease;
   display: flex;
   flex-direction: column;
+  min-height: 120px;
 }
 
 .om-menu-card:hover {
@@ -697,7 +698,7 @@
 }
 
 .om-menu-card-price {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #FFA500;
   margin-top: auto;
@@ -706,14 +707,61 @@
 .om-menu-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.97);
   border-radius: 11px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  z-index: 5;
+}
+
+.om-size-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.om-size-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  color: #4B5563;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.om-size-chip:hover {
+  border-color: #FFA500;
+  color: #FFA500;
+}
+
+.om-size-chip.selected {
+  background: #FFF7ED;
+  border-color: #FFA500;
+  color: #C2410C;
+}
+
+.om-size-chip strong {
+  font-weight: 700;
+  color: #EA580C;
+}
+
+.om-overlay-price {
+  font-size: 12px;
+  font-weight: 700;
+  color: #FFA500;
 }
 
 .om-qty {
@@ -723,8 +771,8 @@
 }
 
 .om-qty button {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   border: 1px solid #EDEDED;
   background: #FFFFFF;
@@ -736,14 +784,14 @@
 }
 
 .om-qty span {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   min-width: 20px;
   text-align: center;
 }
 
 .om-add-cart {
-  padding: 6px 14px;
+  padding: 5px 14px;
   border-radius: 8px;
   background: #FFA500;
   color: #FFFFFF;

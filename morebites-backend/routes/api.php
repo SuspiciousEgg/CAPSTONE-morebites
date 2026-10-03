@@ -137,6 +137,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/blacklist', [BlacklistController::class, 'index']);
         Route::get('/blacklist/{blacklist}', [BlacklistController::class, 'show']);
         Route::patch('/blacklist/{blacklist}/notes', [BlacklistController::class, 'updateNotes']);
+        Route::post('/blacklist/{blacklist}/unblacklist', [BlacklistController::class, 'unblacklist']);
+        Route::post('/blacklist/{blacklist}/reinstate', [BlacklistController::class, 'unblacklist']);
+        Route::delete('/blacklist/{blacklist}', [BlacklistController::class, 'unblacklist']);
         Route::get('/archive', [ArchiveController::class, 'index']);
         Route::post('/archive/{user}/restore', [ArchiveController::class, 'restore']);
         Route::delete('/archive/{user}', [ArchiveController::class, 'destroy']);

@@ -56,7 +56,7 @@ class DriverController extends Controller
 
         if ((int) $request->user()?->id === (int) $user->id) {
             return response()->json([
-                'message' => 'You cannot archive or blacklist your own account',
+                'message' => 'You cannot archive or blocklist your own account',
             ], 422);
         }
 
@@ -79,7 +79,7 @@ class DriverController extends Controller
 
         if ((int) $request->user()?->id === (int) $user->id) {
             return response()->json([
-                'message' => 'You cannot archive or blacklist your own account',
+                'message' => 'You cannot archive or blocklist your own account',
             ], 422);
         }
 
@@ -107,10 +107,10 @@ class DriverController extends Controller
 
         ActivityLog::query()->create([
             'actor' => $request->user()?->name ?: 'Admin',
-            'action' => 'Blacklisted driver '.$user->name,
+            'action' => 'Blocklisted driver '.$user->name,
         ]);
 
-        return response()->json(['message' => 'Driver blacklisted successfully.']);
+        return response()->json(['message' => 'Driver blocklisted successfully.']);
     }
 
     private function transform(User $u): array

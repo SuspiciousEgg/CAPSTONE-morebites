@@ -9,6 +9,7 @@ import {
   LuShieldAlert,
   LuCircleCheck,
   LuBan,
+  LuTriangleAlert,
 } from 'react-icons/lu'
 
 const BLACKLIST_REASONS = [
@@ -70,6 +71,7 @@ export default function DriverManagement({ embedded = false }) {
   const [blacklistModal, setBlacklistModal] = useState(null)
   const [blacklistReason, setBlacklistReason] = useState(BLACKLIST_REASONS[0])
   const [blacklistNotes, setBlacklistNotes] = useState('')
+  const [blacklistStep, setBlacklistStep] = useState(1)
   const [actionLoading, setActionLoading] = useState(false)
   const statusRef = useRef(null)
   const sortRef = useRef(null)
@@ -96,6 +98,20 @@ export default function DriverManagement({ embedded = false }) {
     }
   }
 
+  const handleProceedToConfirm = () => {
+    if (!blacklistModal?.driver?.db_id) return
+    const reasonText =
+      blacklistReason === 'Other'
+        ? blacklistNotes.trim()
+        : (blacklistNotes.trim() ? `${blacklistReason}: ${blacklistNotes.trim()}` : blacklistReason)
+
+    if (!reasonText) {
+      alert('Please specify a reason for blocklisting.')
+      return
+    }
+    setBlacklistStep(2)
+  }
+
   const handleConfirmBlacklist = async () => {
     if (!blacklistModal?.driver?.db_id) return
     const reasonText =
@@ -104,20 +120,21 @@ export default function DriverManagement({ embedded = false }) {
         : (blacklistNotes.trim() ? `${blacklistReason}: ${blacklistNotes.trim()}` : blacklistReason)
 
     if (!reasonText) {
-      alert('Please specify a reason for blacklisting.')
+      alert('Please specify a reason for blocklisting.')
       return
     }
 
     setActionLoading(true)
     try {
       await driversApi.blacklist(blacklistModal.driver.db_id, reasonText)
-      // Driver moved to Blacklist view; remove from active Drivers table
+      // Driver moved to Blocklist view; remove from active Drivers table
       setDrivers((prev) => prev.filter((d) => d.db_id !== blacklistModal.driver.db_id))
       setBlacklistModal(null)
       setSelected(null)
+      setBlacklistStep(1)
     } catch (err) {
       console.error(err)
-      alert(err.response?.data?.message || 'Failed to blacklist driver.')
+      alert(err.response?.data?.message || 'Failed to blocklist driver.')
     } finally {
       setActionLoading(false)
     }
@@ -399,10 +416,11 @@ export default function DriverManagement({ embedded = false }) {
                     setBlacklistModal({ driver: selected })
                     setBlacklistReason(BLACKLIST_REASONS[0])
                     setBlacklistNotes('')
+                    setBlacklistStep(1)
                   }}
                 >
                   <LuBan size={16} />
-                  <span>BLACKLIST</span>
+                  <span>BLOCKLIST</span>
                 </button>
               </div>
             )}
@@ -461,84 +479,137 @@ export default function DriverManagement({ embedded = false }) {
         </div>
       )}
 
-      {/* Dedicated Blacklist Modal */}
+      {/* Dedicated Blacklist Modal with Second Warning Confirmation */}
       {blacklistModal && (
         <div
           className="dm-modal-overlay"
           onClick={() => !actionLoading && setBlacklistModal(null)}
           role="presentation"
         >
-          <div className="dm-modal-card blacklist" onClick={(e) => e.stopPropagation()}>
-            <div className="dm-modal-icon-wrap blacklist">
-              <LuBan size={28} />
-            </div>
-            <h3 className="dm-modal-title">Blacklist Driver</h3>
-            <p className="dm-modal-subtext">
-              Blacklisting is a severe trust-and-safety decision. This driver will be moved to the Blacklist tab with this reason recorded.
-            </p>
+          {blacklistStep === 1 ? (
+            <div className="dm-modal-card blacklist" onClick={(e) => e.stopPropagation()}>
+              <div className="dm-modal-icon-wrap blacklist">
+                <LuBan size={28} />
+              </div>
+              <h3 className="dm-modal-title">Blocklist Driver</h3>
+              <p className="dm-modal-subtext">
+                Blocklisting is a severe trust-and-safety decision. Specify the reason and details to proceed.
+              </p>
 
-            <div className="dm-driver-summary-chip">
-              <div className="dm-driver-summary-name">{blacklistModal.driver.name}</div>
-              <div className="dm-driver-summary-meta">
-                <span>ID: {blacklistModal.driver.id}</span>
-                <span>•</span>
-                <span>Plate: {blacklistModal.driver.plate || 'N/A'}</span>
+              <div className="dm-driver-summary-chip">
+                <div className="dm-driver-summary-name">{blacklistModal.driver.name}</div>
+                <div className="dm-driver-summary-meta">
+                  <span>ID: {blacklistModal.driver.id}</span>
+                  <span>•</span>
+                  <span>Plate: {blacklistModal.driver.plate || 'N/A'}</span>
+                </div>
+              </div>
+
+              <div className="dm-form-group">
+                <label className="dm-form-label">Reason for Blocklist *</label>
+                <select
+                  className="dm-form-select"
+                  value={blacklistReason}
+                  onChange={(e) => setBlacklistReason(e.target.value)}
+                  disabled={actionLoading}
+                >
+                  {BLACKLIST_REASONS.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="dm-form-group">
+                <label className="dm-form-label">
+                  {blacklistReason === 'Other' ? 'Specify Reason *' : 'Additional Notes (Optional)'}
+                </label>
+                <textarea
+                  className="dm-form-textarea"
+                  rows={3}
+                  placeholder={
+                    blacklistReason === 'Other'
+                      ? 'Enter specific reason for blocklisting...'
+                      : 'Enter any additional details or context...'
+                  }
+                  value={blacklistNotes}
+                  onChange={(e) => setBlacklistNotes(e.target.value)}
+                  disabled={actionLoading}
+                />
+              </div>
+
+              <div className="dm-modal-actions">
+                <button
+                  type="button"
+                  className="dm-modal-btn cancel"
+                  onClick={() => setBlacklistModal(null)}
+                  disabled={actionLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="dm-modal-btn confirm-blacklist"
+                  onClick={handleProceedToConfirm}
+                  disabled={actionLoading}
+                >
+                  Continue to Confirmation →
+                </button>
               </div>
             </div>
+          ) : (
+            <div className="dm-modal-card blacklist dm-modal-second-warning" onClick={(e) => e.stopPropagation()}>
+              <div className="dm-modal-icon-wrap second-warning">
+                <LuTriangleAlert size={30} />
+              </div>
+              <h3 className="dm-modal-title dm-title-danger">Second Warning: Confirm Blocklist</h3>
+              <p className="dm-modal-subtext">
+                Please review carefully. This is the final confirmation before permanent enforcement.
+              </p>
 
-            <div className="dm-form-group">
-              <label className="dm-form-label">Reason for Blacklist *</label>
-              <select
-                className="dm-form-select"
-                value={blacklistReason}
-                onChange={(e) => setBlacklistReason(e.target.value)}
-                disabled={actionLoading}
-              >
-                {BLACKLIST_REASONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="dm-warning-banner">
+                <div className="dm-warning-banner-title">
+                  ⚠️ Permanent Restriction Warning
+                </div>
+                <div className="dm-warning-banner-text">
+                  You are about to permanently blocklist <strong>{blacklistModal.driver.name}</strong> ({blacklistModal.driver.id}).
+                </div>
+                <ul className="dm-warning-banner-list">
+                  <li>Driver will be immediately deactivated and logged out.</li>
+                  <li>All active dispatch assignments will be cancelled and reassigned.</li>
+                  <li>Driver will be permanently transferred to the <strong>Blocklist</strong> registry.</li>
+                </ul>
+                <div className="dm-warning-reason-chip">
+                  <span>Recorded Reason:</span>
+                  <strong>
+                    {blacklistReason === 'Other'
+                      ? blacklistNotes.trim()
+                      : (blacklistNotes.trim() ? `${blacklistReason} — ${blacklistNotes.trim()}` : blacklistReason)}
+                  </strong>
+                </div>
+              </div>
 
-            <div className="dm-form-group">
-              <label className="dm-form-label">
-                {blacklistReason === 'Other' ? 'Specify Reason *' : 'Additional Notes (Optional)'}
-              </label>
-              <textarea
-                className="dm-form-textarea"
-                rows={3}
-                placeholder={
-                  blacklistReason === 'Other'
-                    ? 'Enter specific reason for blacklisting...'
-                    : 'Enter any additional details or context...'
-                }
-                value={blacklistNotes}
-                onChange={(e) => setBlacklistNotes(e.target.value)}
-                disabled={actionLoading}
-              />
+              <div className="dm-modal-actions">
+                <button
+                  type="button"
+                  className="dm-modal-btn cancel"
+                  onClick={() => setBlacklistStep(1)}
+                  disabled={actionLoading}
+                >
+                  ← Go Back
+                </button>
+                <button
+                  type="button"
+                  className="dm-modal-btn confirm-blacklist danger-final"
+                  onClick={handleConfirmBlacklist}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Blocklisting Driver...' : 'Yes, Blocklist Driver'}
+                </button>
+              </div>
             </div>
-
-            <div className="dm-modal-actions">
-              <button
-                type="button"
-                className="dm-modal-btn cancel"
-                onClick={() => setBlacklistModal(null)}
-                disabled={actionLoading}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="dm-modal-btn confirm-blacklist"
-                onClick={handleConfirmBlacklist}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Blacklisting...' : 'Confirm Blacklist'}
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
