@@ -35,4 +35,9 @@ class MenuItem extends Model
     {
         return $this->hasMany(MenuItemIngredient::class);
     }
+
+    public function baseIngredients(): HasMany
+    {
+        return $this->hasMany(MenuItemIngredient::class)->whereNull('menu_item_size_id');
+    }
 }

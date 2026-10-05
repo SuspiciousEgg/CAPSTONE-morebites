@@ -10,6 +10,7 @@ use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class MenuController extends Controller
 {
@@ -84,7 +85,7 @@ class MenuController extends Controller
                 }
             }
 
-            $this->syncIngredients($item, $data['ingredients'] ?? []);
+            $this->syncIngredients($item, $data);
 
             ActivityLog::query()->create([
                 'actor' => 'Admin',
@@ -136,7 +137,7 @@ class MenuController extends Controller
                 }
             }
 
-            $this->syncIngredients($menu, $data['ingredients'] ?? []);
+            $this->syncIngredients($menu, $data);
 
             return $menu->fresh()->load([
                 'sizes',
@@ -211,10 +212,43 @@ class MenuController extends Controller
             }
         }
 
+        $sizes = $request->input('sizes');
+        if (is_array($sizes)) {
+            $normalizedSizes = [];
+            foreach ($sizes as $size) {
+                if (! is_array($size)) {
+                    continue;
+                }
+                $sizeIng = $size['ingredients'] ?? [];
+                if (is_string($sizeIng)) {
+                    $decodedIng = json_decode($sizeIng, true);
+                    $sizeIng = is_array($decodedIng) ? $decodedIng : [];
+                }
+                if (is_array($sizeIng)) {
+                    $size['ingredients'] = collect($sizeIng)
+                        ->filter(fn ($row) => is_array($row) && ! empty($row['inventory_item_id']))
+                        ->map(fn ($row) => [
+                            'inventory_item_id' => (int) $row['inventory_item_id'],
+                            'qty_per_serving' => isset($row['qty_per_serving']) && $row['qty_per_serving'] !== '' && (float) $row['qty_per_serving'] > 0
+                                ? (float) $row['qty_per_serving']
+                                : 1.0,
+                        ])
+                        ->values()
+                        ->all();
+                } else {
+                    $size['ingredients'] = [];
+                }
+                $normalizedSizes[] = $size;
+            }
+            $request->merge(['sizes' => $normalizedSizes]);
+        }
+
         if (is_array($request->input('ingredients'))) {
             $normalizedIngredients = collect($request->input('ingredients'))
                 ->filter(fn ($row) => is_array($row) && ! empty($row['inventory_item_id']))
                 ->map(fn ($row) => [
+                    'menu_item_size_id' => ! empty($row['menu_item_size_id']) ? (int) $row['menu_item_size_id'] : null,
+                    'size_name' => ! empty($row['size_name']) ? (string) $row['size_name'] : null,
                     'inventory_item_id' => (int) $row['inventory_item_id'],
                     'qty_per_serving' => isset($row['qty_per_serving']) && $row['qty_per_serving'] !== '' && (float) $row['qty_per_serving'] > 0
                         ? (float) $row['qty_per_serving']
@@ -240,7 +274,7 @@ class MenuController extends Controller
             ]);
         }
 
-        return $request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string'],
             'description' => ['nullable', 'string'],
             'category' => ['required', 'string'],
@@ -250,7 +284,16 @@ class MenuController extends Controller
             'sizes' => ['nullable', 'array'],
             'sizes.*.name' => ['required_with:sizes', 'string'],
             'sizes.*.price' => ['required_with:sizes', 'numeric', 'min:0'],
+            'sizes.*.ingredients' => ['nullable', 'array'],
+            'sizes.*.ingredients.*.inventory_item_id' => [
+                'required',
+                'integer',
+                Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
+            ],
+            'sizes.*.ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
             'ingredients' => ['nullable', 'array'],
+            'ingredients.*.menu_item_size_id' => ['nullable', 'integer'],
+            'ingredients.*.size_name' => ['nullable', 'string'],
             'ingredients.*.inventory_item_id' => [
                 'required',
                 'integer',
@@ -258,6 +301,24 @@ class MenuController extends Controller
             ],
             'ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
         ]);
+
+        if (!empty($validated['has_sizes']) && !empty($validated['sizes'])) {
+            $names = array_map(fn ($s) => strtolower(trim((string) ($s['name'] ?? ''))), $validated['sizes']);
+            if (count($names) !== count(array_unique($names))) {
+                throw ValidationException::withMessages([
+                    'sizes' => ['Each size option must have a unique name.'],
+                ]);
+            }
+
+            $prices = array_map(fn ($s) => (string) (float) ($s['price'] ?? 0), $validated['sizes']);
+            if (count($prices) !== count(array_unique($prices))) {
+                throw ValidationException::withMessages([
+                    'sizes' => ['Each size option must have a unique price.'],
+                ]);
+            }
+        }
+
+        return $validated;
     }
 
     private function resolveImage(Request $request, ?string $existing = null): ?string
@@ -281,14 +342,92 @@ class MenuController extends Controller
     }
 
     /**
-     * @param  array<int, array{inventory_item_id: int, qty_per_serving: float|int|string}>  $ingredients
+     * @param  array<string, mixed>  $data
      */
-    private function syncIngredients(MenuItem $item, array $ingredients): void
+    private function syncIngredients(MenuItem $item, array $data): void
     {
         $item->ingredients()->delete();
 
+        if ($item->has_sizes) {
+            $sizes = $data['sizes'] ?? [];
+            $hasNested = collect($sizes)->contains(fn ($s) => ! empty($s['ingredients']));
+
+            if ($hasNested) {
+                $persistedSizes = $item->sizes()->get();
+                foreach ($sizes as $sData) {
+                    $sizeName = trim($sData['name'] ?? '');
+                    $matchingSize = $persistedSizes->first(
+                        fn ($ps) => strcasecmp(trim($ps->name), $sizeName) === 0
+                    );
+                    if (! $matchingSize) {
+                        continue;
+                    }
+
+                    $seen = [];
+                    foreach ($sData['ingredients'] ?? [] as $row) {
+                        if (empty($row['inventory_item_id'])) {
+                            continue;
+                        }
+                        $inventoryId = (int) $row['inventory_item_id'];
+                        if (isset($seen[$inventoryId])) {
+                            continue;
+                        }
+                        $seen[$inventoryId] = true;
+
+                        $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
+                            ? (float) $row['qty_per_serving']
+                            : 1.0;
+
+                        $item->ingredients()->create([
+                            'menu_item_size_id' => $matchingSize->id,
+                            'inventory_item_id' => $inventoryId,
+                            'qty_per_serving' => $qty,
+                        ]);
+                    }
+                }
+
+                return;
+            }
+
+            $topIngredients = $data['ingredients'] ?? [];
+            if (! empty($topIngredients)) {
+                $persistedSizes = $item->sizes()->get();
+                $seen = [];
+                foreach ($topIngredients as $row) {
+                    if (empty($row['inventory_item_id'])) {
+                        continue;
+                    }
+                    $sizeId = $row['menu_item_size_id'] ?? null;
+                    if (! $sizeId && ! empty($row['size_name'])) {
+                        $sizeObj = $persistedSizes->first(
+                            fn ($ps) => strcasecmp(trim($ps->name), trim($row['size_name'])) === 0
+                        );
+                        $sizeId = $sizeObj?->id;
+                    }
+
+                    $key = ($sizeId ?? 'base') . '-' . $row['inventory_item_id'];
+                    if (isset($seen[$key])) {
+                        continue;
+                    }
+                    $seen[$key] = true;
+
+                    $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
+                        ? (float) $row['qty_per_serving']
+                        : 1.0;
+
+                    $item->ingredients()->create([
+                        'menu_item_size_id' => $sizeId,
+                        'inventory_item_id' => (int) $row['inventory_item_id'],
+                        'qty_per_serving' => $qty,
+                    ]);
+                }
+
+                return;
+            }
+        }
+
         $seen = [];
-        foreach ($ingredients as $row) {
+        foreach ($data['ingredients'] ?? [] as $row) {
             if (empty($row['inventory_item_id'])) {
                 continue;
             }
@@ -303,6 +442,7 @@ class MenuController extends Controller
                 : 1.0;
 
             $item->ingredients()->create([
+                'menu_item_size_id' => null,
                 'inventory_item_id' => $inventoryId,
                 'qty_per_serving' => $qty,
             ]);
@@ -313,8 +453,8 @@ class MenuController extends Controller
     {
         $service ??= app(InventoryDeductionService::class);
         $m->loadMissing([
-            'sizes',
-            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+            'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed(),
+            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed(), 'menuItemSize']),
         ]);
         $stockOk = $service->canServe($m);
         $stockReason = $service->unserviceableReason($m);
@@ -329,13 +469,30 @@ class MenuController extends Controller
             'image' => Media::url($m->image),
             'hasSizes' => $m->has_sizes,
             'sizes' => $m->sizes->map(fn ($s) => [
+                'id' => $s->id,
                 'name' => $s->name,
                 'price' => (float) $s->price,
+                'ingredients' => $s->ingredients->map(function ($ing) {
+                    $inv = $ing->inventoryItem;
+
+                    return [
+                        'id' => $ing->id,
+                        'menu_item_size_id' => $ing->menu_item_size_id,
+                        'inventory_item_id' => $ing->inventory_item_id,
+                        'qty_per_serving' => (float) $ing->qty_per_serving,
+                        'name' => $inv?->name,
+                        'unit' => $inv?->unit,
+                        'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
+                    ];
+                })->values(),
             ])->values(),
             'ingredients' => $m->ingredients->map(function ($ing) {
                 $inv = $ing->inventoryItem;
 
                 return [
+                    'id' => $ing->id,
+                    'menu_item_size_id' => $ing->menu_item_size_id,
+                    'size_name' => $ing->menuItemSize?->name,
                     'inventory_item_id' => $ing->inventory_item_id,
                     'qty_per_serving' => (float) $ing->qty_per_serving,
                     'name' => $inv?->name,

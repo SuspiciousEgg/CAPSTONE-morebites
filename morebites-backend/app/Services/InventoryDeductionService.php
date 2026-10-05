@@ -12,26 +12,59 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryDeductionService
 {
-    public function canServe(MenuItem $item, int $qty = 1): bool
+    public function canServe(MenuItem $item, int $qty = 1, ?string $size = null): bool
     {
-        return $this->unserviceableReason($item, $qty) === null;
+        return $this->unserviceableReason($item, $qty, $size) === null;
     }
 
-    public function outOfStockReason(MenuItem $item, int $qty = 1): string
+    public function outOfStockReason(MenuItem $item, int $qty = 1, ?string $size = null): string
     {
-        return (string) ($this->unserviceableReason($item, $qty) ?? '');
+        return (string) ($this->unserviceableReason($item, $qty, $size) ?? '');
     }
 
-    public function unserviceableReason(MenuItem $item, int $qty = 1): ?string
+    public function unserviceableReason(MenuItem $item, int $qty = 1, ?string $size = null): ?string
     {
-        $item->loadMissing(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])]);
+        $item->loadMissing([
+            'sizes',
+            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
+        ]);
 
         // No recipe linked — availability is manual (admin toggle).
         if ($item->ingredients->isEmpty()) {
             return null;
         }
 
-        foreach ($item->ingredients as $ingredient) {
+        // If a specific size is passed and item has sizes:
+        if ($size !== null && $size !== '' && $item->has_sizes) {
+            $targetSize = trim($size);
+            $sizeObj = $item->sizes->first(
+                fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+            ) ?? $item->sizes->first(
+                fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                    || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+            );
+
+            $ingredients = $sizeObj
+                ? $item->ingredients->where('menu_item_size_id', $sizeObj->id)
+                : collect();
+
+            if ($ingredients->isEmpty()) {
+                $ingredients = $item->ingredients->whereNull('menu_item_size_id');
+            }
+
+            if ($ingredients->isEmpty()) {
+                return null;
+            }
+
+            return $this->evaluateIngredientsReason($ingredients, $qty);
+        }
+
+        return $this->evaluateIngredientsReason($item->ingredients, $qty);
+    }
+
+    private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1): ?string
+    {
+        foreach ($ingredients as $ingredient) {
             $inventory = $ingredient->inventoryItem;
             // Soft-deleted, archived, or missing inventory counts as unavailable.
             if (! $inventory || $inventory->trashed() || $inventory->status === 'Archived') {
@@ -204,8 +237,9 @@ class InventoryDeductionService
         });
     }
 
-    private function usageForOrder(Order $order): array
+    public function usageForOrder(Order $order): array
     {
+        $order->loadMissing('items');
         $usage = [];
 
         foreach ($order->items as $line) {
@@ -213,12 +247,38 @@ class InventoryDeductionService
                 continue;
             }
 
-            $menu = MenuItem::query()->with('ingredients')->find($line->menu_item_id);
+            $menu = MenuItem::query()->with(['sizes', 'ingredients'])->find($line->menu_item_id);
             if (! $menu) {
                 continue;
             }
 
-            foreach ($menu->ingredients as $ingredient) {
+            $lineIngredients = collect();
+
+            if (! empty($line->size) && $menu->has_sizes) {
+                $targetSize = trim($line->size);
+                $sizeObj = $menu->sizes->first(
+                    fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+                ) ?? $menu->sizes->first(
+                    fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                        || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+                );
+
+                if ($sizeObj) {
+                    $lineIngredients = $menu->ingredients->where('menu_item_size_id', $sizeObj->id);
+                }
+
+                // If no size-specific ingredients found for this size, fall back to base item-level ingredients
+                if ($lineIngredients->isEmpty()) {
+                    $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                }
+            } else {
+                $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                if ($lineIngredients->isEmpty()) {
+                    $lineIngredients = $menu->ingredients;
+                }
+            }
+
+            foreach ($lineIngredients as $ingredient) {
                 $id = $ingredient->inventory_item_id;
                 $qty = (float) $ingredient->qty_per_serving * (int) $line->qty;
                 $usage[$id] = [

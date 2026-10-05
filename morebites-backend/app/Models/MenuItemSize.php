@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MenuItemSize extends Model
 {
@@ -17,5 +18,10 @@ class MenuItemSize extends Model
     public function menuItem(): BelongsTo
     {
         return $this->belongsTo(MenuItem::class);
+    }
+
+    public function ingredients(): HasMany
+    {
+        return $this->hasMany(MenuItemIngredient::class, 'menu_item_size_id');
     }
 }

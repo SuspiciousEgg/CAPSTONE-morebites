@@ -146,10 +146,20 @@ const NOTIF_CONFIG = {
   },
 }
 
-function stockTone(level) {
-  if (level <= 15) return 'critical'
-  if (level <= 35) return 'low'
-  return 'ok'
+function stockTone(itemOrLevel) {
+  if (typeof itemOrLevel === 'number') {
+    return itemOrLevel <= 25 ? 'critical' : 'low'
+  }
+  if (!itemOrLevel) return 'low'
+  const stock = itemOrLevel.stock != null ? itemOrLevel.stock : parseFloat(itemOrLevel.qty)
+  if (
+    itemOrLevel.status === 'Out of Stock' ||
+    (!isNaN(stock) && stock <= 2) ||
+    (itemOrLevel.level != null && itemOrLevel.level <= 25)
+  ) {
+    return 'critical'
+  }
+  return 'low'
 }
 
 export default function SuperAdminDashboard({ user, onLogout }) {
@@ -1050,15 +1060,16 @@ export default function SuperAdminDashboard({ user, onLogout }) {
               />
             ) : (
               lowStocks.map((item) => {
-                const tone = stockTone(item.level)
+                const tone = stockTone(item)
+                const widthPercent = Math.min(100, Math.max(item.level ?? 0, item.stock === 0 ? 0 : 8))
                 return (
                   <div key={item.name} className="sa-stock">
                     <div className="sa-stock-top">
-                      <span className={`sa-stock-name ${tone}`}>{item.name}</span>
-                      <span className="sa-stock-qty">{item.qty}</span>
+                      <span className="sa-stock-name">{item.name}</span>
+                      <span className={`sa-stock-qty ${tone}`}>{item.qty}</span>
                     </div>
                     <div className="sa-bar">
-                      <i className={tone} style={{ width: `${item.level}%` }} />
+                      <i className={tone} style={{ width: `${widthPercent}%` }} />
                     </div>
                   </div>
                 )

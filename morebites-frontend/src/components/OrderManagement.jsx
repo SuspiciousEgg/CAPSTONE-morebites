@@ -97,6 +97,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
   const [customerName, setCustomerName] = useState('')
   const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
+  const [activeSizedItem, setActiveSizedItem] = useState(null)
   const [selectedSize, setSelectedSize] = useState(null)
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
@@ -124,6 +125,20 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        if (activeSizedItem) {
+          setActiveSizedItem(null)
+        } else if (activeItem) {
+          setActiveItem(null)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activeSizedItem, activeItem])
+
   const visibleMenu = useMemo(() => {
     return menuCatalog.filter(
       (item) => menuTab === 'All' || item.category === menuTab,
@@ -132,18 +147,21 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
 
   const total = cart.reduce((sum, line) => sum + line.price * line.qty, 0)
 
-  function openItem(item) {
-    if (activeItem === item.id) {
+  function handleCardClick(item) {
+    const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
+    if (hasSizes) {
       setActiveItem(null)
-      setSelectedSize(null)
-      return
-    }
-    setActiveItem(item.id)
-    setQty(1)
-    if (item.sizes && item.sizes.length > 0) {
-      setSelectedSize(item.sizes[0].name)
+      setActiveSizedItem(item)
+      setSelectedSize(item.sizes[0]?.name || null)
+      setQty(1)
     } else {
-      setSelectedSize(null)
+      setActiveSizedItem(null)
+      if (activeItem === item.id) {
+        setActiveItem(null)
+      } else {
+        setActiveItem(item.id)
+        setQty(1)
+      }
     }
   }
 
@@ -173,6 +191,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
       ]
     })
     setActiveItem(null)
+    setActiveSizedItem(null)
     setSelectedSize(null)
     setQty(1)
   }
@@ -249,20 +268,16 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
                 <div className="om-empty-menu">No items in this category</div>
               ) : (
                 visibleMenu.map((item) => {
-                  const isActive = activeItem === item.id
                   const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
-                  const currentSize = hasSizes
-                    ? item.sizes.find((s) => s.name === selectedSize) || item.sizes[0]
-                    : null
-                  const currentUnitPrice = currentSize
-                    ? Number(currentSize.price)
-                    : Number(item.price || 0)
+                  const isActive = !hasSizes && activeItem === item.id
+                  const unitPrice = Number(item.price || 0)
 
                   return (
                     <div
                       key={item.id}
                       className={`om-menu-card${isActive ? ' active' : ''}`}
-                      onClick={() => openItem(item)}
+                      onClick={() => handleCardClick(item)}
+                      title={hasSizes ? 'Click to select size & quantity' : 'Click to add to cart'}
                     >
                       <div className="om-menu-card-name">{item.name}</div>
                       <div className="om-menu-card-meta">
@@ -296,31 +311,14 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
                             }}
                             onClick={() => {
                               setActiveItem(null)
-                              setSelectedSize(null)
                             }}
                             aria-label="Cancel item selection"
                           >
                             <LuX size={14} />
                           </button>
 
-                          {hasSizes && (
-                            <div className="om-size-picker">
-                              {item.sizes.map((s) => (
-                                <button
-                                  key={s.name}
-                                  type="button"
-                                  className={`om-size-chip${currentSize?.name === s.name ? ' selected' : ''}`}
-                                  onClick={() => setSelectedSize(s.name)}
-                                >
-                                  <span>{s.name}</span>
-                                  <strong>{peso(s.price)}</strong>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-
                           <div className="om-overlay-price">
-                            {peso(currentUnitPrice * qty)}.00
+                            {peso(unitPrice * qty)}.00
                           </div>
 
                           <div className="om-qty">
@@ -343,13 +341,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
                           <button
                             type="button"
                             className="om-add-cart"
-                            onClick={() =>
-                              addToCart(
-                                item,
-                                currentSize ? currentSize.name : null,
-                                currentUnitPrice,
-                              )
-                            }
+                            onClick={() => addToCart(item, null, unitPrice)}
                           >
                             Add to Cart
                           </button>
@@ -469,6 +461,121 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
             </div>
           </section>
         </div>
+
+        {/* Floating Popover for Sized Items */}
+        {activeSizedItem && (() => {
+          const selectedSizeObj =
+            activeSizedItem.sizes?.find((s) => s.name === selectedSize) ||
+            activeSizedItem.sizes?.[0]
+          const sizeUnitPrice = selectedSizeObj ? Number(selectedSizeObj.price) : 0
+          const sizeSubtotal = sizeUnitPrice * qty
+
+          return (
+            <div
+              className="om-size-popover-backdrop"
+              onClick={() => setActiveSizedItem(null)}
+              role="presentation"
+            >
+              <div
+                className="om-size-popover"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Select size for ${activeSizedItem.name}`}
+              >
+                <div className="om-size-popover-header">
+                  <div>
+                    <h4 className="om-size-popover-title">{activeSizedItem.name}</h4>
+                    <span className="om-size-popover-badge">
+                      {activeSizedItem.category?.toUpperCase()}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="om-size-popover-close"
+                    onClick={() => setActiveSizedItem(null)}
+                    aria-label="Close"
+                  >
+                    <LuX size={16} />
+                  </button>
+                </div>
+
+                <div className="om-size-popover-body">
+                  <div>
+                    <label className="om-size-popover-label">Select Size</label>
+                    <div className="om-size-option-grid">
+                      {activeSizedItem.sizes?.map((s) => {
+                        const isSel = selectedSizeObj?.name === s.name
+                        return (
+                          <button
+                            key={s.name}
+                            type="button"
+                            className={`om-size-option-card${isSel ? ' selected' : ''}`}
+                            onClick={() => setSelectedSize(s.name)}
+                          >
+                            <span className="om-size-option-name">{s.name}</span>
+                            <span className="om-size-option-price">{peso(s.price)}.00</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="om-size-popover-footer-row">
+                    <div>
+                      <label className="om-size-popover-label" style={{ marginBottom: 6 }}>
+                        Quantity
+                      </label>
+                      <div className="om-qty-stepper">
+                        <button
+                          type="button"
+                          onClick={() => setQty((q) => Math.max(1, q - 1))}
+                          aria-label="Decrease quantity"
+                        >
+                          <LuMinus size={14} />
+                        </button>
+                        <span>{qty}</span>
+                        <button
+                          type="button"
+                          onClick={() => setQty((q) => q + 1)}
+                          aria-label="Increase quantity"
+                        >
+                          <LuPlus size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="om-size-popover-total">
+                      <span className="om-size-popover-total-label">Subtotal</span>
+                      <span className="om-size-popover-total-amount">
+                        {peso(sizeSubtotal)}.00
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="om-size-popover-actions">
+                  <button
+                    type="button"
+                    className="om-btn-ghost"
+                    onClick={() => setActiveSizedItem(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="om-btn-primary"
+                    onClick={() => {
+                      addToCart(activeSizedItem, selectedSizeObj?.name, sizeUnitPrice)
+                    }}
+                  >
+                    Add to Cart — {peso(sizeSubtotal)}.00
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
