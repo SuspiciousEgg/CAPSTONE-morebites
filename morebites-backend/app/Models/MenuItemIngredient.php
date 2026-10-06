@@ -9,6 +9,7 @@ class MenuItemIngredient extends Model
 {
     protected $fillable = [
         'menu_item_id',
+        'menu_item_size_id',
         'inventory_item_id',
         'qty_per_serving',
     ];
@@ -23,6 +24,11 @@ class MenuItemIngredient extends Model
     public function menuItem(): BelongsTo
     {
         return $this->belongsTo(MenuItem::class);
+    }
+
+    public function menuItemSize(): BelongsTo
+    {
+        return $this->belongsTo(MenuItemSize::class, 'menu_item_size_id');
     }
 
     public function inventoryItem(): BelongsTo

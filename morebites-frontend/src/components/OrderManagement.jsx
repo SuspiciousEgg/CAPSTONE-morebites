@@ -38,6 +38,17 @@ function peso(n) {
   return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 }
 
+function formatItemCardPrice(item) {
+  if (item.price_formatted) return item.price_formatted
+  if (item.sizes && item.sizes.length > 0) {
+    const prices = item.sizes.map((s) => Number(s.price || 0))
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    return min === max ? `${peso(min)}.00` : `${peso(min)} - ${peso(max)}`
+  }
+  return `${peso(item.price)}.00`
+}
+
 function statusClass(status) {
   const map = {
     Pending: 'pending',
@@ -80,15 +91,31 @@ function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
   )
 }
 
-function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
+function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefreshMenu }) {
   const [menuTab, setMenuTab] = useState('All')
   const [orderType, setOrderType] = useState('Dine-in')
   const [customerName, setCustomerName] = useState('')
   const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
+  const [activeSizedItem, setActiveSizedItem] = useState(null)
+  const [selectedSize, setSelectedSize] = useState(null)
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
   const typeRef = useRef(null)
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set()
+    menuCatalog.forEach((item) => {
+      if (item.category) cats.add(item.category)
+    })
+    return ['All', ...Array.from(cats)]
+  }, [menuCatalog])
+
+  useEffect(() => {
+    if (menuTab !== 'All' && !availableCategories.includes(menuTab)) {
+      setMenuTab('All')
+    }
+  }, [availableCategories, menuTab])
 
   useEffect(() => {
     function onDoc(e) {
@@ -98,39 +125,89 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  const visibleMenu = menuCatalog.filter(
-    (item) => menuTab === 'All' || item.category === menuTab,
-  )
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        if (activeSizedItem) {
+          setActiveSizedItem(null)
+        } else if (activeItem) {
+          setActiveItem(null)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activeSizedItem, activeItem])
+
+  const visibleMenu = useMemo(() => {
+    return menuCatalog.filter(
+      (item) => menuTab === 'All' || item.category === menuTab,
+    )
+  }, [menuCatalog, menuTab])
 
   const total = cart.reduce((sum, line) => sum + line.price * line.qty, 0)
 
-  function openItem(item) {
-    setActiveItem(item.id)
-    setQty(1)
+  function handleCardClick(item) {
+    const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
+    if (hasSizes) {
+      setActiveItem(null)
+      setActiveSizedItem(item)
+      setSelectedSize(item.sizes[0]?.name || null)
+      setQty(1)
+    } else {
+      setActiveSizedItem(null)
+      if (activeItem === item.id) {
+        setActiveItem(null)
+      } else {
+        setActiveItem(item.id)
+        setQty(1)
+      }
+    }
   }
 
-  function addToCart(item) {
+  function addToCart(item, sizeName, unitPrice) {
+    const lineKey = sizeName ? `${item.id}-${sizeName}` : String(item.id)
+    const displayName = sizeName ? `${item.name} (${sizeName})` : item.name
+    const price = unitPrice !== undefined ? unitPrice : Number(item.price || 0)
+
     setCart((prev) => {
-      const existing = prev.find((p) => p.id === item.id)
+      const existing = prev.find((p) => p.lineKey === lineKey)
       if (existing) {
-        return prev.map((p) => (p.id === item.id ? { ...p, qty: p.qty + qty } : p))
+        return prev.map((p) =>
+          p.lineKey === lineKey ? { ...p, qty: p.qty + qty } : p,
+        )
       }
-      return [...prev, { ...item, qty }]
+      return [
+        ...prev,
+        {
+          lineKey,
+          id: item.id,
+          name: displayName,
+          baseName: item.name,
+          size: sizeName || null,
+          price,
+          qty,
+        },
+      ]
     })
     setActiveItem(null)
+    setActiveSizedItem(null)
+    setSelectedSize(null)
     setQty(1)
   }
 
-  function removeLine(id) {
-    setCart((prev) => prev.filter((p) => p.id !== id))
+  function removeLine(lineKey) {
+    setCart((prev) => prev.filter((p) => p.lineKey !== lineKey))
   }
 
-  function changeLineQty(id, next) {
+  function changeLineQty(lineKey, next) {
     if (next < 1) {
-      removeLine(id)
+      removeLine(lineKey)
       return
     }
-    setCart((prev) => prev.map((p) => (p.id === id ? { ...p, qty: next } : p)))
+    setCart((prev) =>
+      prev.map((p) => (p.lineKey === lineKey ? { ...p, qty: next } : p)),
+    )
   }
 
   function placeOrder() {
@@ -140,8 +217,9 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
       order_type: orderType,
       status: 'Preparing',
       items: cart.map((c) => ({
-        name: c.name,
+        name: c.baseName || c.name,
         menu_item_id: c.id,
+        size: c.size || null,
         qty: c.qty,
         unit_price: c.price,
       })),
@@ -173,7 +251,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
           <section className="om-menu-pane">
             <h3 className="om-pane-title">Select Items from Menu</h3>
             <div className="om-menu-tabs">
-              {MENU_TABS.map((tab) => (
+              {availableCategories.map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -190,18 +268,22 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
                 <div className="om-empty-menu">No items in this category</div>
               ) : (
                 visibleMenu.map((item) => {
-                  const isActive = activeItem === item.id
+                  const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
+                  const isActive = !hasSizes && activeItem === item.id
+                  const unitPrice = Number(item.price || 0)
+
                   return (
                     <div
                       key={item.id}
                       className={`om-menu-card${isActive ? ' active' : ''}`}
-                      onClick={() => openItem(item)}
+                      onClick={() => handleCardClick(item)}
+                      title={hasSizes ? 'Click to select size & quantity' : 'Click to add to cart'}
                     >
                       <div className="om-menu-card-name">{item.name}</div>
                       <div className="om-menu-card-meta">
                         {item.category?.toUpperCase()}
                       </div>
-                      <div className="om-menu-card-price">{peso(item.price)}.00</div>
+                      <div className="om-menu-card-price">{formatItemCardPrice(item)}</div>
 
                       {isActive && (
                         <div
@@ -209,6 +291,36 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
                           onClick={(e) => e.stopPropagation()}
                           role="presentation"
                         >
+                          <button
+                            type="button"
+                            className="om-modal-close"
+                            style={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              width: 22,
+                              height: 22,
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#9CA3AF',
+                              padding: 0,
+                            }}
+                            onClick={() => {
+                              setActiveItem(null)
+                            }}
+                            aria-label="Cancel item selection"
+                          >
+                            <LuX size={14} />
+                          </button>
+
+                          <div className="om-overlay-price">
+                            {peso(unitPrice * qty)}.00
+                          </div>
+
                           <div className="om-qty">
                             <button
                               type="button"
@@ -229,7 +341,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
                           <button
                             type="button"
                             className="om-add-cart"
-                            onClick={() => addToCart(item)}
+                            onClick={() => addToCart(item, null, unitPrice)}
                           >
                             Add to Cart
                           </button>
@@ -299,7 +411,7 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
               ) : (
                 <ul className="om-cart-list">
                   {cart.map((line) => (
-                    <li key={line.id}>
+                    <li key={line.lineKey}>
                       <div className="om-cart-line-info">
                         <strong>
                           {line.qty}x {line.name}
@@ -309,14 +421,14 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
                       <div className="om-cart-actions">
                         <button
                           type="button"
-                          onClick={() => changeLineQty(line.id, line.qty - 1)}
+                          onClick={() => changeLineQty(line.lineKey, line.qty - 1)}
                           aria-label="Decrease"
                         >
                           <LuMinus size={12} />
                         </button>
                         <button
                           type="button"
-                          onClick={() => changeLineQty(line.id, line.qty + 1)}
+                          onClick={() => changeLineQty(line.lineKey, line.qty + 1)}
                           aria-label="Increase"
                         >
                           <LuPlus size={12} />
@@ -349,6 +461,121 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [] }) {
             </div>
           </section>
         </div>
+
+        {/* Floating Popover for Sized Items */}
+        {activeSizedItem && (() => {
+          const selectedSizeObj =
+            activeSizedItem.sizes?.find((s) => s.name === selectedSize) ||
+            activeSizedItem.sizes?.[0]
+          const sizeUnitPrice = selectedSizeObj ? Number(selectedSizeObj.price) : 0
+          const sizeSubtotal = sizeUnitPrice * qty
+
+          return (
+            <div
+              className="om-size-popover-backdrop"
+              onClick={() => setActiveSizedItem(null)}
+              role="presentation"
+            >
+              <div
+                className="om-size-popover"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Select size for ${activeSizedItem.name}`}
+              >
+                <div className="om-size-popover-header">
+                  <div>
+                    <h4 className="om-size-popover-title">{activeSizedItem.name}</h4>
+                    <span className="om-size-popover-badge">
+                      {activeSizedItem.category?.toUpperCase()}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="om-size-popover-close"
+                    onClick={() => setActiveSizedItem(null)}
+                    aria-label="Close"
+                  >
+                    <LuX size={16} />
+                  </button>
+                </div>
+
+                <div className="om-size-popover-body">
+                  <div>
+                    <label className="om-size-popover-label">Select Size</label>
+                    <div className="om-size-option-grid">
+                      {activeSizedItem.sizes?.map((s) => {
+                        const isSel = selectedSizeObj?.name === s.name
+                        return (
+                          <button
+                            key={s.name}
+                            type="button"
+                            className={`om-size-option-card${isSel ? ' selected' : ''}`}
+                            onClick={() => setSelectedSize(s.name)}
+                          >
+                            <span className="om-size-option-name">{s.name}</span>
+                            <span className="om-size-option-price">{peso(s.price)}.00</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="om-size-popover-footer-row">
+                    <div>
+                      <label className="om-size-popover-label" style={{ marginBottom: 6 }}>
+                        Quantity
+                      </label>
+                      <div className="om-qty-stepper">
+                        <button
+                          type="button"
+                          onClick={() => setQty((q) => Math.max(1, q - 1))}
+                          aria-label="Decrease quantity"
+                        >
+                          <LuMinus size={14} />
+                        </button>
+                        <span>{qty}</span>
+                        <button
+                          type="button"
+                          onClick={() => setQty((q) => q + 1)}
+                          aria-label="Increase quantity"
+                        >
+                          <LuPlus size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="om-size-popover-total">
+                      <span className="om-size-popover-total-label">Subtotal</span>
+                      <span className="om-size-popover-total-amount">
+                        {peso(sizeSubtotal)}.00
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="om-size-popover-actions">
+                  <button
+                    type="button"
+                    className="om-btn-ghost"
+                    onClick={() => setActiveSizedItem(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="om-btn-primary"
+                    onClick={() => {
+                      addToCart(activeSizedItem, selectedSizeObj?.name, sizeUnitPrice)
+                    }}
+                  >
+                    Add to Cart — {peso(sizeSubtotal)}.00
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -373,6 +600,15 @@ export default function OrderManagement() {
   const typeRef = useRef(null)
   const dateRef = useRef(null)
 
+  async function refreshMenuCatalog() {
+    try {
+      const m = await ordersApi.menuOptions()
+      setMenuCatalog(m.data?.data || m.data || [])
+    } catch (err) {
+      console.error('Failed to refresh menu catalog:', err)
+    }
+  }
+
   async function loadOrders() {
     try {
       const [o, m] = await Promise.all([ordersApi.list(), ordersApi.menuOptions()])
@@ -389,6 +625,12 @@ export default function OrderManagement() {
   useEffect(() => {
     loadOrders().catch(console.error)
   }, [])
+
+  useEffect(() => {
+    if (createOpen) {
+      refreshMenuCatalog().catch(console.error)
+    }
+  }, [createOpen])
 
   useEffect(() => {
     function onDoc(e) {
@@ -618,7 +860,10 @@ export default function OrderManagement() {
         <button
           type="button"
           className="om-create-btn"
-          onClick={() => setCreateOpen(true)}
+          onClick={() => {
+            refreshMenuCatalog().catch(console.error)
+            setCreateOpen(true)
+          }}
         >
           <LuPlus size={16} />
           <span>Create Order</span>
@@ -803,6 +1048,7 @@ export default function OrderManagement() {
           menuCatalog={menuCatalog}
           onClose={() => setCreateOpen(false)}
           onPlace={handlePlace}
+          onRefreshMenu={refreshMenuCatalog}
         />
       )}
 

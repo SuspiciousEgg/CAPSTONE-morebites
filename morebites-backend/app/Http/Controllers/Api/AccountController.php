@@ -274,7 +274,7 @@ class AccountController extends Controller
 
         if ((int) $request->user()?->id === (int) $user->id) {
             return response()->json([
-                'message' => 'You cannot archive or blacklist your own account',
+                'message' => 'You cannot archive or blocklist your own account',
             ], 422);
         }
 
@@ -298,7 +298,7 @@ class AccountController extends Controller
         }
 
         $user->update([
-            'status' => 'Inactive',
+            'status' => $user->hasRoleAccess('driver') ? 'Blacklisted' : 'Inactive',
             'archived_at' => now(),
         ]);
 

@@ -120,7 +120,10 @@ export default function LoginScreen() {
       }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";
-      if (/phone/i.test(msg) && /not found|inactive/i.test(msg)) {
+      if (/blacklist|blocklist/i.test(msg)) {
+        setLoginError(msg);
+        setPhoneError(msg);
+      } else if (/phone/i.test(msg) && /not found|inactive/i.test(msg)) {
         setPhoneError(msg);
       } else if (/password/i.test(msg)) {
         setPasswordError(msg);

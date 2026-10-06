@@ -1,20 +1,43 @@
 /**
- * PROMPT 45 — Digital Receipt Screen (Post-Payment Proof of Completed Transaction)
+ * PROMPT 56 — Diagnose and Remove Redundant Receipt Number, Fix Duplicate Size Label on Receipt
  *
- * Investigation Summary:
- * 1. PDF / Sharing Libraries in Customer Mobile (`morebites-customer`):
- *    - Prior to Prompt 45, `morebites-customer/package.json` did not include `jspdf`, `expo-print`,
- *      `expo-sharing`, or `react-native-view-shot`. On the web admin side (`RecordsReports.jsx`),
- *      PDF exports are generated via a zero-dependency PDF 1.4 binary stream builder (with `window.jsPDF`
- *      interop).
- *    - Installed Expo SDK 54 compatible `expo-sharing`, `expo-print`, and `react-native-view-shot`
- *      for native PDF/image receipt sharing via the system share sheet, and mirrored the web PDF 1.4
- *      stream generator for Expo Web so "Share Receipt" works across Android, iOS, and Web.
- * 2. Loyalty Points Earn-on-Completion Logic:
- *    - Active in `ReportController.php` (line 83) and `RecordsReports.jsx` (line 1016):
- *      completed/delivered orders earn `round(total / 2)` loyalty points (`Order::loyaltyPointsEarned()`).
- *    - Pulled directly from `order.points_earned` returned by the backend (with matching fallback
- *      `Math.round(total / 2)`), rendered as `"Points Earned: [X] pts"`.
+ * DIAGNOSTIC INVESTIGATION REPORT:
+ *
+ * 1. Receipt Number Redundancy Audit:
+ *    - Observation: The Digital Receipt screen and its shared PDF export displayed Receipt Number
+ *      ("RCPT-00034") alongside Order ID ("#ORD-00034") with identical numeric suffixes.
+ *    - Codebase Investigation:
+ *      * Backend: In `morebites-backend/app/Models/Order.php` (lines 92–103), the `receiptNumber()`
+ *        method is defined as:
+ *          $digits = preg_replace('/\D+/', '', (string) $this->order_code);
+ *          return 'RCPT-' . str_pad($digits, 5, '0', STR_PAD_LEFT);
+ *      * Mobile Client: In `morebites-customer/app/receipt.jsx`, `deriveReceiptNumber` similarly strips
+ *        all non-digits from `order.order_id` or `order.id` and prepends "RCPT-".
+ *      * Database & Schema: No `receipts` table, receipt migration, or separate auto-incrementing
+ *        receipt sequence exists anywhere in the database schema.
+ *      * Verdict: Receipt Number is 100% derived from Order ID at display time via simple prefix
+ *        substitution. It carries no independent sequence, ledger entry, or accounting meaning.
+ *    - Fix Applied: Removed the separate Receipt Number display entirely — both the orange badge near
+ *      the top and the duplicate entry in Transaction & Delivery Details — establishing Order ID
+ *      ("#ORD-XXXXX") as the single canonical identifier for the transaction across the in-app screen
+ *      and shared PDF export.
+ *
+ * 2. Duplicate Item Size Label Audit:
+ *    - Observation: Item lines rendered like "2x Spinach Pizza (15") (15")" with duplicate size suffixes.
+ *    - Codebase Investigation:
+ *      * Backend Order Creation: In `morebites-backend/app/Http/Controllers/Api/CustomerAppController.php`
+ *        (line 898), orders are inserted into `order_items` with:
+ *          'name' => $item['name'] . (! empty($item['size']) ? ' (' . $item['size'] . ')' : ''),
+ *          'size' => $item['size'] ?? null,
+ *        Thus, the stored `name` column already includes the parenthesized size suffix (e.g. `'Spinach Pizza (15")'`).
+ *      * Frontend Rendering: In `morebites-customer/app/receipt.jsx` (lines 110–111, 171–175, 408, 580–582),
+ *        the rendering code additionally appended `${item.size ? \` (\${item.size})\` : ""}` on top of `item.name`.
+ *      * Verdict: Appending `item.size` on top of an `item.name` that already embeds the size caused
+ *        the duplicate suffix.
+ *    - Fix Applied: Implemented `formatReceiptItemName(item)` which detects if `item.name` already
+ *      contains the parenthesized size, ensuring the size is rendered exactly once without modifying
+ *      or stripping existing database records. Applied consistently across the in-app screen,
+ *      HTML PDF export, and plain-text share sheet.
  */
 
 import { Ionicons } from "@expo/vector-icons";
@@ -74,6 +97,35 @@ function formatDateTimeLabel(isoOrLabel, fallbackLabel) {
   return `${datePart} · ${timePart}`;
 }
 
+/**
+ * Format receipt item line safely so size is rendered exactly once.
+ * Avoids appending item.size if stored item.name already includes the parenthesized size suffix.
+ */
+export function formatReceiptItemName(item) {
+  const name = String(item?.name || "").trim();
+  const size = item?.size ? String(item.size).trim() : "";
+  if (!size) {
+    return name;
+  }
+  const lowerName = name.toLowerCase();
+  const lowerSize = size.toLowerCase();
+  if (lowerName.includes(`(${lowerSize})`)) {
+    return name;
+  }
+  const trailingParenMatch = name.match(/\s*\(([^)]+)\)\s*$/);
+  if (trailingParenMatch) {
+    const inside = trailingParenMatch[1].trim().toLowerCase();
+    if (inside === lowerSize || inside.includes(lowerSize) || lowerSize.includes(inside)) {
+      return name;
+    }
+  }
+  return `${name} (${size})`;
+}
+
+/**
+ * Retained for backwards compatibility if referenced elsewhere.
+ * In Prompt 56, Receipt Number has been removed in favor of canonical Order ID.
+ */
 export function deriveReceiptNumber(order = {}, fallbackOrderId = "") {
   if (order?.receipt_number && String(order.receipt_number).startsWith("RCPT-")) {
     return String(order.receipt_number);
@@ -93,7 +145,6 @@ export function deriveReceiptNumber(order = {}, fallbackOrderId = "") {
 function buildReceiptPdfBlob(receiptData) {
   const lines = [
     "MOREBITES - OFFICIAL DIGITAL RECEIPT",
-    `Receipt Number: ${receiptData.receiptNumber}`,
     `Order ID: ${receiptData.orderId}`,
     `Order Placed: ${receiptData.orderPlacedLabel}`,
     `Payment Confirmed: ${receiptData.paymentConfirmedLabel}`,
@@ -107,8 +158,7 @@ function buildReceiptPdfBlob(receiptData) {
     ...receiptData.items.map((item) => {
       const qty = Number(item.quantity || 1);
       const lineTotal = Number(item.price || 0) * qty;
-      const sizeText = item.size ? ` (${item.size})` : "";
-      return `${qty}x ${item.name}${sizeText} - PHP ${lineTotal.toLocaleString()}`;
+      return `${qty}x ${formatReceiptItemName(item)} - PHP ${lineTotal.toLocaleString()}`;
     }),
     "------------------------------------------------------------",
     `Subtotal: PHP ${Number(receiptData.subtotal).toLocaleString()}`,
@@ -168,11 +218,10 @@ function buildReceiptHtml(receiptData) {
     .map((item) => {
       const qty = Number(item.quantity || 1);
       const lineTotal = Number(item.price || 0) * qty;
-      const sizeText = item.size ? ` (${item.size})` : "";
       return `
         <tr>
           <td style="padding: 8px 0; color: #4B5563; font-size: 13px;">
-            ${qty}x ${item.name}${sizeText}
+            ${qty}x ${formatReceiptItemName(item)}
           </td>
           <td style="padding: 8px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">
             &#8369;${lineTotal.toLocaleString()}
@@ -187,26 +236,19 @@ function buildReceiptHtml(receiptData) {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Receipt ${receiptData.receiptNumber}</title>
+        <title>Digital Receipt ${receiptData.orderId}</title>
       </head>
       <body style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: #FFFFFF; color: #121212; padding: 28px; max-width: 520px; margin: 0 auto;">
         <div style="text-align: center; margin-bottom: 24px;">
           <div style="font-size: 22px; font-weight: 800; color: #121212;">MoreBites Digital Receipt</div>
           <div style="font-size: 13px; color: #6B7280; margin-top: 4px;">Confirmed Post-Payment Transaction Proof</div>
-          <div style="display: inline-block; margin-top: 12px; padding: 6px 14px; border: 1px solid #F97000; border-radius: 18px; color: #F97000; font-weight: 700; font-size: 13px;">
-            ${receiptData.receiptNumber}
-          </div>
         </div>
 
         <div style="border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
-              <td style="padding: 7px 0; color: #6B7280; font-size: 13px;">Receipt Number</td>
-              <td style="padding: 7px 0; color: #121212; font-size: 13px; font-weight: 700; text-align: right;">${receiptData.receiptNumber}</td>
-            </tr>
-            <tr>
               <td style="padding: 7px 0; color: #6B7280; font-size: 13px;">Order ID</td>
-              <td style="padding: 7px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">${receiptData.orderId}</td>
+              <td style="padding: 7px 0; color: #121212; font-size: 13px; font-weight: 700; text-align: right;">${receiptData.orderId}</td>
             </tr>
             <tr>
               <td style="padding: 7px 0; color: #6B7280; font-size: 13px;">Order Placed</td>
@@ -333,7 +375,6 @@ export default function ReceiptScreen() {
     (Array.isArray(params.orderId) ? params.orderId[0] : params.orderId) ||
     "#ORD-00000";
   const orderId = String(rawOrderId).startsWith("#") ? String(rawOrderId) : `#${rawOrderId}`;
-  const receiptNumber = deriveReceiptNumber(orderData, orderId);
 
   const items = Array.isArray(orderData?.items) ? orderData.items : [];
   const total = Number(orderData?.total) || 0;
@@ -377,8 +418,8 @@ export default function ReceiptScreen() {
     if (sharing) return;
     setSharing(true);
 
+    const cleanFileId = String(orderId).replace(/[^A-Za-z0-9_-]/g, "");
     const receiptPayload = {
-      receiptNumber,
       orderId,
       orderPlacedLabel,
       paymentConfirmedLabel,
@@ -394,7 +435,7 @@ export default function ReceiptScreen() {
     };
 
     const plainTextSummary = [
-      `MoreBites Digital Receipt (${receiptNumber})`,
+      `MoreBites Digital Receipt (${orderId})`,
       `Order ID: ${orderId}`,
       `Order Placed: ${orderPlacedLabel}`,
       `Payment Confirmed: ${paymentConfirmedLabel}`,
@@ -405,7 +446,7 @@ export default function ReceiptScreen() {
       `---`,
       ...items.map(
         (item) =>
-          `${item.quantity}x ${item.name}${item.size ? ` (${item.size})` : ""} — ₱${(
+          `${item.quantity}x ${formatReceiptItemName(item)} — ₱${(
             Number(item.price || 0) * Number(item.quantity || 1)
           ).toLocaleString()}`
       ),
@@ -418,7 +459,7 @@ export default function ReceiptScreen() {
     try {
       if (Platform.OS === "web") {
         const blob = buildReceiptPdfBlob(receiptPayload);
-        const filename = `${receiptNumber}.pdf`;
+        const filename = `receipt-${cleanFileId}.pdf`;
         const file =
           typeof File !== "undefined"
             ? new File([blob], filename, { type: "application/pdf" })
@@ -431,8 +472,8 @@ export default function ReceiptScreen() {
           navigator.canShare({ files: [file] })
         ) {
           await navigator.share({
-            title: `MoreBites Receipt ${receiptNumber}`,
-            text: `Digital Receipt ${receiptNumber} for Order ${orderId}`,
+            title: `MoreBites Receipt ${orderId}`,
+            text: `Digital Receipt for Order ${orderId}`,
             files: [file],
           });
         } else if (typeof window !== "undefined" && typeof document !== "undefined") {
@@ -457,7 +498,7 @@ export default function ReceiptScreen() {
           if (pdfResult?.uri) {
             await Sharing.shareAsync(pdfResult.uri, {
               mimeType: "application/pdf",
-              dialogTitle: `Share Receipt ${receiptNumber}`,
+              dialogTitle: `Share Receipt ${orderId}`,
               UTI: "com.adobe.pdf",
             });
             return;
@@ -475,7 +516,7 @@ export default function ReceiptScreen() {
             if (imageUri) {
               await Sharing.shareAsync(imageUri, {
                 mimeType: "image/png",
-                dialogTitle: `Share Receipt ${receiptNumber}`,
+                dialogTitle: `Share Receipt ${orderId}`,
               });
               return;
             }
@@ -486,7 +527,7 @@ export default function ReceiptScreen() {
       }
 
       await Share.share({
-        title: `MoreBites Receipt ${receiptNumber}`,
+        title: `MoreBites Receipt ${orderId}`,
         message: plainTextSummary,
       });
     } catch (err) {
@@ -529,10 +570,6 @@ export default function ReceiptScreen() {
             </View>
             <Text style={styles.title}>Digital Receipt</Text>
             <Text style={styles.subtitle}>Payment confirmed & delivery completed</Text>
-            <View style={styles.receiptBadge}>
-              <Ionicons name="document-text-outline" size={14} color={PRIMARY} />
-              <Text style={styles.receiptBadgeText}>{receiptNumber}</Text>
-            </View>
           </View>
 
           {fetching && !items.length ? (
@@ -544,11 +581,6 @@ export default function ReceiptScreen() {
 
           <View style={styles.detailsCard}>
             <Text style={styles.sectionTitle}>Transaction & Delivery Details</Text>
-            <DetailRow
-              label="Receipt Number"
-              value={receiptNumber}
-              valueStyle={styles.receiptNumberValue}
-            />
             <DetailRow label="Order ID" value={orderId} />
             <DetailRow label="Order Placed" value={orderPlacedLabel} />
             <DetailRow label="Payment Confirmed" value={paymentConfirmedLabel} />
@@ -577,8 +609,7 @@ export default function ReceiptScreen() {
                   style={styles.itemRow}
                 >
                   <Text style={styles.itemText}>
-                    {item.quantity}x {item.name}
-                    {item.size ? ` (${item.size})` : ""}
+                    {item.quantity}x {formatReceiptItemName(item)}
                   </Text>
                   <Text style={styles.itemPrice}>
                     ₱{(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString()}

@@ -830,7 +830,7 @@ class CustomerAppController extends Controller
             if (! empty($line['menu_item_id'])) {
                 $menu = MenuItem::query()->find($line['menu_item_id']);
                 if ($menu) {
-                    $reason = $service->unserviceableReason($menu, (int) $line['qty']);
+                    $reason = $service->unserviceableReason($menu, (int) $line['qty'], $line['size'] ?? null);
                     if ($reason === 'expired') {
                         throw ValidationException::withMessages([
                             'items' => ["The item '{$menu->name}' cannot be ordered because one or more ingredients are expired."],

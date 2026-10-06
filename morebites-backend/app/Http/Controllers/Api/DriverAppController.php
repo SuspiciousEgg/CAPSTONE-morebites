@@ -37,7 +37,6 @@ class DriverAppController extends Controller
         $phone = $this->normalizePhone($credentials['phone']);
 
         $user = User::query()
-            ->whereNull('archived_at')
             ->where(function ($query) use ($phone, $credentials) {
                 $query->where('phone', $credentials['phone'])
                     ->orWhere('phone', $phone)
@@ -49,6 +48,16 @@ class DriverAppController extends Controller
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'phone' => ['Incorrect phone number or password.'],
+            ]);
+        }
+
+        $isBlacklisted = $user->archived_at !== null
+            || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)
+            || \App\Models\DriverBlacklist::query()->where('driver_id', $user->id)->exists();
+
+        if ($isBlacklisted) {
+            throw ValidationException::withMessages([
+                'phone' => ['Your account has been blocklisted. Contact the administrator.'],
             ]);
         }
 
@@ -282,6 +291,18 @@ class DriverAppController extends Controller
     {
         $user = $request->user();
         abort_unless($user && ($user->hasRoleAccess('driver') || $user->role === 'driver'), 403);
+
+        $isBlacklisted = $user->archived_at !== null
+            || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)
+            || \App\Models\DriverBlacklist::query()->where('driver_id', $user->id)->exists();
+
+        if ($isBlacklisted) {
+            abort(403, 'Your account has been blocklisted.');
+        }
+
+        if ($user->status !== 'Active') {
+            abort(403, 'Your account is inactive.');
+        }
 
         return $user;
     }

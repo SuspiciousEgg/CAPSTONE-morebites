@@ -156,6 +156,9 @@ class DashboardController extends Controller
                 'level' => $i->reorder_level > 0
                     ? (int) min(100, max(0, ($i->stock / $i->reorder_level) * 50))
                     : 0,
+                'status' => $i->status,
+                'stock' => (float) $i->stock,
+                'reorder_level' => (float) $i->reorder_level,
             ]);
 
         // Ensure persistent notifications table has seed data if empty

@@ -36,25 +36,31 @@ import EmptyState from './EmptyState'
 import './AccountManagement.css'
 
 /**
- * PROMPT 44 DIAGNOSTIC REPORT — Prevent Owner/Super Admin Account From Archiving or Blacklisting Itself:
- * 1. How the Action dropdown determines which row it renders for:
- *    - Each row in the Admins, Drivers, and Cashiers tables renders `<MoreButton>` which calls
- *      `toggleMenu(e, '<type>-<id>', { type, item })` from `useRowActionMenu()`.
- *    - `menu` state holds `{ key, top, left, type, item }`, and a single `<RowActionMenuPopup>`
- *      renders for `menu.item`.
- * 2. Existing self-ID check audit:
- *    - Frontend (`AccountManagement.jsx`): No check existed comparing `menu.item.db_id` / `menu.item.id`
- *      against the currently logged-in user's own ID (`useAuth().user.id` / `user.admin_id`). As a result,
- *      "Archive Admin" and "Blocklist" rendered unconditionally even on the logged-in Owner's own row (ADMIN-001).
- *    - Backend (`AccountController::block`): Previously checked `$user->role === 'super_admin'` (role-based)
- *      rather than comparing the authenticated requester's ID against the target account ID (`$request->user()->id === $user->id`).
- * 3. Fix implemented on BOTH frontend and backend:
- *    - Frontend: Compares each row's `db_id` / `id` against the logged-in user's ID (`isSelfAccount(menu.item, currentUser)`).
- *      When they match, "Archive" and "Blocklist" options are hidden from the row dropdown (and blocked in handlers),
- *      leaving "View Profile" and "Edit Admin" available.
- *    - Backend (`AccountController::block`, `DriverController::suspend/blacklist`, `ArchiveController::destroy`):
- *      Explicitly checks `(int) $request->user()?->id === (int) $user->id` and rejects self-targeting with HTTP 422
- *      `"You cannot archive or blacklist your own account"`.
+ * PROMPT 54 DIAGNOSTIC REPORT — Standardize Blacklist/Blocklist Terminology System-Wide, Rename "Unblacklist" to "Reinstate":
+ * Audit of every location across both web views (Admin/Supervisor and Owner/Super Admin):
+ * 1. Tab Labels:
+ *    - AccountManagement.jsx: Tab was labeled "Blacklist" -> standardized to "Blocklist"
+ *    - BlacklistDrivers.jsx: Page title "Blacklisted Driver" -> standardized to "Blocklisted Drivers"
+ * 2. Button Labels:
+ *    - DriverManagement.jsx: Drawer button "BLACKLIST" -> "BLOCKLIST", modal buttons "Continue to Confirmation →", "Yes, Blocklist Driver"
+ *    - AccountManagement.jsx: Popup menu buttons "Blocklist Driver", "Blocklist Cashier", "Blocklist Admin", modal button "Yes, Blocklist Account"
+ *    - Reversal Action (formerly "Unblacklist"):
+ *      * BlacklistDrivers.jsx table action button "Unblacklist" -> "Reinstate" (matching Suspend's reversal "Reactivate")
+ *      * BlacklistDrivers.jsx drawer button "UNBLACKLIST DRIVER" -> "REINSTATE DRIVER"
+ *      * Reversal confirm modal button "Yes, Unblacklist Driver" -> "Yes, Reinstate Driver"
+ * 3. Table Column Headers & Badges:
+ *    - BlacklistDrivers.jsx table headers "Reason for Blacklist" -> "Reason for Blocklist", "Date Blacklisted" -> "Date Blocklisted"
+ *    - BlacklistDrivers.jsx table status badge "Blacklisted" -> "Blocklisted"
+ *    - BlacklistDrivers.jsx drawer profile badge "Blacklisted" -> "Blocklisted"
+ * 4. Confirm Modal Text:
+ *    - DriverManagement.jsx: "Blocklist Driver", "Blocklisting is a severe...", "Reason for Blocklist", "Second Warning: Confirm Blocklist", "You are about to permanently blocklist...", "Driver will be permanently transferred to the Blocklist registry."
+ *    - AccountManagement.jsx: "Blocklist Account", "Select the reason for blocklisting...", "Second Warning: Confirm Blocklist", "You are about to blocklist..."
+ *    - BlacklistDrivers.jsx: "Reinstate Driver", "Confirm driver account reinstatement", "Are you sure you want to reinstate this driver: [Name] ([ID])?", "This will reinstate the driver's account to Active status and remove their blocklist restriction..."
+ * 5. Backend API Response Messages & Activity Logs:
+ *    - DriverController.php: "Driver blocklisted successfully.", Activity log "Blocklisted driver [Name]", restriction message "You cannot archive or blocklist your own account"
+ *    - BlacklistController.php: "Driver has been reinstated and restored to active drivers.", Activity log "Reinstated driver [Name]"
+ *    - AccountController.php: "Blocklisted", Activity log "Blocklisted [Name]", restriction message "You cannot archive or blocklist your own account"
+ *    - DriverAppController.php: "Your account has been blocklisted. Contact the administrator."
  */
 function isSelfAccount(item, currentUser) {
   if (!item || !currentUser) return false
@@ -479,6 +485,7 @@ export default function AccountManagement() {
   const [editing, setEditing] = useState(false)
   const [blockTarget, setBlockTarget] = useState(null)
   const [blockReason, setBlockReason] = useState(BLOCK_REASONS[0])
+  const [blockStep, setBlockStep] = useState(1)
   const [archiveTarget, setArchiveTarget] = useState(null)
   const [adminForm, setAdminForm] = useState(emptyAdmin())
   const [driverForm, setDriverForm] = useState(emptyDriver())
@@ -648,8 +655,9 @@ export default function AccountManagement() {
   async function confirmBlock() {
     if (!blockTarget?.item?.db_id) return
     if (isSelfAccount(blockTarget.item, currentUser)) {
-      alert('You cannot archive or blacklist your own account')
+      alert('You cannot archive or blocklist your own account')
       setBlockTarget(null)
+      setBlockStep(1)
       return
     }
     setSaving(true)
@@ -658,6 +666,7 @@ export default function AccountManagement() {
       await loadAccounts()
       setBlockTarget(null)
       setProfile(null)
+      setBlockStep(1)
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Failed to blocklist account.')
@@ -669,7 +678,7 @@ export default function AccountManagement() {
   async function confirmArchiveAccount() {
     if (!archiveTarget?.item?.db_id) return
     if (isSelfAccount(archiveTarget.item, currentUser)) {
-      alert('You cannot archive or blacklist your own account')
+      alert('You cannot archive or blocklist your own account')
       setArchiveTarget(null)
       return
     }
@@ -757,7 +766,7 @@ export default function AccountManagement() {
           { id: 'accounts', label: 'Accounts' },
           { id: 'drivers', label: 'Drivers' },
           { id: 'archive', label: 'Archive' },
-          { id: 'blacklist', label: 'Blacklist' },
+          { id: 'blacklist', label: 'Blocklist' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1136,14 +1145,15 @@ export default function AccountManagement() {
                 className="danger"
                 onClick={() => {
                   setBlockTarget({ type: menu.type, item: menu.item })
+                  setBlockStep(1)
                   closeMenu()
                 }}
               >
                 {menu.type === 'driver'
-                  ? 'Blocklist Driver'
+                  ? 'Blacklist Driver'
                   : menu.type === 'cashier'
-                    ? 'Blocklist Cashier'
-                    : 'Blocklist'}
+                    ? 'Blacklist Cashier'
+                    : 'Blacklist Admin'}
               </button>
             </>
           ) : null}
@@ -1624,39 +1634,94 @@ export default function AccountManagement() {
       )}
 
       {blockTarget && (
-        <div className="ac-backdrop" onClick={() => setBlockTarget(null)} role="presentation">
+        <div className="ac-backdrop" onClick={() => { setBlockTarget(null); setBlockStep(1); }} role="presentation">
           <div className="ac-modal ac-block" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="ac-modal-head" style={{ borderBottom: 'none', paddingBottom: 0 }}>
-              <div className="ac-block-title">
-                <LuTriangleAlert size={22} color="#EF4444" />
-                <h2>Blocklist</h2>
-              </div>
-              <button type="button" className="ac-modal-close-circle" onClick={() => setBlockTarget(null)} aria-label="Close">
-                <LuX size={18} />
-              </button>
-            </div>
-            <div style={{ padding: '0 24px 20px' }}>
-              <p style={{ margin: '8px 0 14px', fontSize: 14, color: '#4B5563' }}>Reason for blocklisting:</p>
-              <div className="ac-radios">
-                {BLOCK_REASONS.map((r) => (
-                  <label key={r}>
-                    <input
-                      type="radio"
-                      name="block-reason"
-                      checked={blockReason === r}
-                      onChange={() => setBlockReason(r)}
-                    />
-                    {r}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="ac-modal-foot">
-              <button type="button" className="ac-btn-cancel" onClick={() => setBlockTarget(null)}>Cancel</button>
-              <button type="button" className="ac-btn-primary" onClick={confirmBlock}>
-                Confirm Blocklisting
-              </button>
-            </div>
+            {blockStep === 1 ? (
+              <>
+                <div className="ac-modal-head" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                  <div className="ac-block-title">
+                    <LuTriangleAlert size={22} color="#EF4444" />
+                    <h2>Blacklist Account</h2>
+                  </div>
+                  <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
+                    <LuX size={18} />
+                  </button>
+                </div>
+                <div style={{ padding: '0 24px 20px' }}>
+                  <p style={{ margin: '8px 0 14px', fontSize: 14, color: '#4B5563' }}>
+                    Select the reason for blacklisting <strong>{blockTarget.item.name}</strong>:
+                  </p>
+                  <div className="ac-radios">
+                    {BLOCK_REASONS.map((r) => (
+                      <label key={r}>
+                        <input
+                          type="radio"
+                          name="block-reason"
+                          checked={blockReason === r}
+                          onChange={() => setBlockReason(r)}
+                        />
+                        {r}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="ac-modal-foot">
+                  <button type="button" className="ac-btn-cancel" onClick={() => { setBlockTarget(null); setBlockStep(1); }}>Cancel</button>
+                  <button type="button" className="ac-btn-primary" onClick={() => setBlockStep(2)}>
+                    Continue to Confirmation →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="ac-modal-head" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                  <div className="ac-block-title">
+                    <LuTriangleAlert size={22} color="#DC2626" />
+                    <h2 style={{ color: '#DC2626' }}>Second Warning: Confirm Blacklist</h2>
+                  </div>
+                  <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
+                    <LuX size={18} />
+                  </button>
+                </div>
+                <div style={{ padding: '0 24px 20px' }}>
+                  <div style={{
+                    background: '#FEF2F2',
+                    border: '1.5px solid #FCA5A5',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    margin: '10px 0 14px',
+                    fontSize: 13,
+                    color: '#7F1D1D',
+                    lineHeight: 1.5,
+                  }}>
+                    <p style={{ fontWeight: 700, margin: '0 0 6px', color: '#991B1B' }}>
+                      ⚠️ Are you absolutely sure?
+                    </p>
+                    <p style={{ margin: '0 0 8px' }}>
+                      You are about to blacklist <strong>{blockTarget.item.name}</strong> ({blockTarget.type}).
+                    </p>
+                    <p style={{ margin: '0 0 4px', fontSize: 12 }}>
+                      This account will be immediately deactivated and denied access to MoreBites.
+                    </p>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>
+                      Selected Reason: <em>"{blockReason}"</em>
+                    </p>
+                  </div>
+                </div>
+                <div className="ac-modal-foot">
+                  <button type="button" className="ac-btn-cancel" onClick={() => setBlockStep(1)}>← Go Back</button>
+                  <button
+                    type="button"
+                    className="ac-btn-primary"
+                    style={{ background: '#DC2626', borderColor: '#DC2626' }}
+                    onClick={confirmBlock}
+                    disabled={saving}
+                  >
+                    {saving ? 'Blacklisting...' : 'Yes, Blacklist Account'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

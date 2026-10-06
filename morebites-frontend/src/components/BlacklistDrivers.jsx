@@ -6,6 +6,8 @@ import {
   LuX,
   LuEye,
   LuPencil,
+  LuRotateCcw,
+  LuCircleCheck,
 } from 'react-icons/lu'
 import {
   IconCalendar,
@@ -35,6 +37,9 @@ export default function BlacklistDrivers({ embedded = false }) {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)
   const [notes, setNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [unblacklistTarget, setUnblacklistTarget] = useState(null)
+  const [unblacklisting, setUnblacklisting] = useState(false)
   const pageSize = 5
 
   const filtered = useMemo(() => {
@@ -55,19 +60,44 @@ export default function BlacklistDrivers({ embedded = false }) {
 
   function openDetails(driver) {
     setSelected(driver)
-    setNotes(driver.notes)
+    setNotes(driver.notes || '')
   }
 
   async function saveNotes() {
     if (!selected?.db_id) return
+    setSavingNotes(true)
     try {
       const { data } = await blacklistApi.updateNotes(selected.db_id, notes)
       const updated = data?.data || data
       setBlacklist((prev) => prev.map((d) => (d.db_id === selected.db_id ? updated : d)))
       setSelected(updated)
+      return true
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Failed to save notes.')
+      return false
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  async function handleConfirmUnblacklist() {
+    if (!unblacklistTarget?.db_id) return
+    setUnblacklisting(true)
+    try {
+      await (blacklistApi.reinstate || blacklistApi.unblacklist)(unblacklistTarget.db_id)
+      setBlacklist((prev) => prev.filter((d) => d.db_id !== unblacklistTarget.db_id))
+      if (selected?.db_id === unblacklistTarget.db_id) {
+        setSelected(null)
+      }
+      const restoredName = unblacklistTarget.name
+      setUnblacklistTarget(null)
+      alert(`Driver "${restoredName}" has been successfully reinstated and restored to Active status.`)
+    } catch (err) {
+      console.error(err)
+      alert(err.response?.data?.message || 'Failed to reinstate driver.')
+    } finally {
+      setUnblacklisting(false)
     }
   }
 
@@ -75,7 +105,7 @@ export default function BlacklistDrivers({ embedded = false }) {
     <div className="bl-page">
       {!embedded ? (
         <header className="bl-header">
-          <h1>Blacklisted Driver</h1>
+          <h1>Blocklisted Drivers</h1>
         </header>
       ) : null}
 
@@ -102,8 +132,8 @@ export default function BlacklistDrivers({ embedded = false }) {
                 <th>Driver ID</th>
                 <th>Name</th>
                 <th>License Number</th>
-                <th>Reason for Blacklist</th>
-                <th>Date Blacklisted</th>
+                <th>Reason for Blocklist</th>
+                <th>Date Blocklisted</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Action</th>
               </tr>
@@ -114,7 +144,7 @@ export default function BlacklistDrivers({ embedded = false }) {
                   <td colSpan={7} className="bl-empty">
                     <EmptyState
                       icon="shield"
-                      title="No blacklisted drivers"
+                      title="No blocklisted drivers"
                       subtitle="Drivers restricted from deliveries will appear here."
                     />
                   </td>
@@ -128,13 +158,24 @@ export default function BlacklistDrivers({ embedded = false }) {
                   <td>{d.reason}</td>
                   <td>{d.date}</td>
                   <td>
-                    <span className="bl-badge">Blacklisted</span>
+                    <span className="bl-badge">Blocklisted</span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button type="button" className="bl-view" onClick={() => openDetails(d)}>
-                      <LuEye size={13} />
-                      <span>View</span>
-                    </button>
+                    <div className="bl-table-actions">
+                      <button type="button" className="bl-view" onClick={() => openDetails(d)} title="View Details">
+                        <LuEye size={13} />
+                        <span>View</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="bl-unblacklist-btn"
+                        onClick={() => setUnblacklistTarget(d)}
+                        title="Reinstate Driver"
+                      >
+                        <LuRotateCcw size={13} />
+                        <span>Reinstate</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )))}
@@ -195,7 +236,7 @@ export default function BlacklistDrivers({ embedded = false }) {
               <div className="bl-avatar">
                 <IconUser />
               </div>
-              <span className="bl-badge">Blacklisted</span>
+              <span className="bl-badge">Blocklisted</span>
               <strong>{selected.name}</strong>
             </div>
 
@@ -224,52 +265,150 @@ export default function BlacklistDrivers({ embedded = false }) {
               <div className="bl-field">
                 <IconFile />
                 <div>
-                  <span>Reason for Blacklist</span>
+                  <span>Reason for Blocklist</span>
                   <strong>{selected.reason}</strong>
                 </div>
               </div>
               <div className="bl-field">
                 <IconCalendar />
                 <div>
-                  <span>Date Blacklisted</span>
+                  <span>Date Blocklisted</span>
                   <strong>{selected.date}</strong>
                 </div>
               </div>
             </div>
 
-            <div className="bl-attachment">
-              <div className="bl-file-icon">
-                <IconFile />
+            {/* Attachment Card */}
+            {selected.attachment && selected.attachment.name && selected.attachment.name !== 'No attachment' ? (
+              <div className="bl-attachment-card">
+                <div className="bl-file-icon active">
+                  <IconFile />
+                </div>
+                <div className="bl-attachment-info">
+                  <span>Attachment</span>
+                  <strong>{selected.attachment.name}</strong>
+                  {selected.attachment.meta && selected.attachment.meta !== '-' ? (
+                    <small>{selected.attachment.meta}</small>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="bl-icon-btn"
+                  aria-label="Download Attachment"
+                  title="Download Attachment"
+                  onClick={() => alert(`Downloading ${selected.attachment.name}...`)}
+                >
+                  <IconDownload />
+                </button>
               </div>
-              <div>
-                <strong>{selected.attachment.name}</strong>
-                <span>{selected.attachment.meta}</span>
+            ) : (
+              <div className="bl-attachment-card empty">
+                <div className="bl-file-icon">
+                  <IconFile />
+                </div>
+                <div className="bl-attachment-info">
+                  <span>Attachment</span>
+                  <strong>No attachment</strong>
+                  <small>No supporting documents uploaded</small>
+                </div>
               </div>
-              <button type="button" className="bl-icon-btn" aria-label="Download">
-                <IconDownload />
+            )}
+
+            {/* Notes Section */}
+            <div className="bl-notes-section">
+              <div className="bl-notes-head">
+                <div className="bl-notes-title">
+                  <IconEdit />
+                  <span>Notes</span>
+                </div>
+              </div>
+              <textarea
+                className="bl-notes-textarea"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Enter notes or updates regarding this blocklisted driver..."
+                rows={4}
+              />
+            </div>
+
+            {/* Drawer Footer Buttons */}
+            <div className="bl-drawer-footer">
+              <button
+                type="button"
+                className="bl-drawer-unblacklist-btn"
+                onClick={() => setUnblacklistTarget(selected)}
+              >
+                <LuRotateCcw size={15} />
+                <span>REINSTATE DRIVER</span>
+              </button>
+              <button
+                type="button"
+                className="bl-save-close-btn"
+                disabled={savingNotes}
+                onClick={async () => {
+                  const ok = await saveNotes()
+                  if (ok !== false) {
+                    setSelected(null)
+                  }
+                }}
+              >
+                {savingNotes ? 'SAVING...' : 'SAVE & CLOSE'}
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
+
+      {unblacklistTarget && (
+        <div className="bl-modal-overlay" onClick={() => !unblacklisting && setUnblacklistTarget(null)}>
+          <div className="bl-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="bl-modal-header">
+              <div className="bl-modal-icon-badge restore">
+                <LuRotateCcw size={22} />
+              </div>
+              <div className="bl-modal-title-wrap">
+                <h3 className="bl-modal-title">Reinstate Driver</h3>
+                <p className="bl-modal-sub">Confirm driver account reinstatement</p>
+              </div>
+              <button
+                type="button"
+                className="bl-modal-close"
+                onClick={() => !unblacklisting && setUnblacklistTarget(null)}
+                aria-label="Close modal"
+              >
+                <LuX size={18} />
               </button>
             </div>
 
-            <div className="bl-notes">
-              <div className="bl-notes-head">
-                <span>Notes</span>
-                <IconEdit />
+            <div className="bl-modal-body">
+              <p className="bl-modal-desc">
+                Are you sure you want to reinstate this driver: <strong>{unblacklistTarget.name}</strong> ({unblacklistTarget.id})?
+              </p>
+              <div className="bl-confirm-notice">
+                This will reinstate the driver's account to <strong>Active</strong> status and remove their blocklist restriction. The driver will be able to log back into the MoreBites Driver app and accept deliveries again.
               </div>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} />
             </div>
 
-            <button
-              type="button"
-              className="bl-close-btn"
-              onClick={async () => {
-                await saveNotes()
-                setSelected(null)
-              }}
-            >
-              SAVE & CLOSE
-            </button>
-          </aside>
-        </>
+            <div className="bl-modal-footer">
+              <button
+                type="button"
+                className="bl-btn bl-btn-secondary"
+                disabled={unblacklisting}
+                onClick={() => setUnblacklistTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="bl-btn bl-btn-restore"
+                disabled={unblacklisting}
+                onClick={handleConfirmUnblacklist}
+              >
+                {unblacklisting ? 'Reinstating...' : 'Yes, Reinstate Driver'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

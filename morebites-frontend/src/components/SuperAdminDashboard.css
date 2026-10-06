@@ -865,7 +865,7 @@
 }
 
 .sa-stock {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .sa-stock:last-child {
@@ -875,31 +875,39 @@
 .sa-stock-top {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 5px;
-  font-size: 12px;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
 
 .sa-stock-name {
-  font-weight: 700;
+  font-weight: 600;
+  color: #111827;
 }
 
-.sa-stock-name.critical {
-  color: var(--sa-red);
-}
-
+.sa-stock-name.critical,
 .sa-stock-name.low {
-  color: #c47d00;
+  color: #111827;
 }
 
 .sa-stock-qty {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--sa-muted);
-  font-size: 11px;
+}
+
+.sa-stock-qty.critical {
+  color: #ef4444;
+}
+
+.sa-stock-qty.low {
+  color: #ffa500;
 }
 
 .sa-bar {
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
-  background: #efefef;
+  background: #000000;
   overflow: hidden;
 }
 
@@ -907,18 +915,19 @@
   display: block;
   height: 100%;
   border-radius: inherit;
+  transition: width 0.3s ease;
 }
 
 .sa-bar > i.critical {
-  background: var(--sa-red);
+  background: #ef4444;
 }
 
 .sa-bar > i.low {
-  background: var(--sa-orange);
+  background: #ffa500;
 }
 
 .sa-bar > i.ok {
-  background: #2a2a2a;
+  background: #ffa500;
 }
 
 /* ── Notifications panel ── */

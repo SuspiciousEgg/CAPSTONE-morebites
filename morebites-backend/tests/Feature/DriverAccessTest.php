@@ -117,6 +117,35 @@ class DriverAccessTest extends TestCase
         $blacklistListResponse = $this->getJson('/api/blacklist');
         $blacklistListResponse->assertStatus(200);
         $blacklistListResponse->assertJsonFragment(['name' => 'John Driver']);
+
+        // Blocklisted driver attempting to log in receives specific blocklist error
+        $loginResponse = $this->postJson('/api/driver/login', [
+            'phone' => '09123456789',
+            'password' => 'password',
+        ]);
+        $loginResponse->assertStatus(422);
+        $loginResponse->assertJsonValidationErrors(['phone']);
+        $this->assertStringContainsString('blocklisted', $loginResponse->json('errors.phone.0'));
+
+        // Admin can reinstate the driver (supports both /reinstate and /unblacklist)
+        $blacklistEntry = \App\Models\DriverBlacklist::where('driver_id', $driver->id)->firstOrFail();
+        $unblacklistResponse = $this->postJson("/api/blacklist/{$blacklistEntry->id}/reinstate");
+        $unblacklistResponse->assertStatus(200);
+        $unblacklistResponse->assertJsonFragment(['message' => 'Driver has been reinstated and restored to active drivers.']);
+
+        // Driver is restored to Active
+        $driver->refresh();
+        $this->assertEquals('Active', $driver->status);
+        $this->assertNull($driver->archived_at);
+        $this->assertDatabaseMissing('driver_blacklist', ['driver_id' => $driver->id]);
+
+        // Driver can now log in successfully
+        $successfulLogin = $this->postJson('/api/driver/login', [
+            'phone' => '09123456789',
+            'password' => 'password',
+        ]);
+        $successfulLogin->assertStatus(200);
+        $successfulLogin->assertJsonStructure(['token', 'user']);
     }
 }
 

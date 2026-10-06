@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCart } from "../src/context/CartContext";
 import { feesFromOrder } from "../src/api/fees";
+import { formatReceiptItemName } from "./receipt";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -96,7 +97,7 @@ export default function OrderConfirmedScreen() {
           {items.map((item, index) => (
             <View key={`${item.id || item.name}-${item.size || "reg"}-${index}`} style={styles.itemRow}>
               <Text style={styles.itemText}>
-                {item.quantity}x {item.name}{item.size ? ` (${item.size})` : ""}
+                {item.quantity}x {formatReceiptItemName(item)}
               </Text>
               <Text style={styles.itemPrice}>₱{(item.price * item.quantity).toLocaleString()}</Text>
             </View>

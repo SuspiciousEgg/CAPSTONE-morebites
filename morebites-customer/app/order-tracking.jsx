@@ -14,6 +14,7 @@ import {
 import MapView, { Marker, Polyline } from "../src/components/AppMap";
 import { customerApi } from "../src/api/client";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { formatReceiptItemName } from "./receipt";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -352,8 +353,7 @@ export default function OrderTrackingScreen() {
                 items.map((item, index) => (
                   <View key={`${item.id || item.name}-${item.size || "reg"}-${index}`} style={styles.itemRow}>
                     <Text style={styles.itemName}>
-                      {item.quantity}x {item.name}
-                      {item.size ? ` (${item.size})` : ""}
+                      {item.quantity}x {formatReceiptItemName(item)}
                     </Text>
                     <Text style={styles.itemPrice}>
                       ₱{Number(item.price || 0) * Number(item.quantity || 1)}

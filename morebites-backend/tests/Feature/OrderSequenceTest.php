@@ -91,4 +91,80 @@ class OrderSequenceTest extends TestCase
             'customer_id' => null,
         ]);
     }
+
+    public function test_menu_options_returns_sizes_effective_price_and_formatted_range(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $item = \App\Models\MenuItem::query()->create([
+            'name' => 'Artisan Spinach Pizza',
+            'category' => 'Pizza',
+            'subcategory' => 'Specialty',
+            'price' => 0,
+            'has_sizes' => true,
+            'available' => true,
+            'archived' => false,
+        ]);
+
+        \App\Models\MenuItemSize::query()->create([
+            'menu_item_id' => $item->id,
+            'name' => '12"',
+            'price' => 235,
+        ]);
+
+        \App\Models\MenuItemSize::query()->create([
+            'menu_item_id' => $item->id,
+            'name' => '15"',
+            'price' => 320,
+        ]);
+
+        $response = $this->getJson('/api/orders/menu-options');
+        $response->assertStatus(200);
+
+        $data = collect($response->json('data'))->firstWhere('id', $item->id);
+        $this->assertNotNull($data);
+        $this->assertEquals(235.0, $data['price']);
+        $this->assertEquals('₱235 - ₱320', $data['price_formatted']);
+        $this->assertTrue($data['has_sizes']);
+        $this->assertCount(2, $data['sizes']);
+    }
+
+    public function test_store_order_records_size_and_formats_name_without_duplication(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $item = \App\Models\MenuItem::query()->create([
+            'name' => 'Artisan Spinach Pizza',
+            'category' => 'Pizza',
+            'price' => 0,
+            'has_sizes' => true,
+            'available' => true,
+            'archived' => false,
+        ]);
+
+        $response = $this->postJson('/api/orders', [
+            'customer_name' => 'John Doe',
+            'order_type' => 'Dine-in',
+            'items' => [
+                [
+                    'menu_item_id' => $item->id,
+                    'name' => 'Artisan Spinach Pizza',
+                    'size' => '12"',
+                    'qty' => 1,
+                    'unit_price' => 235,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseHas('order_items', [
+            'name' => 'Artisan Spinach Pizza (12")',
+            'size' => '12"',
+            'qty' => 1,
+            'unit_price' => 235,
+            'line_total' => 235,
+        ]);
+    }
 }
+

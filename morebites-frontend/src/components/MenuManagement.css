@@ -833,6 +833,21 @@
   box-sizing: border-box;
 }
 
+.menu-size-input-row input.input-error {
+  border-color: #EF4444 !important;
+  background-color: #FEF2F2 !important;
+}
+
+.menu-size-error-note {
+  font-size: 12px;
+  color: #DC2626;
+  font-weight: 600;
+  margin: 2px 0 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .menu-remove-size-btn {
   background: none;
   border: none;
@@ -885,6 +900,65 @@
   color: #777777;
   margin: -2px 0 6px 0;
   line-height: 1.35;
+}
+
+.menu-recipe-size-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.menu-recipe-size-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background-color: #F5F5F5;
+  border: 1px solid #D9D9D9;
+  border-radius: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555555;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.menu-recipe-size-tab:hover {
+  background-color: #ECECEC;
+  border-color: #BDBDBD;
+  color: #1C1B18;
+}
+
+.menu-recipe-size-tab.active {
+  background-color: #FFA500;
+  border-color: #FFA500;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.menu-recipe-size-tab .tab-count {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.menu-recipe-size-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background-color: #FFF9F0;
+  border-left: 3px solid #FFA500;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #5A4010;
+  margin-bottom: 6px;
+}
+
+.menu-recipe-size-banner .banner-note {
+  font-size: 11px;
+  color: #8C6D2B;
 }
 
 .menu-recipe-list {

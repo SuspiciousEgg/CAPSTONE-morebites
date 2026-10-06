@@ -97,6 +97,19 @@ function formatPrice(item) {
   return peso(item.price || 0)
 }
 
+function mapIngredientRows(list) {
+  return (list || []).map((row) => ({
+    inventory_item_id: String(row.inventory_item_id || ''),
+    qty_per_serving:
+      row.qty_per_serving != null && row.qty_per_serving !== ''
+        ? String(Number(row.qty_per_serving))
+        : '1',
+    name: row.name || '',
+    unit: row.unit || '',
+    stock: row.stock ?? '',
+  }))
+}
+
 function emptyForm() {
   return {
     id: null,
@@ -107,7 +120,7 @@ function emptyForm() {
     image: '',
     imageFile: null,
     hasSizes: false,
-    sizes: [{ name: '', price: '' }],
+    sizes: [{ name: '', price: '', ingredients: [] }],
     ingredients: [],
     price: '',
     available: true,
@@ -115,6 +128,33 @@ function emptyForm() {
 }
 
 function buildInitialForm(initial) {
+  const hasSizes = Boolean(initial?.hasSizes)
+  const initialIngredients = initial?.ingredients || []
+
+  let sizes = [{ name: '', price: '', ingredients: [] }]
+  if (hasSizes && initial?.sizes?.length) {
+    sizes = initial.sizes.map((s) => {
+      let sizeIngs = s.ingredients
+      if (!sizeIngs || !sizeIngs.length) {
+        sizeIngs = initialIngredients.filter(
+          (ing) =>
+            (s.id && ing.menu_item_size_id === s.id) ||
+            (ing.size_name && s.name && ing.size_name.toLowerCase() === s.name.toLowerCase()),
+        )
+      }
+      return {
+        id: s.id,
+        name: s.name || '',
+        price: s.price !== undefined && s.price !== null ? String(s.price) : '',
+        ingredients: mapIngredientRows(sizeIngs),
+      }
+    })
+  }
+
+  const baseIngredients = hasSizes
+    ? mapIngredientRows(initialIngredients.filter((ing) => !ing.menu_item_size_id))
+    : mapIngredientRows(initialIngredients)
+
   return {
     ...emptyForm(),
     ...initial,
@@ -122,30 +162,21 @@ function buildInitialForm(initial) {
     description: initial?.description || '',
     price: initial?.price ?? '',
     imageFile: null,
-    sizes:
-      initial?.hasSizes && initial?.sizes?.length
-        ? initial.sizes.map((s) => ({ name: s.name, price: String(s.price) }))
-        : [{ name: '', price: '' }],
-    ingredients: (initial?.ingredients || []).map((row) => ({
-      inventory_item_id: String(row.inventory_item_id || ''),
-      qty_per_serving:
-        row.qty_per_serving != null && row.qty_per_serving !== ''
-          ? String(Number(row.qty_per_serving))
-          : '1',
-      name: row.name || '',
-      unit: row.unit || '',
-      stock: row.stock ?? '',
-    })),
+    hasSizes,
+    sizes,
+    ingredients: baseIngredients,
   }
 }
 
 function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   const [form, setForm] = useState(() => buildInitialForm(initial))
+  const [activeSizeIndex, setActiveSizeIndex] = useState(0)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
 
   useEffect(() => {
     setForm(buildInitialForm(initial))
+    setActiveSizeIndex(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial?.id])
 
@@ -170,7 +201,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   function addSizeRow() {
     setForm((prev) => ({
       ...prev,
-      sizes: [...prev.sizes, { name: '', price: '' }],
+      sizes: [...prev.sizes, { name: '', price: '', ingredients: [] }],
     }))
   }
 
@@ -179,29 +210,70 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       ...prev,
       sizes: prev.sizes.length <= 1 ? prev.sizes : prev.sizes.filter((_, i) => i !== index),
     }))
+    setActiveSizeIndex((prev) => (prev >= index ? Math.max(0, prev - 1) : prev))
   }
 
+  const safeActiveSizeIndex = Math.min(activeSizeIndex, Math.max(0, (form.sizes || []).length - 1))
+
   function updateIngredient(index, key, value) {
-    setForm((prev) => ({
-      ...prev,
-      ingredients: prev.ingredients.map((row, i) =>
-        i === index ? { ...row, [key]: value } : row,
-      ),
-    }))
+    if (form.hasSizes) {
+      setForm((prev) => {
+        const nextSizes = prev.sizes.map((size, sIdx) => {
+          if (sIdx !== safeActiveSizeIndex) return size
+          const nextIngs = (size.ingredients || []).map((row, i) =>
+            i === index ? { ...row, [key]: value } : row,
+          )
+          return { ...size, ingredients: nextIngs }
+        })
+        return { ...prev, sizes: nextSizes }
+      })
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        ingredients: prev.ingredients.map((row, i) =>
+          i === index ? { ...row, [key]: value } : row,
+        ),
+      }))
+    }
   }
 
   function addIngredientRow() {
-    setForm((prev) => ({
-      ...prev,
-      ingredients: [...prev.ingredients, { inventory_item_id: '', qty_per_serving: '' }],
-    }))
+    if (form.hasSizes) {
+      setForm((prev) => {
+        const nextSizes = prev.sizes.map((size, sIdx) => {
+          if (sIdx !== safeActiveSizeIndex) return size
+          const nextIngs = [
+            ...(size.ingredients || []),
+            { inventory_item_id: '', qty_per_serving: '' },
+          ]
+          return { ...size, ingredients: nextIngs }
+        })
+        return { ...prev, sizes: nextSizes }
+      })
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        ingredients: [...prev.ingredients, { inventory_item_id: '', qty_per_serving: '' }],
+      }))
+    }
   }
 
   function removeIngredientRow(index) {
-    setForm((prev) => ({
-      ...prev,
-      ingredients: prev.ingredients.filter((_, i) => i !== index),
-    }))
+    if (form.hasSizes) {
+      setForm((prev) => {
+        const nextSizes = prev.sizes.map((size, sIdx) => {
+          if (sIdx !== safeActiveSizeIndex) return size
+          const nextIngs = (size.ingredients || []).filter((_, i) => i !== index)
+          return { ...size, ingredients: nextIngs }
+        })
+        return { ...prev, sizes: nextSizes }
+      })
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        ingredients: prev.ingredients.filter((_, i) => i !== index),
+      }))
+    }
   }
 
   function hasIngredientChanges() {
@@ -215,6 +287,21 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               ? 1
               : Number(row.qty_per_serving),
         }))
+
+    if (form.hasSizes) {
+      const current = form.sizes.map((s) => ({
+        name: s.name,
+        price: s.price,
+        ingredients: normalize(s.ingredients),
+      }))
+      const init = (initial?.sizes || []).map((s) => ({
+        name: s.name,
+        price: s.price,
+        ingredients: normalize(s.ingredients),
+      }))
+      return JSON.stringify(current) !== JSON.stringify(init)
+    }
+
     return (
       JSON.stringify(normalize(form.ingredients)) !==
       JSON.stringify(normalize(initial?.ingredients))
@@ -241,57 +328,120 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       return
     }
 
-    const recipeRows = form.ingredients
-      .filter((row) => String(row.inventory_item_id || '').trim() !== '')
-      .map((row) => ({
-        ...row,
-        qty_per_serving:
-          row.qty_per_serving === '' || row.qty_per_serving == null
-            ? '1'
-            : String(row.qty_per_serving).trim(),
-      }))
-    for (const row of recipeRows) {
-      if (Number(row.qty_per_serving) <= 0 || Number.isNaN(Number(row.qty_per_serving))) {
-        alert('Each linked ingredient needs a quantity greater than 0.')
-        return
-      }
-    }
-    const ids = recipeRows.map((r) => String(r.inventory_item_id))
-    if (new Set(ids).size !== ids.length) {
-      alert('Each inventory item can only be linked once.')
-      return
-    }
-
-    const ingredients = recipeRows.map((row) => ({
-      inventory_item_id: Number(row.inventory_item_id),
-      qty_per_serving: Number(row.qty_per_serving),
-    }))
-
     const description = String(form.description || '').trim()
     const subcategory = MENU_SUBCATEGORIES[form.category]
       ? (form.subcategory ? String(form.subcategory).trim() : null)
       : null
     let payload
+
     if (form.hasSizes) {
-      const validSizes = form.sizes.filter((s) => s.name.trim() && s.price !== '')
+      for (const s of form.sizes) {
+        const nameTrimmed = (s.name || '').trim()
+        const priceTrimmed = s.price !== undefined && s.price !== null ? String(s.price).trim() : ''
+        if ((nameTrimmed && priceTrimmed === '') || (!nameTrimmed && priceTrimmed !== '')) {
+          alert('Please fill out both the size name and price for all size options.')
+          return
+        }
+      }
+
+      const validSizes = form.sizes.filter(
+        (s) => (s.name || '').trim() && s.price !== '' && s.price !== undefined && s.price !== null,
+      )
       if (!validSizes.length) {
         alert('Please add at least one size with a price.')
         return
       }
+
+      // Check for duplicate size names (case-insensitive)
+      const sizeNames = validSizes.map((s) => s.name.trim().toLowerCase())
+      const dupNameIndex = sizeNames.findIndex((name, idx) => sizeNames.indexOf(name) !== idx)
+      if (dupNameIndex !== -1) {
+        alert(`Duplicate size name "${validSizes[dupNameIndex].name.trim()}". Each size option must have a unique name.`)
+        return
+      }
+
+      // Check for duplicate size prices
+      const sizePrices = validSizes.map((s) => Number(s.price))
+      const dupPriceIndex = sizePrices.findIndex((price, idx) => sizePrices.indexOf(price) !== idx)
+      if (dupPriceIndex !== -1) {
+        alert(`Duplicate size price ₱${validSizes[dupPriceIndex].price}. Each size option must have a unique price.`)
+        return
+      }
+
+      // Validate and process per-size ingredients
+      const processedSizes = []
+      for (const s of validSizes) {
+        const recipeRows = (s.ingredients || [])
+          .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+          .map((row) => ({
+            ...row,
+            qty_per_serving:
+              row.qty_per_serving === '' || row.qty_per_serving == null
+                ? '1'
+                : String(row.qty_per_serving).trim(),
+          }))
+
+        for (const row of recipeRows) {
+          if (Number(row.qty_per_serving) <= 0 || Number.isNaN(Number(row.qty_per_serving))) {
+            alert(`In size "${s.name.trim()}", each linked ingredient needs a quantity greater than 0.`)
+            return
+          }
+        }
+
+        const ids = recipeRows.map((r) => String(r.inventory_item_id))
+        if (new Set(ids).size !== ids.length) {
+          alert(`In size "${s.name.trim()}", each inventory item can only be linked once.`)
+          return
+        }
+
+        processedSizes.push({
+          name: s.name.trim(),
+          price: Number(s.price),
+          ingredients: recipeRows.map((row) => ({
+            inventory_item_id: Number(row.inventory_item_id),
+            qty_per_serving: Number(row.qty_per_serving),
+          })),
+        })
+      }
+
       payload = {
         ...form,
         name: String(form.name).trim(),
         description,
         subcategory,
         price: 0,
-        sizes: validSizes.map((s) => ({ name: s.name.trim(), price: Number(s.price) })),
-        ingredients,
+        sizes: processedSizes,
+        ingredients: [],
       }
     } else {
+      const recipeRows = form.ingredients
+        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
+        .map((row) => ({
+          ...row,
+          qty_per_serving:
+            row.qty_per_serving === '' || row.qty_per_serving == null
+              ? '1'
+              : String(row.qty_per_serving).trim(),
+        }))
+
+      for (const row of recipeRows) {
+        if (Number(row.qty_per_serving) <= 0 || Number.isNaN(Number(row.qty_per_serving))) {
+          alert('Each linked ingredient needs a quantity greater than 0.')
+          return
+        }
+      }
+
+      const ids = recipeRows.map((r) => String(r.inventory_item_id))
+      if (new Set(ids).size !== ids.length) {
+        alert('Each inventory item can only be linked once.')
+        return
+      }
+
       if (form.price === '' || Number.isNaN(Number(form.price))) {
         alert('Please enter a price.')
         return
       }
+
       payload = {
         ...form,
         name: String(form.name).trim(),
@@ -299,7 +449,10 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         subcategory,
         price: Number(form.price),
         sizes: [],
-        ingredients,
+        ingredients: recipeRows.map((row) => ({
+          inventory_item_id: Number(row.inventory_item_id),
+          qty_per_serving: Number(row.qty_per_serving),
+        })),
       }
     }
 
@@ -313,8 +466,12 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
   const title = mode === 'edit' ? 'Edit Menu Item' : 'Add New Item'
   const primaryLabel = mode === 'edit' ? 'Save Changes' : 'Add Item'
+
+  const activeIngredientsList = form.hasSizes
+    ? form.sizes[safeActiveSizeIndex]?.ingredients || []
+    : form.ingredients
   const selectedIds = new Set(
-    form.ingredients.map((r) => r.inventory_item_id).filter(Boolean),
+    activeIngredientsList.map((r) => r.inventory_item_id).filter(Boolean),
   )
 
   return (
@@ -483,34 +640,102 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             <div className="menu-sizes-section">
               <label>Size Options & Pricing *</label>
               <div className="menu-sizes-list">
-                {form.sizes.map((row, i) => (
-                  <div key={i} className="menu-size-input-row">
-                    <input
-                      type="text"
-                      placeholder="e.g. Regular"
-                      value={row.name}
-                      onChange={(e) => updateSize(i, 'name', e.target.value)}
-                      required
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="Price (₱)"
-                      value={row.price}
-                      onChange={(e) => updateSize(i, 'price', e.target.value)}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="menu-remove-size-btn"
-                      onClick={() => removeSizeRow(i)}
-                      aria-label="Remove size option"
-                    >
-                      <LuTrash2 size={16} />
-                    </button>
-                  </div>
-                ))}
+                {form.sizes.map((row, i) => {
+                  const nameTrimmed = (row.name || '').trim().toLowerCase()
+                  const isDupName = Boolean(
+                    nameTrimmed &&
+                    form.sizes.some(
+                      (s, idx) => idx !== i && (s.name || '').trim().toLowerCase() === nameTrimmed,
+                    ),
+                  )
+                  const priceStr =
+                    row.price !== '' && row.price !== undefined && row.price !== null
+                      ? String(row.price).trim()
+                      : ''
+                  const isDupPrice = Boolean(
+                    priceStr !== '' &&
+                    form.sizes.some(
+                      (s, idx) =>
+                        idx !== i &&
+                        s.price !== '' &&
+                        s.price !== undefined &&
+                        s.price !== null &&
+                        Number(s.price) === Number(priceStr),
+                    ),
+                  )
+
+                  return (
+                    <div key={i} className="menu-size-input-row">
+                      <input
+                        type="text"
+                        placeholder="e.g. Regular"
+                        value={row.name}
+                        onChange={(e) => updateSize(i, 'name', e.target.value)}
+                        className={isDupName ? 'input-error' : ''}
+                        title={isDupName ? 'Duplicate size name' : ''}
+                        required
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="Price (₱)"
+                        value={row.price}
+                        onChange={(e) => updateSize(i, 'price', e.target.value)}
+                        className={isDupPrice ? 'input-error' : ''}
+                        title={isDupPrice ? 'Duplicate size price' : ''}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="menu-remove-size-btn"
+                        onClick={() => removeSizeRow(i)}
+                        aria-label="Remove size option"
+                      >
+                        <LuTrash2 size={16} />
+                      </button>
+                    </div>
+                  )
+                })}
+
+                {(() => {
+                  const names = form.sizes
+                    .map((s) => (s.name || '').trim().toLowerCase())
+                    .filter(Boolean)
+                  const hasDupName = new Set(names).size !== names.length
+                  const prices = form.sizes
+                    .map((s) =>
+                      s.price !== '' && s.price !== undefined && s.price !== null
+                        ? Number(s.price)
+                        : null,
+                    )
+                    .filter((p) => p !== null)
+                  const hasDupPrice = new Set(prices).size !== prices.length
+
+                  if (hasDupName && hasDupPrice) {
+                    return (
+                      <p className="menu-size-error-note">
+                        ⚠️ Each size option must have a unique name and price.
+                      </p>
+                    )
+                  }
+                  if (hasDupName) {
+                    return (
+                      <p className="menu-size-error-note">
+                        ⚠️ Each size option must have a unique name.
+                      </p>
+                    )
+                  }
+                  if (hasDupPrice) {
+                    return (
+                      <p className="menu-size-error-note">
+                        ⚠️ Each size option must have a unique price.
+                      </p>
+                    )
+                  }
+                  return null
+                })()}
+
                 <button
                   type="button"
                   className="menu-add-size-row-btn"
@@ -530,8 +755,46 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             <p className="menu-recipe-hint">
               Connect inventory stock used per serving. Orders deduct these amounts automatically.
             </p>
+
+            {form.hasSizes && (
+              <div className="menu-recipe-size-tabs" role="tablist" aria-label="Size ingredient recipes">
+                {form.sizes.map((size, idx) => {
+                  const label = (size.name || '').trim() || `Size ${idx + 1}`
+                  const ingCount = (size.ingredients || []).filter(
+                    (r) => String(r.inventory_item_id || '').trim() !== '',
+                  ).length
+                  const isActive = idx === safeActiveSizeIndex
+
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`menu-recipe-size-tab ${isActive ? 'active' : ''}`}
+                      onClick={() => setActiveSizeIndex(idx)}
+                    >
+                      <span className="tab-name">{label}</span>
+                      {ingCount > 0 && <span className="tab-count">({ingCount})</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {form.hasSizes && (
+              <div className="menu-recipe-size-banner">
+                <span>
+                  Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
+                </span>
+                <span className="banner-note">
+                  Directly entered amounts for this size only (no multipliers).
+                </span>
+              </div>
+            )}
+
             <div className="menu-recipe-list">
-              {form.ingredients.map((row, i) => {
+              {activeIngredientsList.map((row, i) => {
                 const currentId = String(row.inventory_item_id || '')
                 const hasCurrentInOptions = inventoryOptions.some(
                   (opt) => String(opt.id) === currentId,
