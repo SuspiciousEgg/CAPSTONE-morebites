@@ -12,6 +12,7 @@ class MenuItemIngredient extends Model
         'menu_item_size_id',
         'inventory_item_id',
         'qty_per_serving',
+        'unit',
     ];
 
     protected function casts(): array

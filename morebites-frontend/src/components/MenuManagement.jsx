@@ -97,6 +97,63 @@ function formatPrice(item) {
   return peso(item.price || 0)
 }
 
+const STANDARD_UNITS = ['pcs', 'g', 'kg', 'ml', 'L']
+
+function normalizeUnitName(unit) {
+  if (!unit) return ''
+  const u = String(unit).trim().toLowerCase()
+  if (u === 'g' || u === 'gram' || u === 'grams') return 'g'
+  if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return 'kg'
+  if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return 'ml'
+  if (u === 'l' || u === 'liter' || u === 'liters') return 'L'
+  if (['pcs', 'pc', 'piece', 'pieces'].includes(u)) return 'pcs'
+  return unit
+}
+
+function getUnitCategory(unit) {
+  const norm = normalizeUnitName(unit).toLowerCase()
+  if (norm === 'g' || norm === 'kg') return 'mass'
+  if (norm === 'ml' || norm === 'l') return 'volume'
+  if (norm === 'pcs') return 'count'
+  return 'other'
+}
+
+function areUnitsCompatible(unitA, unitB) {
+  if (!unitA || !unitB) return true
+  const catA = getUnitCategory(unitA)
+  const catB = getUnitCategory(unitB)
+  if (catA === 'other' || catB === 'other') {
+    return normalizeUnitName(unitA).toLowerCase() === normalizeUnitName(unitB).toLowerCase()
+  }
+  return catA === catB
+}
+
+function getSelectableUnits(inventoryUnit) {
+  const normInv = normalizeUnitName(inventoryUnit)
+  const cat = getUnitCategory(normInv)
+  const list = []
+
+  if (cat === 'mass') {
+    list.push('g', 'kg')
+  } else if (cat === 'volume') {
+    list.push('ml', 'L')
+  } else if (cat === 'count') {
+    list.push('pcs')
+  }
+
+  if (normInv && !list.includes(normInv)) {
+    list.unshift(normInv)
+  }
+
+  STANDARD_UNITS.forEach((u) => {
+    if (!list.includes(u)) {
+      list.push(u)
+    }
+  })
+
+  return list
+}
+
 function mapIngredientRows(list) {
   return (list || []).map((row) => ({
     inventory_item_id: String(row.inventory_item_id || ''),
@@ -105,7 +162,8 @@ function mapIngredientRows(list) {
         ? String(Number(row.qty_per_serving))
         : '1',
     name: row.name || '',
-    unit: row.unit || '',
+    unit: row.unit || row.inventory_unit || '',
+    inventory_unit: row.inventory_unit || row.unit || '',
     stock: row.stock ?? '',
   }))
 }
@@ -220,9 +278,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       setForm((prev) => {
         const nextSizes = prev.sizes.map((size, sIdx) => {
           if (sIdx !== safeActiveSizeIndex) return size
-          const nextIngs = (size.ingredients || []).map((row, i) =>
-            i === index ? { ...row, [key]: value } : row,
-          )
+          const nextIngs = (size.ingredients || []).map((row, i) => {
+            if (i !== index) return row
+            const nextRow = { ...row, [key]: value }
+            if (key === 'inventory_item_id') {
+              const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
+              if (inv) {
+                nextRow.name = inv.name
+                nextRow.stock = inv.stock
+                nextRow.inventory_unit = inv.unit
+                if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
+                  nextRow.unit = inv.unit || 'pcs'
+                }
+              }
+            }
+            return nextRow
+          })
           return { ...size, ingredients: nextIngs }
         })
         return { ...prev, sizes: nextSizes }
@@ -230,9 +301,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     } else {
       setForm((prev) => ({
         ...prev,
-        ingredients: prev.ingredients.map((row, i) =>
-          i === index ? { ...row, [key]: value } : row,
-        ),
+        ingredients: prev.ingredients.map((row, i) => {
+          if (i !== index) return row
+          const nextRow = { ...row, [key]: value }
+          if (key === 'inventory_item_id') {
+            const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
+            if (inv) {
+              nextRow.name = inv.name
+              nextRow.stock = inv.stock
+              nextRow.inventory_unit = inv.unit
+              if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
+                nextRow.unit = inv.unit || 'pcs'
+              }
+            }
+          }
+          return nextRow
+        }),
       }))
     }
   }
@@ -244,7 +328,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           if (sIdx !== safeActiveSizeIndex) return size
           const nextIngs = [
             ...(size.ingredients || []),
-            { inventory_item_id: '', qty_per_serving: '' },
+            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
           ]
           return { ...size, ingredients: nextIngs }
         })
@@ -253,7 +337,10 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     } else {
       setForm((prev) => ({
         ...prev,
-        ingredients: [...prev.ingredients, { inventory_item_id: '', qty_per_serving: '' }],
+        ingredients: [
+          ...prev.ingredients,
+          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+        ],
       }))
     }
   }
@@ -286,6 +373,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             row.qty_per_serving === '' || row.qty_per_serving == null
               ? 1
               : Number(row.qty_per_serving),
+          unit: row.unit || '',
         }))
 
     if (form.hasSizes) {
@@ -386,6 +474,14 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             alert(`In size "${s.name.trim()}", each linked ingredient needs a quantity greater than 0.`)
             return
           }
+          const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+          const selectedUnit = row.unit || inv?.unit || 'pcs'
+          if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit)) {
+            alert(
+              `In size "${s.name.trim()}", unit "${selectedUnit}" is incompatible with inventory unit "${inv.unit}" for "${inv.name}". Please choose a compatible unit.`
+            )
+            return
+          }
         }
 
         const ids = recipeRows.map((r) => String(r.inventory_item_id))
@@ -400,6 +496,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           ingredients: recipeRows.map((row) => ({
             inventory_item_id: Number(row.inventory_item_id),
             qty_per_serving: Number(row.qty_per_serving),
+            unit: row.unit || undefined,
           })),
         })
       }
@@ -429,6 +526,14 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           alert('Each linked ingredient needs a quantity greater than 0.')
           return
         }
+        const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+        const selectedUnit = row.unit || inv?.unit || 'pcs'
+        if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit)) {
+          alert(
+            `Unit "${selectedUnit}" is incompatible with inventory unit "${inv.unit}" for "${inv.name}". Please choose a compatible unit.`
+          )
+          return
+        }
       }
 
       const ids = recipeRows.map((r) => String(r.inventory_item_id))
@@ -452,6 +557,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ingredients: recipeRows.map((row) => ({
           inventory_item_id: Number(row.inventory_item_id),
           qty_per_serving: Number(row.qty_per_serving),
+          unit: row.unit || undefined,
         })),
       }
     }
@@ -495,68 +601,86 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         </div>
 
         <form className="menu-form" onSubmit={submit}>
-          {/* Image Upload */}
-          <div className="menu-form-group">
-            <label>Item Image</label>
-            <div className="menu-image-upload-box">
-              {form.image ? (
-                <div className="menu-image-preview-wrap">
-                  <img
-                    className="menu-image-preview"
-                    src={mediaUrl(form.image)}
-                    alt="Preview"
-                  />
-                  <button
-                    type="button"
-                    className="menu-image-remove"
-                    onClick={() => setForm((f) => ({ ...f, image: '', imageFile: null }))}
-                    aria-label="Remove image"
-                  >
-                    <LuX size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div
-                  className="menu-image-dropzone"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <LuImage size={28} />
-                  <span>Click to upload item image</span>
-                </div>
-              )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={onImagePick}
-              />
+          {/* Compact Header: Photo on Left, Item Name & Description stacked on Right */}
+          <div className="menu-form-compact-header">
+            <div className="menu-compact-photo-col">
+              <div
+                className={`menu-image-upload-box compact ${form.image ? 'has-image' : 'clickable'}`}
+                onClick={!form.image ? () => fileRef.current?.click() : undefined}
+                role={!form.image ? 'button' : undefined}
+                tabIndex={!form.image ? 0 : undefined}
+                onKeyDown={
+                  !form.image
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          fileRef.current?.click()
+                        }
+                      }
+                    : undefined
+                }
+              >
+                {form.image ? (
+                  <div className="menu-image-preview-wrap compact">
+                    <img
+                      className="menu-image-preview compact"
+                      src={mediaUrl(form.image)}
+                      alt="Preview"
+                    />
+                    <button
+                      type="button"
+                      className="menu-image-remove compact"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setForm((f) => ({ ...f, image: '', imageFile: null }))
+                      }}
+                      aria-label="Remove image"
+                    >
+                      <LuX size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="menu-image-dropzone compact">
+                    <LuImage size={24} />
+                    <span>Upload Image</span>
+                  </div>
+                )}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={onImagePick}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Item Name */}
-          <div className="menu-form-group">
-            <label htmlFor="form-item-name">Item Name *</label>
-            <input
-              id="form-item-name"
-              type="text"
-              placeholder="e.g. Hawaiian Overload"
-              value={form.name}
-              onChange={(e) => setField('name', e.target.value)}
-              required
-            />
-          </div>
+            <div className="menu-compact-fields-col">
+              {/* Item Name */}
+              <div className="menu-form-group compact">
+                <label htmlFor="form-item-name">Item Name *</label>
+                <input
+                  id="form-item-name"
+                  type="text"
+                  placeholder="e.g. Hawaiian Overload"
+                  value={form.name}
+                  onChange={(e) => setField('name', e.target.value)}
+                  required
+                />
+              </div>
 
-          {/* Description */}
-          <div className="menu-form-group">
-            <label htmlFor="form-item-desc">Description</label>
-            <textarea
-              id="form-item-desc"
-              rows={3}
-              placeholder="Short description of the item"
-              value={form.description}
-              onChange={(e) => setField('description', e.target.value)}
-            />
+              {/* Description */}
+              <div className="menu-form-group compact">
+                <label htmlFor="form-item-desc">Description</label>
+                <textarea
+                  id="form-item-desc"
+                  rows={2}
+                  placeholder="Short description of the item"
+                  value={form.description}
+                  onChange={(e) => setField('description', e.target.value)}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Category */}
@@ -624,17 +748,20 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           {/* Fixed Price or Sizes */}
           {!form.hasSizes ? (
             <div className="menu-form-group">
-              <label htmlFor="form-item-price">Fixed Price (₱) *</label>
-              <input
-                id="form-item-price"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="0.00"
-                value={form.price}
-                onChange={(e) => setField('price', e.target.value)}
-                required
-              />
+              <label htmlFor="form-item-price">Fixed Price *</label>
+              <div className="menu-fixed-price-wrap">
+                <span className="menu-fixed-price-symbol">₱</span>
+                <input
+                  id="form-item-price"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0.00"
+                  value={form.price}
+                  onChange={(e) => setField('price', e.target.value)}
+                  required
+                />
+              </div>
             </div>
           ) : (
             <div className="menu-sizes-section">
@@ -799,9 +926,17 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                 const hasCurrentInOptions = inventoryOptions.some(
                   (opt) => String(opt.id) === currentId,
                 )
+                const pickedInv = inventoryOptions.find((opt) => String(opt.id) === currentId)
+                const invUnit = pickedInv?.unit || row.inventory_unit || ''
+                const currentUnit = row.unit || invUnit || 'pcs'
+                const isMismatch = Boolean(
+                  pickedInv && invUnit && currentUnit && !areUnitsCompatible(currentUnit, invUnit),
+                )
+
                 return (
                   <div key={i} className="menu-recipe-row">
                     <select
+                      className="menu-recipe-item-select"
                       value={currentId}
                       onChange={(e) =>
                         updateIngredient(i, 'inventory_item_id', e.target.value)
@@ -811,7 +946,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                       {currentId && !hasCurrentInOptions && (
                         <option value={currentId}>
                           {row.name || `Ingredient #${currentId}`}
-                          {row.unit ? ` (${row.stock ?? 0} ${row.unit})` : ''}
+                          {invUnit ? ` (${row.stock ?? 0} ${invUnit})` : ''}
                         </option>
                       )}
                       {inventoryOptions.map((opt) => {
@@ -830,13 +965,30 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                       step="any"
                       min="0"
                       className="menu-recipe-qty-input"
-                      placeholder="Qty/serving"
+                      placeholder="Qty"
                       value={row.qty_per_serving}
                       onFocus={(e) => e.target.select()}
                       onChange={(e) =>
                         updateIngredient(i, 'qty_per_serving', e.target.value)
                       }
                     />
+                    <select
+                      className={`menu-recipe-unit-select ${isMismatch ? 'unit-incompatible' : ''}`}
+                      value={currentUnit}
+                      onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
+                      title={
+                        isMismatch
+                          ? `Incompatible unit! Stock is tracked in ${invUnit}.`
+                          : 'Recipe quantity unit'
+                      }
+                      aria-label="Recipe quantity unit"
+                    >
+                      {getSelectableUnits(invUnit).map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="menu-remove-size-btn"

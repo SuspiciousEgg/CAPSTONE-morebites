@@ -7,11 +7,22 @@ use App\Models\InventoryLog;
 use App\Models\MenuItem;
 use App\Models\MenuItemIngredient;
 use App\Models\Order;
+use App\Support\UnitConverter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class InventoryDeductionService
 {
+    public function convertQuantity(float $qty, ?string $fromUnit, ?string $toUnit): float
+    {
+        return UnitConverter::convert($qty, $fromUnit, $toUnit);
+    }
+
+    public function areUnitsCompatible(?string $fromUnit, ?string $toUnit): bool
+    {
+        return UnitConverter::isCompatible($fromUnit, $toUnit);
+    }
+
     public function canServe(MenuItem $item, int $qty = 1, ?string $size = null): bool
     {
         return $this->unserviceableReason($item, $qty, $size) === null;
@@ -77,7 +88,10 @@ class InventoryDeductionService
             }
 
             $stock = (float) $inventory->stock;
-            $needed = (float) $ingredient->qty_per_serving * $qty;
+            $recipeUnit = $ingredient->unit ?: $inventory->unit;
+            $stockUnit = $inventory->unit;
+            $qtyInStockUnit = UnitConverter::convert((float) $ingredient->qty_per_serving, $recipeUnit, $stockUnit);
+            $needed = $qtyInStockUnit * $qty;
             if ($stock < $needed) {
                 return 'insufficient';
             }
@@ -247,7 +261,7 @@ class InventoryDeductionService
                 continue;
             }
 
-            $menu = MenuItem::query()->with(['sizes', 'ingredients'])->find($line->menu_item_id);
+            $menu = MenuItem::query()->with(['sizes', 'ingredients.inventoryItem'])->find($line->menu_item_id);
             if (! $menu) {
                 continue;
             }
@@ -280,7 +294,15 @@ class InventoryDeductionService
 
             foreach ($lineIngredients as $ingredient) {
                 $id = $ingredient->inventory_item_id;
-                $qty = (float) $ingredient->qty_per_serving * (int) $line->qty;
+                $inventory = $ingredient->inventoryItem ?? InventoryItem::query()->find($id);
+                $recipeUnit = $ingredient->unit ?: $inventory?->unit;
+                $stockUnit = $inventory?->unit;
+                $qtyPerServingInStockUnit = UnitConverter::convert(
+                    (float) $ingredient->qty_per_serving,
+                    $recipeUnit,
+                    $stockUnit
+                );
+                $qty = $qtyPerServingInStockUnit * (int) $line->qty;
                 $usage[$id] = [
                     'inventory_item_id' => $id,
                     'qty' => ($usage[$id]['qty'] ?? 0) + $qty,
