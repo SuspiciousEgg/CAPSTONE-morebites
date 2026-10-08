@@ -12,6 +12,7 @@ import {
   LuMinus,
   LuX,
   LuEllipsis,
+  LuTriangleAlert,
 } from 'react-icons/lu'
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
@@ -26,6 +27,7 @@ const STATUS_OPTIONS = [
   'Ready',
   'Out for Delivery',
   'Completed',
+  'Cancelled',
 ]
 const TYPE_OPTIONS = ['All Types', 'Online Order', 'Dine-in', 'Takeout']
 const POS_ORDER_TYPES = ['Dine-in', 'Takeout']
@@ -581,6 +583,115 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
   )
 }
 
+function CancelOrderModal({ order, onClose, onConfirm, saving }) {
+  const [reason, setReason] = useState('')
+  const [otherReason, setOtherReason] = useState('')
+  const [error, setError] = useState('')
+
+  const isAssignedOrEnRoute =
+    order.type === 'Online Order' &&
+    ['Assigned', 'Picked Up', 'Out for Delivery'].includes(order.status)
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!reason) {
+      setError('Please select a cancellation reason.')
+      return
+    }
+    if (reason === 'Other' && !otherReason.trim()) {
+      setError('Please enter a specific cancellation reason.')
+      return
+    }
+    const finalReason = reason === 'Other' ? otherReason.trim() : reason
+    onConfirm(finalReason)
+  }
+
+  return (
+    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="menu-modal-confirm-card om-cancel-modal-card"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="menu-confirm-icon-wrap warn">
+          <LuTriangleAlert size={28} />
+        </div>
+        <h2 className="menu-confirm-title">Cancel Order</h2>
+        <p className="menu-confirm-subtext">
+          Are you sure you want to cancel order <strong>{order.id}</strong> for <strong>{order.customer}</strong>?
+        </p>
+
+        {isAssignedOrEnRoute && (
+          <div className="om-cancel-warning-banner" role="alert">
+            <LuTriangleAlert size={18} />
+            <span>Warning: A delivery rider has already been assigned / is on the way for this order.</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="om-cancel-form">
+          <div className="om-cancel-field-group">
+            <label className="om-cancel-field-label">
+              Cancellation Reason <span style={{ color: '#EF4444' }}>*</span>
+            </label>
+            <select
+              className="om-cancel-select"
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value)
+                setError('')
+              }}
+              required
+            >
+              <option value="">Select a reason...</option>
+              <option value="Bad weather">Bad weather</option>
+              <option value="Out of stock">Out of stock</option>
+              <option value="Customer unreachable">Customer unreachable</option>
+              <option value="Customer request">Customer request</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          {reason === 'Other' && (
+            <div className="om-cancel-field-group">
+              <label className="om-cancel-field-label">
+                Specify Reason <span style={{ color: '#EF4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                className="om-cancel-input"
+                placeholder="Please enter reason details..."
+                value={otherReason}
+                onChange={(e) => {
+                  setOtherReason(e.target.value)
+                  setError('')
+                }}
+                maxLength={255}
+                required
+              />
+            </div>
+          )}
+
+          {error && <p className="om-cancel-error">{error}</p>}
+
+          <div className="menu-confirm-actions" style={{ marginTop: '20px' }}>
+            <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
+              Keep Order
+            </button>
+            <button
+              type="submit"
+              className="menu-modal-btn confirm-archive"
+              disabled={saving || !reason || (reason === 'Other' && !otherReason.trim())}
+            >
+              {saving ? 'Cancelling...' : 'Cancel Order'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function OrderManagement() {
   const [orders, setOrders] = useState([])
   const [serverStats, setServerStats] = useState(null)
@@ -595,6 +706,8 @@ export default function OrderManagement() {
   const [saving, setSaving] = useState(false)
   const { menuRef, menu: rowMenu, toggleMenu, closeMenu: closeRowMenu } = useRowActionMenu()
   const [viewOrder, setViewOrder] = useState(null)
+  const [cancelTarget, setCancelTarget] = useState(null)
+  const [cancelling, setCancelling] = useState(false)
 
   const statusRef = useRef(null)
   const typeRef = useRef(null)
@@ -727,6 +840,24 @@ export default function OrderManagement() {
       alert(err.response?.data?.message || 'Failed to create order.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleConfirmCancel(reason) {
+    if (!cancelTarget?.db_id) return
+    setCancelling(true)
+    try {
+      await ordersApi.updateStatus(cancelTarget.db_id, {
+        status: 'Cancelled',
+        cancellation_reason: reason,
+      })
+      setCancelTarget(null)
+      await loadOrders()
+    } catch (err) {
+      console.error(err)
+      alert(err?.response?.data?.message || 'Failed to cancel order.')
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -1038,7 +1169,29 @@ export default function OrderManagement() {
           >
             View Order Details
           </button>
+          {!['Completed', 'Cancelled'].includes(rowMenuOrder.status) && (
+            <button
+              type="button"
+              className="om-row-action-cancel"
+              onClick={() => {
+                setCancelTarget(rowMenuOrder)
+                closeRowMenu()
+              }}
+            >
+              Cancel Order
+            </button>
+          )}
         </RowActionMenuPopup>
+      )}
+
+      {/* Cancel Order Modal */}
+      {cancelTarget && (
+        <CancelOrderModal
+          order={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onConfirm={handleConfirmCancel}
+          saving={cancelling}
+        />
       )}
 
       {/* POS Create Order Modal */}
@@ -1089,6 +1242,14 @@ export default function OrderManagement() {
                   </span>
                 </dd>
               </div>
+              {viewOrder.cancellation_reason && (
+                <div className="full">
+                  <dt>Cancellation Reason</dt>
+                  <dd style={{ color: '#EF4444', fontWeight: 500 }}>
+                    {viewOrder.cancellation_reason}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Customer</dt>
                 <dd>{viewOrder.customer}</dd>

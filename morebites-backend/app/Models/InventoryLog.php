@@ -9,6 +9,7 @@ class InventoryLog extends Model
 {
     protected $fillable = [
         'inventory_item_id',
+        'inventory_batch_id',
         'item_name',
         'category',
         'stock_level',
@@ -39,6 +40,11 @@ class InventoryLog extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
+    }
+
+    public function batch(): BelongsTo
+    {
+        return $this->belongsTo(InventoryBatch::class, 'inventory_batch_id');
     }
 
     public function user(): BelongsTo

@@ -159,7 +159,9 @@ class Notification extends Model
             'Out for Delivery', 'Picked Up' => $isOnline ? "Delivery is in progress for {$order->customer_name}." : "Order {$code} for {$order->customer_name} status updated to {$order->status}.",
             'Ready' => $readyMessage,
             'Assigned' => $isOnline ? "Order {$code} has been assigned to a delivery rider." : "Order {$code} for {$order->customer_name} status updated to {$order->status}.",
-            'Cancelled' => "Order {$code} for {$order->customer_name} has been cancelled.",
+            'Cancelled' => $order->cancellation_reason
+                ? "Order {$code} for {$order->customer_name} has been cancelled ({$order->cancellation_reason})."
+                : "Order {$code} for {$order->customer_name} has been cancelled.",
             'Preparing' => $hasExistingAdminNotif ? "Order {$code} for {$order->customer_name} is now being prepared in the kitchen." : "A new order has been placed by {$order->customer_name}.",
             'Pending' => "A new order has been placed by {$order->customer_name}.",
             default => "Order {$code} for {$order->customer_name} status updated to {$order->status}.",
@@ -227,7 +229,9 @@ class Notification extends Model
                 'Preparing' => "Order {$code} is now being prepared by the kitchen.",
                 'Assigned' => $isOnline ? "Order {$code} has been assigned to a delivery rider." : "Order {$code} status updated to {$order->status}.",
                 'Delivered', 'Completed' => "Order {$code} has been delivered. Enjoy your meal!",
-                'Cancelled' => "Order {$code} has been cancelled.",
+                'Cancelled' => $order->cancellation_reason
+                    ? "Order {$code} has been cancelled. Reason: {$order->cancellation_reason}."
+                    : "Order {$code} has been cancelled.",
                 'Pending' => "Your order {$code} has been received and is awaiting confirmation.",
                 default => "Order {$code} confirmed. Your order is being processed",
             };
@@ -284,7 +288,9 @@ class Notification extends Model
                 'Preparing' => "Order {$code} for {$order->customer_name} is being prepared in the kitchen.",
                 'Picked Up', 'Out for Delivery' => "Deliver Order {$code} to {$order->customer_name}.",
                 'Delivered', 'Completed' => "Order {$code} delivery for {$order->customer_name} is marked as completed.",
-                'Cancelled' => "Order {$code} for {$order->customer_name} was cancelled.",
+                'Cancelled' => $order->cancellation_reason
+                    ? "Order {$code} for {$order->customer_name} was cancelled ({$order->cancellation_reason})."
+                    : "Order {$code} for {$order->customer_name} was cancelled.",
                 default => "Order {$code} status is now {$order->status}.",
             };
 

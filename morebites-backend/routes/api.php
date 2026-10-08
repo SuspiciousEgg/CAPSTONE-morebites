@@ -89,6 +89,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/inventory/logs', [InventoryController::class, 'logs']);
     Route::get('/inventory/expiring', [ExpiringStockController::class, 'index']);
+    Route::post('/inventory/batches/{batch}/expiring/waste', [ExpiringStockController::class, 'markWasteBatch']);
+    Route::post('/inventory/batches/{batch}/expiring/kitchen-priority', [ExpiringStockController::class, 'setKitchenPriorityBatch']);
+    Route::post('/inventory/batches/{batch}/expiring/promo', [ExpiringStockController::class, 'setPromoBatch']);
+    Route::post('/inventory/batches/{batch}/expiring/resolve', [ExpiringStockController::class, 'resolveBatch']);
     Route::post('/inventory/{inventory}/expiring/waste', [ExpiringStockController::class, 'markWaste']);
     Route::post('/inventory/{inventory}/expiring/kitchen-priority', [ExpiringStockController::class, 'setKitchenPriority']);
     Route::post('/inventory/{inventory}/expiring/promo', [ExpiringStockController::class, 'setPromo']);

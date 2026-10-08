@@ -278,6 +278,9 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   const [editItem, setEditItem] = useState(null)
   const [restockItem, setRestockItem] = useState(null)
   const [restockQty, setRestockQty] = useState('')
+  const [restockExpiry, setRestockExpiry] = useState('')
+  const [restockDatePlaced, setRestockDatePlaced] = useState('')
+  const [restockBatchNo, setRestockBatchNo] = useState('')
   const [archiveItem, setArchiveItem] = useState(null)
   const [restoreItem, setRestoreItem] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -577,9 +580,17 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     }
     setSaving(true)
     try {
-      await inventoryApi.restock(restockItem.id, qty)
+      await inventoryApi.restock(restockItem.id, {
+        quantity: qty,
+        date_placed: restockDatePlaced || undefined,
+        expiry_date: restockExpiry || undefined,
+        batch_no: restockBatchNo.trim() || undefined,
+      })
       setRestockItem(null)
       setRestockQty('')
+      setRestockExpiry('')
+      setRestockDatePlaced('')
+      setRestockBatchNo('')
       await afterMutation()
     } catch (err) {
       console.error(err)
@@ -684,6 +695,9 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   function openRestock(item) {
     setRestockItem(item)
     setRestockQty('')
+    setRestockExpiry('')
+    setRestockDatePlaced(new Date().toISOString().split('T')[0])
+    setRestockBatchNo('')
   }
 
   function closeFormModal() {
@@ -1152,6 +1166,23 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                         <div className={`inv-stock-val ${item.status === 'Low Stock' ? 'low' : item.status === 'Out of Stock' ? 'out' : ''}`}>
                           <strong>{item.stock}</strong> <span className="inv-unit">{item.unit}</span>
                         </div>
+                        {item.batches && item.batches.length > 0 ? (
+                          <div className="inv-batches-pill-list">
+                            {item.batches.map((b) => (
+                              <div key={b.id} className="inv-batch-pill-item" title={`Date placed: ${b.date_placed || '—'}`}>
+                                <span className="inv-batch-pill-badge">{b.batch_no}</span>
+                                <span className="inv-batch-pill-qty">{b.stock} {item.unit}</span>
+                                {b.expiry_date ? (
+                                  <span className={`inv-batch-pill-exp ${daysLeftClass(b.days_left)}`}>
+                                    exp {b.expiry_date}
+                                  </span>
+                                ) : (
+                                  <span className="inv-batch-pill-nonp">Non-perishable</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </td>
                       <td>
                         <span className="inv-reorder-val">
@@ -1291,13 +1322,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
             </div>
             <div className="inv-modal-body">
               <p style={{ margin: '0 0 12px', color: '#666', fontSize: 13 }}>
-                Current stock:{' '}
+                Current total stock:{' '}
                 <strong>
                   {restockItem.stock} {restockItem.unit}
                 </strong>
               </p>
               <label>
-                Quantity to add
+                Quantity to add *
                 <input
                   type="number"
                   min="0.01"
@@ -1306,6 +1337,32 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   onChange={(e) => setRestockQty(e.target.value)}
                   placeholder={`e.g. 10 ${restockItem.unit}`}
                   autoFocus
+                  required
+                />
+              </label>
+              <label style={{ marginTop: '10px' }}>
+                Expiry Date (Perishables)
+                <input
+                  type="date"
+                  value={restockExpiry}
+                  onChange={(e) => setRestockExpiry(e.target.value)}
+                />
+              </label>
+              <label style={{ marginTop: '10px' }}>
+                Date Received
+                <input
+                  type="date"
+                  value={restockDatePlaced}
+                  onChange={(e) => setRestockDatePlaced(e.target.value)}
+                />
+              </label>
+              <label style={{ marginTop: '10px' }}>
+                Batch Number (Optional — auto-generated if blank)
+                <input
+                  type="text"
+                  value={restockBatchNo}
+                  onChange={(e) => setRestockBatchNo(e.target.value)}
+                  placeholder="e.g. SN-1008-01"
                 />
               </label>
             </div>
