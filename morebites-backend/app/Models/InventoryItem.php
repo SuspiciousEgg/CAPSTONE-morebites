@@ -35,6 +35,35 @@ class InventoryItem extends Model
         ];
     }
 
+    public function batches(): HasMany
+    {
+        return $this->hasMany(InventoryBatch::class);
+    }
+
+    public function openBatches(): HasMany
+    {
+        return $this->batches()->where('stock', '>', 0);
+    }
+
+    public function recalculateStockFromBatches(): void
+    {
+        $open = $this->batches()->where('stock', '>', 0)->get();
+        $totalStock = (float) $open->sum('stock');
+
+        // Earliest active expiry date among open batches with expiry
+        $earliestExpiry = $open->whereNotNull('expiry_date')->sortBy('expiry_date')->first()?->expiry_date;
+        $latestBatchNo = $this->batches()->latest('id')->first()?->batch_no ?: $this->batch_no;
+
+        $newStatus = self::deriveStatus($totalStock, (float) $this->reorder_level, $earliestExpiry);
+
+        $this->update([
+            'stock' => $totalStock,
+            'expiry_date' => $earliestExpiry,
+            'batch_no' => $latestBatchNo,
+            'status' => $this->status === 'Archived' ? 'Archived' : $newStatus,
+        ]);
+    }
+
     public function logs(): HasMany
     {
         return $this->hasMany(InventoryLog::class);

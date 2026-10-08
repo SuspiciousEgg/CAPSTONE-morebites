@@ -661,7 +661,9 @@
   border: 1px solid #EDEDED;
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.16);
   max-height: 90vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Equal corner radius on all 4 corners */
   box-sizing: border-box;
   animation: invPopIn 0.18s ease;
 }
@@ -727,6 +729,28 @@
   flex-direction: column;
   gap: 16px;
   box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #D1D5DB transparent;
+}
+
+.inv-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.inv-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.inv-modal-body::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 10px;
+}
+
+.inv-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
 }
 
 .inv-form-section {
@@ -1267,4 +1291,60 @@
   color: #DC2626;
   margin: 0;
 }
+
+/* Open Batches breakdown in table */
+.inv-batches-pill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.inv-batch-pill-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  padding: 2px 7px;
+  color: #374151;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.inv-batch-pill-badge {
+  font-weight: 700;
+  color: #4B5563;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.inv-batch-pill-qty {
+  font-weight: 600;
+  color: #111827;
+}
+
+.inv-batch-pill-exp {
+  font-size: 10.5px;
+  color: #6B7280;
+}
+
+.inv-batch-pill-exp.warn {
+  color: #D97706;
+  font-weight: 600;
+}
+
+.inv-batch-pill-exp.danger {
+  color: #DC2626;
+  font-weight: 600;
+}
+
+.inv-batch-pill-nonp {
+  font-size: 10.5px;
+  color: #9CA3AF;
+  font-style: italic;
+}
+
 

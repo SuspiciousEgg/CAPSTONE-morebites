@@ -95,24 +95,7 @@ class OrderController extends Controller
         ]);
 
         $service = app(InventoryDeductionService::class);
-        foreach ($data['items'] as $line) {
-            if (! empty($line['menu_item_id'])) {
-                $menu = MenuItem::query()->find($line['menu_item_id']);
-                if ($menu) {
-                    $reason = $service->unserviceableReason($menu, (int) $line['qty'], $line['size'] ?? null);
-                    if ($reason === 'expired') {
-                        throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' cannot be ordered because one or more ingredients are expired."],
-                        ]);
-                    }
-                    if ($reason === 'insufficient' || ! $menu->available) {
-                        throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' is currently unavailable."],
-                        ]);
-                    }
-                }
-            }
-        }
+        $service->validateCartAvailability($data['items']);
 
         /**
          * PROMPT INVESTIGATION REPORT: Order ID Sequencing
@@ -172,10 +155,30 @@ class OrderController extends Controller
     {
         $data = $request->validate([
             'status' => ['required', 'string'],
+            'cancellation_reason' => ['nullable', 'string'],
         ]);
+
+        $user = $request->user();
+        if ($data['status'] === 'Cancelled') {
+            if ($user && in_array(strtolower($user->role), ['customer', 'driver'], true)) {
+                return response()->json([
+                    'message' => 'Only staff can cancel orders.',
+                    'errors' => ['status' => ['Only staff can cancel orders.']],
+                ], 403);
+            }
+
+            // Cancelling twice is a no-op
+            if ($order->status === 'Cancelled') {
+                return response()->json(['data' => $this->transform($order->load('items'))]);
+            }
+        }
 
         $previous = $order->status;
         $updatePayload = ['status' => $data['status']];
+        if ($data['status'] === 'Cancelled' && ! empty($data['cancellation_reason'])) {
+            $updatePayload['cancellation_reason'] = $data['cancellation_reason'];
+        }
+
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
             if ($order->order_type === 'Online Order') {
                 $updatePayload['delivered_at'] = $order->delivered_at ?? now();
@@ -261,6 +264,8 @@ class OrderController extends Controller
             'items' => $itemsLabel,
             'price' => (float) $o->total,
             'status' => $o->status,
+            'cancellation_reason' => $o->cancellation_reason,
+            'inventory_deducted' => (bool) $o->inventory_deducted,
             'action' => $action,
             'address' => $o->delivery_address,
             'created_at' => $o->created_at?->toIso8601String(),

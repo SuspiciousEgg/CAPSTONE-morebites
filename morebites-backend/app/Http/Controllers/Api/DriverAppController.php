@@ -22,7 +22,6 @@ class DriverAppController extends Controller
         'Out for Delivery',
         'Completed',
         'Delivered',
-        'Cancelled',
     ];
 
     public function login(Request $request)
@@ -120,6 +119,13 @@ class DriverAppController extends Controller
     {
         $user = $this->driverUser($request);
         abort_unless((int) $order->driver_id === (int) $user->id, 403);
+
+        if ($request->input('status') === 'Cancelled') {
+            return response()->json([
+                'message' => 'Only staff can cancel orders.',
+                'errors' => ['status' => ['Only staff can cancel orders.']],
+            ], 403);
+        }
 
         $data = $request->validate([
             'status' => ['required', 'string', Rule::in(self::DRIVER_STATUSES)],

@@ -102,7 +102,7 @@ export default function ExpiringStock() {
   }
 
   async function markWaste(row) {
-    if (!window.confirm(`Mark all remaining ${row.stock} ${row.unit} of "${row.name}" as waste?`)) {
+    if (!window.confirm(`Mark all remaining ${row.stock} ${row.unit} of "${row.name}" (Batch ${row.batch_no || row.id}) as waste?`)) {
       return
     }
     setSaving(true)
@@ -276,6 +276,7 @@ export default function ExpiringStock() {
                     <tr key={row.id}>
                       <td>
                         <div className="exp-item-name">{row.name}</div>
+                        {row.batch_no ? <div className="exp-item-batch">Batch: {row.batch_no}</div> : null}
                       </td>
                       <td>{row.category_label || row.category}</td>
                       <td>

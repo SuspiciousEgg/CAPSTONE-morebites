@@ -19,6 +19,7 @@ class InventoryDisposition extends Model
 
     protected $fillable = [
         'inventory_item_id',
+        'inventory_batch_id',
         'disposition',
         'promo_menu_item_id',
         'promo_discount_percent',
@@ -38,6 +39,11 @@ class InventoryDisposition extends Model
     public function inventoryItem(): BelongsTo
     {
         return $this->belongsTo(InventoryItem::class);
+    }
+
+    public function batch(): BelongsTo
+    {
+        return $this->belongsTo(InventoryBatch::class, 'inventory_batch_id');
     }
 
     public function promoMenuItem(): BelongsTo

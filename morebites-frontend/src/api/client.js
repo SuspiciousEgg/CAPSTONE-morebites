@@ -75,7 +75,8 @@ export const dashboardApi = {
 export const ordersApi = {
   list: (params) => api.get('/orders', { params }),
   create: (payload) => api.post('/orders', payload),
-  updateStatus: (id, status) => api.patch(`/orders/${id}/status`, { status }),
+  updateStatus: (id, payload) =>
+    api.patch(`/orders/${id}/status`, typeof payload === 'string' ? { status: payload } : payload),
   menuOptions: () => api.get('/orders/menu-options'),
 }
 
@@ -120,7 +121,7 @@ export const inventoryApi = {
   list: (params) => api.get('/inventory', { params }),
   create: (payload) => api.post('/inventory', payload),
   update: (id, payload) => api.put(`/inventory/${id}`, payload),
-  restock: (id, quantity) => api.post(`/inventory/${id}/restock`, { quantity }),
+  restock: (id, payload) => api.post(`/inventory/${id}/restock`, typeof payload === 'object' ? payload : { quantity: payload }),
   archive: (id) => api.patch(`/inventory/${id}/archive`),
   restore: (id) => api.patch(`/inventory/${id}/restore`),
   remove: (id) => api.delete(`/inventory/${id}`),
@@ -129,10 +130,10 @@ export const inventoryApi = {
 
 export const expiringStockApi = {
   list: () => api.get('/inventory/expiring'),
-  markWaste: (id, notes) => api.post(`/inventory/${id}/expiring/waste`, { notes }),
-  setKitchenPriority: (id, notes) => api.post(`/inventory/${id}/expiring/kitchen-priority`, { notes }),
-  setPromo: (id, payload) => api.post(`/inventory/${id}/expiring/promo`, payload),
-  resolve: (id, notes) => api.post(`/inventory/${id}/expiring/resolve`, { notes }),
+  markWaste: (batchId, notes) => api.post(`/inventory/batches/${batchId}/expiring/waste`, { notes }),
+  setKitchenPriority: (batchId, notes) => api.post(`/inventory/batches/${batchId}/expiring/kitchen-priority`, { notes }),
+  setPromo: (batchId, payload) => api.post(`/inventory/batches/${batchId}/expiring/promo`, payload),
+  resolve: (batchId, notes) => api.post(`/inventory/batches/${batchId}/expiring/resolve`, { notes }),
 }
 
 export const dispatchApi = {

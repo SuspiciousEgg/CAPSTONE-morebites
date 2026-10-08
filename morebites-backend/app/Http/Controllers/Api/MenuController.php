@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\InventoryItem;
 use App\Models\MenuItem;
 use App\Services\InventoryDeductionService;
 use App\Support\Media;
+use App\Support\UnitConverter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -232,6 +234,7 @@ class MenuController extends Controller
                             'qty_per_serving' => isset($row['qty_per_serving']) && $row['qty_per_serving'] !== '' && (float) $row['qty_per_serving'] > 0
                                 ? (float) $row['qty_per_serving']
                                 : 1.0,
+                            'unit' => ! empty($row['unit']) ? (string) $row['unit'] : null,
                         ])
                         ->values()
                         ->all();
@@ -253,6 +256,7 @@ class MenuController extends Controller
                     'qty_per_serving' => isset($row['qty_per_serving']) && $row['qty_per_serving'] !== '' && (float) $row['qty_per_serving'] > 0
                         ? (float) $row['qty_per_serving']
                         : 1.0,
+                    'unit' => ! empty($row['unit']) ? (string) $row['unit'] : null,
                 ])
                 ->values()
                 ->all();
@@ -291,6 +295,7 @@ class MenuController extends Controller
                 Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
             ],
             'sizes.*.ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
+            'sizes.*.ingredients.*.unit' => ['nullable', 'string', 'max:20'],
             'ingredients' => ['nullable', 'array'],
             'ingredients.*.menu_item_size_id' => ['nullable', 'integer'],
             'ingredients.*.size_name' => ['nullable', 'string'],
@@ -300,6 +305,7 @@ class MenuController extends Controller
                 Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
             ],
             'ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
+            'ingredients.*.unit' => ['nullable', 'string', 'max:20'],
         ]);
 
         if (!empty($validated['has_sizes']) && !empty($validated['sizes'])) {
@@ -315,6 +321,39 @@ class MenuController extends Controller
                 throw ValidationException::withMessages([
                     'sizes' => ['Each size option must have a unique price.'],
                 ]);
+            }
+        }
+
+        // Validate unit compatibility with inventory items
+        $allIngredientRows = [];
+        if (! empty($validated['sizes'])) {
+            foreach ($validated['sizes'] as $s) {
+                if (! empty($s['ingredients'])) {
+                    foreach ($s['ingredients'] as $ing) {
+                        $allIngredientRows[] = $ing;
+                    }
+                }
+            }
+        }
+        if (! empty($validated['ingredients'])) {
+            foreach ($validated['ingredients'] as $ing) {
+                $allIngredientRows[] = $ing;
+            }
+        }
+
+        if (! empty($allIngredientRows)) {
+            $invIds = collect($allIngredientRows)->pluck('inventory_item_id')->filter()->unique()->values();
+            $invMap = InventoryItem::query()->whereIn('id', $invIds)->get()->keyBy('id');
+
+            foreach ($allIngredientRows as $row) {
+                $inv = $invMap->get($row['inventory_item_id']);
+                if ($inv && ! empty($row['unit'])) {
+                    if (! UnitConverter::isCompatible($row['unit'], $inv->unit)) {
+                        throw ValidationException::withMessages([
+                            'ingredients' => ["Unit '{$row['unit']}' is incompatible with inventory unit '{$inv->unit}' for {$inv->name}."],
+                        ]);
+                    }
+                }
             }
         }
 
@@ -377,11 +416,13 @@ class MenuController extends Controller
                         $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
                             ? (float) $row['qty_per_serving']
                             : 1.0;
+                        $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
 
                         $item->ingredients()->create([
                             'menu_item_size_id' => $matchingSize->id,
                             'inventory_item_id' => $inventoryId,
                             'qty_per_serving' => $qty,
+                            'unit' => $unit,
                         ]);
                     }
                 }
@@ -414,11 +455,13 @@ class MenuController extends Controller
                     $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
                         ? (float) $row['qty_per_serving']
                         : 1.0;
+                    $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
 
                     $item->ingredients()->create([
                         'menu_item_size_id' => $sizeId,
                         'inventory_item_id' => (int) $row['inventory_item_id'],
                         'qty_per_serving' => $qty,
+                        'unit' => $unit,
                     ]);
                 }
 
@@ -440,11 +483,13 @@ class MenuController extends Controller
             $qty = isset($row['qty_per_serving']) && (float) $row['qty_per_serving'] > 0
                 ? (float) $row['qty_per_serving']
                 : 1.0;
+            $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
 
             $item->ingredients()->create([
                 'menu_item_size_id' => null,
                 'inventory_item_id' => $inventoryId,
                 'qty_per_serving' => $qty,
+                'unit' => $unit,
             ]);
         }
     }
@@ -481,7 +526,8 @@ class MenuController extends Controller
                         'inventory_item_id' => $ing->inventory_item_id,
                         'qty_per_serving' => (float) $ing->qty_per_serving,
                         'name' => $inv?->name,
-                        'unit' => $inv?->unit,
+                        'unit' => $ing->unit ?: $inv?->unit,
+                        'inventory_unit' => $inv?->unit,
                         'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                     ];
                 })->values(),
@@ -496,7 +542,8 @@ class MenuController extends Controller
                     'inventory_item_id' => $ing->inventory_item_id,
                     'qty_per_serving' => (float) $ing->qty_per_serving,
                     'name' => $inv?->name,
-                    'unit' => $inv?->unit,
+                    'unit' => $ing->unit ?: $inv?->unit,
+                    'inventory_unit' => $inv?->unit,
                     'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                 ];
             })->values(),

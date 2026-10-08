@@ -1010,6 +1010,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Ready</option>
                   <option>Out for Delivery</option>
                   <option>Pending</option>
+                  <option>Cancelled</option>
                 </select>
               </>
             )}
@@ -1520,6 +1521,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Ready</option>
                   <option>Out for Delivery</option>
                   <option>Pending</option>
+                  <option>Cancelled</option>
                 </select>
                 <p style={{ margin: '4px 0 0 2px', fontSize: '12px', color: '#6B7280' }}>
                   {salesStatus === 'All Statuses'

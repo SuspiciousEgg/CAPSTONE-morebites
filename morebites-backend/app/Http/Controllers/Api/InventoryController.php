@@ -158,6 +158,15 @@ class InventoryController extends Controller
             'status' => $status,
         ]);
 
+        $batchRow = $item->batches()->create([
+            'batch_no' => $batch,
+            'stock' => (float) $item->stock,
+            'initial_stock' => (float) $item->stock,
+            'date_placed' => $datePlaced,
+            'expiry_date' => $expiry,
+            'status' => \App\Models\InventoryBatch::deriveBatchStatus((float) $item->stock, $expiry),
+        ]);
+
         $this->writeLog($request, $item, [
             'quantity' => (float) $item->stock,
             'previous_stock' => 0,
@@ -165,6 +174,10 @@ class InventoryController extends Controller
             'action_label' => 'Initial Stock',
             'notes' => 'Initial stock added during inventory setup.',
             'log_type' => 'Added',
+            'inventory_batch_id' => $batchRow->id,
+            'batch_no' => $batchRow->batch_no,
+            'date_placed' => $datePlaced,
+            'expiry_date' => $expiry,
         ]);
 
         $service->syncMenuAvailability();
@@ -230,41 +243,50 @@ class InventoryController extends Controller
             'quantity' => ['required', 'numeric', 'gt:0'],
             'date_placed' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
+            'batch_no' => ['nullable', 'string'],
         ]);
 
         $prevStock = (float) $inventory->stock;
         $qty = (float) $data['quantity'];
-        $newStock = $prevStock + $qty;
 
-        $updates = [
-            'stock' => $newStock,
-        ];
-        if (! empty($data['date_placed'])) {
-            $updates['date_placed'] = Carbon::parse($data['date_placed'])->startOfDay();
-            $updates['batch_no'] = InventoryItem::makeBatchNo($inventory->name, $updates['date_placed']);
+        $datePlaced = ! empty($data['date_placed'])
+            ? Carbon::parse($data['date_placed'])->startOfDay()
+            : now()->startOfDay();
+        $expiry = ! empty($data['expiry_date'])
+            ? Carbon::parse($data['expiry_date'])->startOfDay()
+            : null;
+
+        $baseBatchNo = $data['batch_no'] ?? InventoryItem::makeBatchNo($inventory->name, $datePlaced);
+        $batchNo = $baseBatchNo;
+        $existingCount = $inventory->batches()->where('batch_no', $batchNo)->count();
+        if ($existingCount > 0 && empty($data['batch_no'])) {
+            $batchNo = "{$baseBatchNo}-".($inventory->batches()->count() + 1);
         }
-        if (array_key_exists('expiry_date', $data)) {
-            $updates['expiry_date'] = $data['expiry_date']
-                ? Carbon::parse($data['expiry_date'])->startOfDay()
-                : null;
-        }
 
-        $expiry = $updates['expiry_date'] ?? $inventory->expiry_date;
-        $updates['status'] = InventoryItem::deriveStatus(
-            $newStock,
-            (float) $inventory->reorder_level,
-            $expiry
-        );
+        $batchStatus = \App\Models\InventoryBatch::deriveBatchStatus($qty, $expiry);
 
-        $inventory->update($updates);
+        $newBatch = $inventory->batches()->create([
+            'batch_no' => $batchNo,
+            'stock' => $qty,
+            'initial_stock' => $qty,
+            'date_placed' => $datePlaced,
+            'expiry_date' => $expiry,
+            'status' => $batchStatus,
+        ]);
+
+        $inventory->recalculateStockFromBatches();
 
         $this->writeLog($request, $inventory->fresh(), [
             'quantity' => $qty,
             'previous_stock' => $prevStock,
-            'reason' => 'Manual restock',
+            'reason' => 'Manual restock (Batch '.$batchNo.')',
             'action_label' => 'Supplier Delivery',
-            'notes' => 'Stock increased via restock action.',
+            'notes' => 'Stock increased via restock action for batch '.$batchNo.'.',
             'log_type' => 'Restocked',
+            'inventory_batch_id' => $newBatch->id,
+            'batch_no' => $newBatch->batch_no,
+            'date_placed' => $datePlaced,
+            'expiry_date' => $expiry,
         ]);
 
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
@@ -392,6 +414,7 @@ class InventoryController extends Controller
     {
         InventoryLog::query()->create([
             'inventory_item_id' => $item->id,
+            'inventory_batch_id' => $extra['inventory_batch_id'] ?? null,
             'item_name' => $item->name,
             'category' => $item->category,
             'stock_level' => $extra['stock_level'] ?? ($item->stock.' '.$item->unit),
@@ -401,9 +424,9 @@ class InventoryController extends Controller
             'reason' => $extra['reason'] ?? null,
             'action_label' => $extra['action_label'] ?? null,
             'notes' => $extra['notes'] ?? null,
-            'batch_no' => InventoryLog::makeBatchNo($item->id, $item->batch_no),
-            'date_placed' => $item->date_placed,
-            'expiry_date' => $item->expiry_date,
+            'batch_no' => $extra['batch_no'] ?? InventoryLog::makeBatchNo($item->id, $item->batch_no),
+            'date_placed' => $extra['date_placed'] ?? $item->date_placed,
+            'expiry_date' => $extra['expiry_date'] ?? $item->expiry_date,
             'log_type' => $extra['log_type'],
             'status' => $extra['status'] ?? $item->status,
             'user_id' => $request->user()?->id,
@@ -436,6 +459,30 @@ class InventoryController extends Controller
             $i->expiry_date
         );
 
+        $openBatches = $i->batches()
+            ->where('stock', '>', 0)
+            ->orderByRaw('CASE WHEN expiry_date IS NOT NULL THEN 0 ELSE 1 END ASC')
+            ->orderBy('expiry_date', 'asc')
+            ->orderBy('date_placed', 'asc')
+            ->orderBy('id', 'asc')
+            ->get()
+            ->map(function ($b) use ($i) {
+                return [
+                    'id' => $b->id,
+                    'batch_no' => $b->batch_no,
+                    'stock' => (float) $b->stock,
+                    'initial_stock' => (float) $b->initial_stock,
+                    'unit' => $i->unit,
+                    'date_placed' => $b->date_placed?->format('M d, Y'),
+                    'date_placed_raw' => $b->date_placed?->format('Y-m-d'),
+                    'expiry_date' => $b->expiry_date?->format('M d, Y'),
+                    'expiry_date_raw' => $b->expiry_date?->format('Y-m-d'),
+                    'days_left' => $b->daysLeft(),
+                    'days_until_expiry' => $b->daysUntilExpiry(),
+                    'status' => $b->status,
+                ];
+            });
+
         return [
             'id' => $i->id,
             'name' => $i->name,
@@ -458,6 +505,7 @@ class InventoryController extends Controller
             'days_left' => $daysLeft,
             'updated' => $i->updated_at?->diffForHumans(),
             'status' => $status,
+            'batches' => $openBatches->values(),
         ];
     }
 }

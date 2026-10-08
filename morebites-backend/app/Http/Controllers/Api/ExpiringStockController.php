@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\InventoryBatch;
 use App\Models\InventoryDisposition;
 use App\Models\InventoryItem;
 use App\Models\InventoryLog;
@@ -11,79 +12,51 @@ use App\Models\MenuItemIngredient;
 use App\Services\InventoryDeductionService;
 use Illuminate\Http\Request;
 
-/* ============================================================================
- * PROMPT 60 DIAGNOSTIC REPORT:
- * 1. Where disposition actions are set in the backend:
- *    - Handled by `App\Http\Controllers\Api\ExpiringStockController.php` across 4 dedicated endpoints:
- *      • Waste (`markWaste` -> POST /api/inventory/{inventory}/expiring/waste):
- *        Zeroes stock (`inventory_items.stock = 0`, `status = 'Expired'`), logs a spoilage entry in
- *        `inventory_logs` with negative quantity and `action_label = 'Spoilage / Waste'`, resolves the disposition
- *        in `inventory_dispositions` (`disposition = 'waste'`, `resolved_at = now()`), and clears any active
- *        promo on linked menu items (`clearPromosForInventory`).
- *      • Kitchen (`setKitchenPriority` -> POST /api/inventory/{inventory}/expiring/kitchen-priority):
- *        Updates `inventory_dispositions` with `disposition = 'kitchen_priority'`, `resolved_at = null`, and `notes`.
- *        Leaves physical inventory stock intact as an internal kitchen priority indicator.
- *      • Promo (`setPromo` -> POST /api/inventory/{inventory}/expiring/promo):
- *        Updates `inventory_dispositions` with `disposition = 'promo'`, `promo_menu_item_id`, `promo_discount_percent`,
- *        and flags the linked `menu_items` with `promo_active = true`, `promo_discount_percent`, and `promo_label`.
- *      • Resolve (`resolve` -> POST /api/inventory/{inventory}/expiring/resolve):
- *        Sets `inventory_dispositions.disposition = 'resolved'`, `resolved_at = now()`, and clears promos.
- *
- * 2. Where the four action buttons are rendered on the Expiring Stock frontend page:
- *    - In `morebites-frontend/src/components/ExpiringStock.jsx` (within `.exp-actions`, lines 260–295):
- *      rendered as four buttons: Promo (`.exp-action.promo`), Kitchen (`.exp-action.kitchen`),
- *      Waste (`.exp-action.waste`), and Resolve (`.exp-action.resolve`).
- *
- * 3. What Resolve currently does and whether it depends on Promo/Kitchen/Waste:
- *    - Resolve is fully independent and non-destructive. It can be clicked at any time (even directly from
- *      'Pending review') without Promo, Kitchen, or Waste having been selected first. It updates the disposition
- *      to 'resolved' and sets `resolved_at = now()` while leaving physical stock unchanged.
- *    - Per Prompt 60 guidelines ("If Resolve is confirmed to be independent of the other three and non-destructive,
- *      keep it available on overdue rows too"), Resolve remains available on overdue rows, while Promo and Kitchen
- *      are strictly restricted/blocked on overdue batches both client-side and server-side.
- * ============================================================================
- */
 class ExpiringStockController extends Controller
 {
     public function index(Request $request)
     {
-        $items = InventoryItem::query()
-            ->where('status', '!=', 'Archived')
+        $batches = InventoryBatch::query()
+            ->whereHas('item', fn ($q) => $q->where('status', '!=', 'Archived')->whereNull('deleted_at'))
             ->whereNotNull('expiry_date')
             ->where(function ($q) {
                 $q->whereIn('status', ['Expiring Soon', 'Expires Today', 'Expired'])
                     ->orWhereHas('dispositions', fn ($d) => $d->whereNull('resolved_at'));
             })
-            ->with(['dispositions' => fn ($q) => $q->whereNull('resolved_at')->latest('id')])
+            ->with([
+                'item',
+                'dispositions' => fn ($q) => $q->whereNull('resolved_at')->latest('id'),
+            ])
             ->get()
-            ->filter(fn (InventoryItem $item) => (float) $item->stock > 0 || $item->activeDisposition())
-            ->map(function (InventoryItem $item) use ($request) {
-                $this->syncComputedStatus($item);
-                $item->refresh();
+            ->filter(fn (InventoryBatch $b) => (float) $b->stock > 0 || $b->activeDisposition())
+            ->map(function (InventoryBatch $b) use ($request) {
+                $b->syncComputedStatus();
+                $b->refresh();
 
-                if (! $item->activeDisposition()) {
+                if (! $b->activeDisposition()) {
                     InventoryDisposition::query()->create([
-                        'inventory_item_id' => $item->id,
+                        'inventory_item_id' => $b->inventory_item_id,
+                        'inventory_batch_id' => $b->id,
                         'disposition' => InventoryDisposition::PENDING,
                         'user_id' => $request->user()?->id,
                     ]);
-                    $item->load(['dispositions' => fn ($q) => $q->whereNull('resolved_at')->latest('id')]);
+                    $b->load(['dispositions' => fn ($q) => $q->whereNull('resolved_at')->latest('id')]);
                 }
 
-                return $this->transform($item);
+                return $this->transformBatch($b);
             })
-            ->sortBy(fn ($row) => [$row['days_until_expiry'] ?? 999, $row['name']])
+            ->sortBy(fn ($row) => [$row['days_until_expiry'] ?? 999, $row['name'], $row['batch_no']])
             ->values();
 
         $weekStart = now()->startOfWeek();
 
         return response()->json([
-            'data' => $items,
+            'data' => $batches,
             'meta' => [
                 'stats' => [
-                    'expiring_soon' => $items->where('status', 'Expiring Soon')->count(),
-                    'expires_today' => $items->where('status', 'Expires Today')->count(),
-                    'awaiting_action' => $items->where('disposition', InventoryDisposition::PENDING)->count(),
+                    'expiring_soon' => $batches->where('status', 'Expiring Soon')->count(),
+                    'expires_today' => $batches->where('status', 'Expires Today')->count(),
+                    'awaiting_action' => $batches->where('disposition', InventoryDisposition::PENDING)->count(),
                     'resolved_week' => InventoryDisposition::query()
                         ->where('disposition', InventoryDisposition::RESOLVED)
                         ->where('resolved_at', '>=', $weekStart)
@@ -93,60 +66,66 @@ class ExpiringStockController extends Controller
         ]);
     }
 
-    public function markWaste(Request $request, InventoryItem $inventory)
+    public function markWasteBatch(Request $request, InventoryBatch $batch)
     {
-        abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
+        abort_unless($batch->expiry_date, 422, 'This batch is not perishable.');
 
-        $prevStock = (float) $inventory->stock;
-        $inventory->update([
+        $prevStock = (float) $batch->stock;
+        $batch->update([
             'stock' => 0,
             'status' => 'Expired',
         ]);
 
-        $this->writeLog($request, $inventory->fresh(), [
+        $item = $batch->item;
+
+        $this->writeBatchLog($request, $batch, [
             'quantity' => -$prevStock,
             'previous_stock' => $prevStock,
-            'reason' => 'Marked as waste from expiring stock queue',
+            'reason' => 'Marked as waste from expiring stock queue (Batch '.$batch->batch_no.')',
             'action_label' => 'Spoilage / Waste',
             'notes' => $request->input('notes', 'Disposed due to expiry.'),
             'log_type' => 'Expired',
-            'stock_level' => '0 '.$inventory->unit,
+            'stock_level' => '0 '.$item->unit,
             'status' => 'Expired',
         ]);
 
-        $this->resolveDisposition($inventory, InventoryDisposition::WASTE, $request);
-        $this->clearPromosForInventory($inventory->id);
+        $this->resolveBatchDisposition($batch, InventoryDisposition::WASTE, $request);
+        $item->recalculateStockFromBatches();
 
-        app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
-
-        return response()->json(['data' => $this->transform($inventory->fresh())]);
-    }
-
-    public function setKitchenPriority(Request $request, InventoryItem $inventory)
-    {
-        abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
-
-        $daysUntil = $inventory->daysUntilExpiry();
-        if (($daysUntil !== null && $daysUntil < 0) || $inventory->isExpired()) {
-            abort(422, 'This item is expired and can only be marked as Waste.');
+        if ((float) $item->stock <= 0) {
+            $this->clearPromosForInventory($item->id);
         }
 
-        $this->upsertDisposition($inventory, [
+        app(InventoryDeductionService::class)->syncMenusUsingInventory($item->id);
+
+        return response()->json(['data' => $this->transformBatch($batch->fresh())]);
+    }
+
+    public function setKitchenPriorityBatch(Request $request, InventoryBatch $batch)
+    {
+        abort_unless($batch->expiry_date, 422, 'This batch is not perishable.');
+
+        $daysUntil = $batch->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $batch->isExpired()) {
+            abort(422, 'This batch is expired and can only be marked as Waste.');
+        }
+
+        $this->upsertBatchDisposition($batch, [
             'disposition' => InventoryDisposition::KITCHEN_PRIORITY,
             'notes' => $request->input('notes'),
             'user_id' => $request->user()?->id,
         ]);
 
-        return response()->json(['data' => $this->transform($inventory->fresh())]);
+        return response()->json(['data' => $this->transformBatch($batch->fresh())]);
     }
 
-    public function setPromo(Request $request, InventoryItem $inventory)
+    public function setPromoBatch(Request $request, InventoryBatch $batch)
     {
-        abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
+        abort_unless($batch->expiry_date, 422, 'This batch is not perishable.');
 
-        $daysUntil = $inventory->daysUntilExpiry();
-        if (($daysUntil !== null && $daysUntil < 0) || $inventory->isExpired()) {
-            abort(422, 'This item is expired and can only be marked as Waste.');
+        $daysUntil = $batch->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $batch->isExpired()) {
+            abort(422, 'This batch is expired and can only be marked as Waste.');
         }
 
         $data = $request->validate([
@@ -156,16 +135,16 @@ class ExpiringStockController extends Controller
         ]);
 
         $linked = MenuItemIngredient::query()
-            ->where('inventory_item_id', $inventory->id)
+            ->where('inventory_item_id', $batch->inventory_item_id)
             ->where('menu_item_id', $data['menu_item_id'])
             ->exists();
 
         abort_unless($linked, 422, 'Selected menu item does not use this inventory item.');
 
         $menu = MenuItem::query()->findOrFail($data['menu_item_id']);
-        $label = 'Use It Up — '.$inventory->name;
+        $label = 'Use It Up — '.$batch->item->name;
 
-        $this->clearPromosForInventory($inventory->id);
+        $this->clearPromosForInventory($batch->inventory_item_id);
 
         $menu->update([
             'promo_active' => true,
@@ -173,7 +152,7 @@ class ExpiringStockController extends Controller
             'promo_label' => $label,
         ]);
 
-        $this->upsertDisposition($inventory, [
+        $this->upsertBatchDisposition($batch, [
             'disposition' => InventoryDisposition::PROMO,
             'promo_menu_item_id' => $menu->id,
             'promo_discount_percent' => (float) $data['discount_percent'],
@@ -181,20 +160,88 @@ class ExpiringStockController extends Controller
             'user_id' => $request->user()?->id,
         ]);
 
-        return response()->json(['data' => $this->transform($inventory->fresh())]);
+        return response()->json(['data' => $this->transformBatch($batch->fresh())]);
+    }
+
+    public function resolveBatch(Request $request, InventoryBatch $batch)
+    {
+        $this->resolveBatchDisposition($batch, InventoryDisposition::RESOLVED, $request);
+        $this->clearPromosForInventory($batch->inventory_item_id);
+
+        return response()->json(['message' => 'Resolved']);
+    }
+
+    // Backward compatibility handlers accepting InventoryItem $inventory
+    public function markWaste(Request $request, InventoryItem $inventory)
+    {
+        $batchId = $request->input('batch_id');
+        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
+        if (! $batch) {
+            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
+        }
+
+        if ($batch) {
+            return $this->markWasteBatch($request, $batch);
+        }
+
+        abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
+        $inventory->update(['stock' => 0, 'status' => 'Expired']);
+        $this->clearPromosForInventory($inventory->id);
+        app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
+
+        return response()->json(['message' => 'Item marked as waste']);
+    }
+
+    public function setKitchenPriority(Request $request, InventoryItem $inventory)
+    {
+        $batchId = $request->input('batch_id');
+        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
+        if (! $batch) {
+            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
+        }
+
+        if ($batch) {
+            return $this->setKitchenPriorityBatch($request, $batch);
+        }
+
+        abort(422, 'No active batch found for this item.');
+    }
+
+    public function setPromo(Request $request, InventoryItem $inventory)
+    {
+        $batchId = $request->input('batch_id');
+        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
+        if (! $batch) {
+            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
+        }
+
+        if ($batch) {
+            return $this->setPromoBatch($request, $batch);
+        }
+
+        abort(422, 'No active batch found for this item.');
     }
 
     public function resolve(Request $request, InventoryItem $inventory)
     {
-        $this->resolveDisposition($inventory, InventoryDisposition::RESOLVED, $request);
+        $batchId = $request->input('batch_id');
+        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
+        if (! $batch) {
+            $batch = $inventory->batches()->latest('id')->first();
+        }
+
+        if ($batch) {
+            return $this->resolveBatch($request, $batch);
+        }
+
         $this->clearPromosForInventory($inventory->id);
 
         return response()->json(['message' => 'Resolved']);
     }
 
-    private function upsertDisposition(InventoryItem $inventory, array $attrs): InventoryDisposition
+    private function upsertBatchDisposition(InventoryBatch $batch, array $attrs): InventoryDisposition
     {
-        $active = $inventory->activeDisposition();
+        $active = $batch->activeDisposition();
         if ($active) {
             $active->update([
                 ...$attrs,
@@ -205,14 +252,15 @@ class ExpiringStockController extends Controller
         }
 
         return InventoryDisposition::query()->create([
-            'inventory_item_id' => $inventory->id,
+            'inventory_item_id' => $batch->inventory_item_id,
+            'inventory_batch_id' => $batch->id,
             ...$attrs,
         ]);
     }
 
-    private function resolveDisposition(InventoryItem $inventory, string $disposition, Request $request): void
+    private function resolveBatchDisposition(InventoryBatch $batch, string $disposition, Request $request): void
     {
-        $active = $inventory->activeDisposition();
+        $active = $batch->activeDisposition();
         if ($active) {
             $active->update([
                 'disposition' => $disposition,
@@ -225,7 +273,8 @@ class ExpiringStockController extends Controller
         }
 
         InventoryDisposition::query()->create([
-            'inventory_item_id' => $inventory->id,
+            'inventory_item_id' => $batch->inventory_item_id,
+            'inventory_batch_id' => $batch->id,
             'disposition' => $disposition,
             'resolved_at' => now(),
             'notes' => $request->input('notes'),
@@ -248,49 +297,35 @@ class ExpiringStockController extends Controller
             ]);
     }
 
-    private function syncComputedStatus(InventoryItem $item): void
+    private function writeBatchLog(Request $request, InventoryBatch $batch, array $extra = []): void
     {
-        if ($item->status === 'Archived') {
-            return;
-        }
-
-        $next = InventoryItem::deriveStatus(
-            (float) $item->stock,
-            (float) $item->reorder_level,
-            $item->expiry_date
-        );
-
-        if ($item->status !== $next) {
-            $item->update(['status' => $next]);
-        }
-    }
-
-    private function writeLog(Request $request, InventoryItem $item, array $extra = []): void
-    {
+        $item = $batch->item;
         InventoryLog::query()->create([
             'inventory_item_id' => $item->id,
+            'inventory_batch_id' => $batch->id,
             'item_name' => $item->name,
             'category' => $item->category,
-            'stock_level' => $extra['stock_level'] ?? ($item->stock.' '.$item->unit),
+            'stock_level' => $extra['stock_level'] ?? ($batch->stock.' '.$item->unit),
             'quantity' => $extra['quantity'] ?? null,
             'previous_stock' => $extra['previous_stock'] ?? null,
             'unit' => $item->unit,
             'reason' => $extra['reason'] ?? null,
             'action_label' => $extra['action_label'] ?? null,
             'notes' => $extra['notes'] ?? null,
-            'batch_no' => InventoryLog::makeBatchNo($item->id, $item->batch_no),
-            'date_placed' => $item->date_placed,
-            'expiry_date' => $item->expiry_date,
+            'batch_no' => $batch->batch_no,
+            'date_placed' => $batch->date_placed ?? $item->date_placed,
+            'expiry_date' => $batch->expiry_date,
             'log_type' => $extra['log_type'],
-            'status' => $extra['status'] ?? $item->status,
+            'status' => $extra['status'] ?? $batch->status,
             'user_id' => $request->user()?->id,
         ]);
     }
 
-    private function transform(InventoryItem $item): array
+    private function transformBatch(InventoryBatch $batch): array
     {
-        $disposition = $item->activeDisposition();
-        $daysUntil = $item->daysUntilExpiry();
+        $item = $batch->item;
+        $disposition = $batch->activeDisposition();
+        $daysUntil = $batch->daysUntilExpiry();
 
         $linkedMenus = MenuItemIngredient::query()
             ->where('inventory_item_id', $item->id)
@@ -308,23 +343,22 @@ class ExpiringStockController extends Controller
         $parts = array_filter([$item->category, $item->subcategory, $item->subcategory_detail]);
 
         return [
-            'id' => $item->id,
+            'id' => $batch->id,
+            'batch_id' => $batch->id,
+            'inventory_item_id' => $item->id,
             'name' => $item->name,
-            'batch_no' => $item->batch_no,
+            'batch_no' => $batch->batch_no,
             'category' => $item->category,
             'subcategory' => $item->subcategory,
             'subcategory_detail' => $item->subcategory_detail,
             'category_label' => implode(' › ', $parts),
-            'stock' => (float) $item->stock,
+            'stock' => (float) $batch->stock,
             'unit' => $item->unit,
-            'expiry_date' => $item->expiry_date?->format('M d, Y'),
-            'expiry_date_raw' => $item->expiry_date?->format('Y-m-d'),
+            'date_placed' => $batch->date_placed?->format('M d, Y'),
+            'expiry_date' => $batch->expiry_date?->format('M d, Y'),
+            'expiry_date_raw' => $batch->expiry_date?->format('Y-m-d'),
             'days_until_expiry' => $daysUntil,
-            'status' => InventoryItem::deriveStatus(
-                (float) $item->stock,
-                (float) $item->reorder_level,
-                $item->expiry_date
-            ),
+            'status' => $batch->status,
             'disposition' => $disposition?->disposition ?? InventoryDisposition::PENDING,
             'disposition_label' => $this->dispositionLabel($disposition?->disposition ?? InventoryDisposition::PENDING),
             'promo_menu_item_id' => $disposition?->promo_menu_item_id,

@@ -30,8 +30,23 @@
   --sa-purple-bg: #f0edff;
   --sa-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
   --sa-radius: 12px;
+  --sa-modal-radius: 16px;
   --sa-font: 'DM Sans', system-ui, sans-serif;
 }
+
+/* ==========================================================================
+   System Design Hierarchy Standard: Equal Modal Corner Radius
+   ==========================================================================
+   Every modal container across the system must maintain an identical corner
+   radius on all four corners (top-left, top-right, bottom-left, bottom-right).
+   Rules:
+   1. The outer modal container MUST define `border-radius: 16px` (or `var(--sa-modal-radius)`),
+      `overflow: hidden`, and `display: flex; flex-direction: column;`.
+   2. Scrolling MUST be delegated exclusively to the modal body/form content container
+      (`flex: 1; min-height: 0; overflow-y: auto;`), NEVER directly on the outer modal card.
+   3. This architectural containment prevents browser/OS scrollbars from covering outer
+      boundaries and flattening or squaring off the top-right and bottom-right corner radii.
+   ========================================================================== */
 
 html,
 body,

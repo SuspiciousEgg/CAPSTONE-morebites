@@ -826,24 +826,7 @@ class CustomerAppController extends Controller
         ]);
 
         $service = app(InventoryDeductionService::class);
-        foreach ($data['items'] as $line) {
-            if (! empty($line['menu_item_id'])) {
-                $menu = MenuItem::query()->find($line['menu_item_id']);
-                if ($menu) {
-                    $reason = $service->unserviceableReason($menu, (int) $line['qty'], $line['size'] ?? null);
-                    if ($reason === 'expired') {
-                        throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' cannot be ordered because one or more ingredients are expired."],
-                        ]);
-                    }
-                    if ($reason === 'insufficient' || ! $menu->available) {
-                        throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' is currently unavailable."],
-                        ]);
-                    }
-                }
-            }
-        }
+        $service->validateCartAvailability($data['items']);
 
         $order = DB::transaction(function () use ($data, $customer) {
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);

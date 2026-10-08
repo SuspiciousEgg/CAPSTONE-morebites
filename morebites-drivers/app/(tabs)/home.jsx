@@ -193,7 +193,13 @@ export default function HomeScreen() {
   );
 
   const activeOrders = useMemo(
-    () => orders.filter((order) => order.status !== "Delivered"),
+    () =>
+      orders.filter(
+        (order) =>
+          order.status !== "Delivered" &&
+          order.status !== "Completed" &&
+          order.status !== "Cancelled",
+      ),
     [orders],
   );
 
