@@ -13,8 +13,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi, mediaUrl } from "../src/api/client";
-import { useCart } from "../src/context/CartContext";
+import { customerApi, mediaUrl } from "../../src/api/client";
+import { useCart } from "../../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -24,7 +24,7 @@ function FoodCard({ item, compact = false }) {
   const isAvailable = item.availability !== false && item.available !== false;
   const openDetails = () => {
     if (!isAvailable) return;
-    router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
+    router.push({ pathname: "/(customer)/food-details", params: { item: JSON.stringify(item) } });
   };
 
   const imageUrl = mediaUrl(item.image);

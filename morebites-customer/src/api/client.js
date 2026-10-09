@@ -9,7 +9,10 @@ const USER_KEY = "current_user";
 const ANDROID_EMULATOR_HOST = "10.0.2.2";
 
 function expoLanHost() {
-  const hostUri = Constants.expoConfig?.hostUri || Constants.linkingUri || "";
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.linkingUri ||
+    "";
   const host = String(hostUri)
     .replace(/^exp:\/\//, "")
     .replace(/^https?:\/\//, "")
@@ -52,15 +55,87 @@ export function mediaUrl(path) {
   return `${origin}/${resolved.replace(/^\//, "")}`;
 }
 
-async function request(path, { method = "GET", body, auth = true } = {}) {
+function sendFormDataWithXHR(path, { method = "POST", body, token, auth = true } = {}) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const storedToken = auth ? (token || (await AsyncStorage.getItem(TOKEN_KEY))) : null;
+      const xhr = new XMLHttpRequest();
+      xhr.open(method, `${API_BASE}${path}`);
+      xhr.setRequestHeader("Accept", "application/json");
+      if (storedToken) {
+        xhr.setRequestHeader("Authorization", `Bearer ${storedToken}`);
+      }
+
+      xhr.onload = () => {
+        let data = null;
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          data = { message: xhr.responseText };
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data);
+        } else {
+          const message =
+            data?.message ||
+            data?.errors?.phone?.[0] ||
+            data?.errors?.email?.[0] ||
+            data?.errors?.status?.[0] ||
+            data?.errors?.proof_of_delivery?.[0] ||
+            `Request failed (${xhr.status})`;
+          const error = new Error(message);
+          error.status = xhr.status;
+          error.data = data;
+          reject(error);
+        }
+      };
+
+      xhr.onerror = (err) => {
+        const errorDetails = err?.message || "Network request failed";
+        console.error(`[API Network Error] ${method} ${path}:`, err);
+        reject(
+          new Error(
+            `Cannot reach the API at ${API_BASE} (${errorDetails}). On a phone, Laravel must listen on 0.0.0.0 (php artisan serve --host=0.0.0.0 --port=8000) and the phone must be on the same Wi-Fi.`,
+          ),
+        );
+      };
+
+      xhr.ontimeout = () => {
+        reject(new Error(`Request to ${API_BASE} timed out.`));
+      };
+
+      xhr.send(body);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+async function request(path, { method = "GET", body, token, auth = true } = {}) {
+  const isForm =
+    (typeof FormData !== "undefined" && body instanceof FormData) ||
+    (body && typeof body === "object" && Array.isArray(body._parts));
+
+  // Expo's WinterCG fetch implementation throws "Unsupported FormDataPart implementation"
+  // when handling React Native's FormData with local file URIs.
+  // Native XMLHttpRequest routes directly to React Native's native networking module.
+  if (isForm && typeof XMLHttpRequest !== "undefined") {
+    return sendFormDataWithXHR(path, { method, body, token, auth });
+  }
+
   const headers = {
     Accept: "application/json",
-    "Content-Type": "application/json",
   };
+  if (!isForm) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (auth) {
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const storedToken = token || (await AsyncStorage.getItem(TOKEN_KEY));
+    if (storedToken) {
+      headers.Authorization = `Bearer ${storedToken}`;
+    }
   }
 
   let response;
@@ -68,11 +143,13 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
     });
-  } catch {
+  } catch (err) {
+    const errorDetails = err?.message || String(err);
+    console.error(`[API Network Error] ${method} ${path}:`, err);
     throw new Error(
-      `Cannot reach the API at ${API_BASE}. Use php artisan serve --host=0.0.0.0 --port=8000 on the same Wi-Fi.`,
+      `Cannot reach the API at ${API_BASE} (${errorDetails}). On a phone, Laravel must listen on 0.0.0.0 (php artisan serve --host=0.0.0.0 --port=8000) and the phone must be on the same Wi-Fi.`,
     );
   }
 
@@ -160,6 +237,24 @@ export const addressStorage = {
   },
 };
 
+/**
+ * Unified Mobile Authentication API (works for both Customer & Driver)
+ */
+export const mobileApi = {
+  login: (phone, password, device_id) =>
+    request("/mobile/login", {
+      method: "POST",
+      body: { phone, password, device_id },
+      auth: false,
+    }),
+  me: () => request("/mobile/me"),
+  logout: async () => {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    await authStorage.clear();
+    if (token) revokeServerToken(token);
+  },
+};
+
 export const customerApi = {
   register: (payload) =>
     request("/customer/register", { method: "POST", body: payload, auth: false }),
@@ -225,34 +320,96 @@ export const customerApi = {
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
   markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
   logout: async () => {
-    // Prompt 53: wipe the stored session FIRST so logout can never be undone by a
-    // slow/unreachable API, then revoke the server token in the background (time-boxed).
     const token = await AsyncStorage.getItem(TOKEN_KEY);
     await authStorage.clear();
     if (token) revokeServerToken(token);
   },
 };
 
-/* ============================================================================
- * PROMPT 53 DIAGNOSTIC REPORT — Logout not clearing session (Customer app)
- * 1. Where the session is stored:
- *    - AsyncStorage only (no SecureStore, no refresh token exists in this app).
- *    - Keys: "auth_token" (Sanctum bearer token, TOKEN_KEY) and "current_user" (cached user, USER_KEY).
- *      "saved_addresses" (legacy unscoped address cache) is also session-bound and cleared on logout.
- *    - Auto-login: app/(auth)/splashscreen.jsx reads "auth_token"; if present and GET /customer/me
- *      succeeds, it routes straight to /(tabs)/home.
- * 2. What Logout did before this fix:
- *    - profile.jsx closed the modal and called customerApi.logout(), which first AWAITED
- *      POST /logout and only afterwards ran authStorage.clear().
- *    - fetch() has no timeout, so on a slow, dropped, or firewalled connection the request could
- *      hang indefinitely. The clear never executed, "auth_token" stayed in AsyncStorage, the server
- *      token was never revoked, and on relaunch the splash screen found a valid token and auto-logged in.
- * 3. Fix:
- *    - Read the token, clear every stored auth key immediately, then revoke the server token
- *      fire-and-forget with an 8s timeout. Local logout is now guaranteed regardless of network.
- *    - Closing the app WITHOUT tapping Logout is unchanged: the token stays and splash auto-logs in.
- * ============================================================================
- */
+export const driverApi = {
+  login: (phone, password, deviceId) =>
+    request("/driver/login", {
+      method: "POST",
+      body: { phone, password, ...(deviceId ? { device_id: deviceId } : {}) },
+      auth: false,
+    }),
+  me: () => request("/driver/me"),
+  orders: (status = "All") =>
+    request(`/driver/orders${status && status !== "All" ? `?status=${encodeURIComponent(status)}` : ""}`),
+  order: (dbId) => request(`/driver/orders/${dbId}`),
+  updateStatus: (dbId, status, proof) => {
+    if (proof) {
+      const form = new FormData();
+      form.append("status", status);
+      if (proof.file) {
+        form.append("proof_of_delivery", proof.file, proof.fileName || "proof.jpg");
+      } else {
+        const fileUri = typeof proof === "string" ? proof : proof.uri;
+        let fileName = typeof proof === "object" && proof?.fileName ? proof.fileName : "proof.jpg";
+        if (!/\.(jpe?g|png|webp)$/i.test(fileName)) {
+          fileName = `${fileName}.jpg`;
+        }
+        const mimeType =
+          typeof proof === "object" && proof?.mimeType
+            ? proof.mimeType
+            : fileName.endsWith(".png")
+              ? "image/png"
+              : "image/jpeg";
+
+        form.append("proof_of_delivery", {
+          uri: fileUri,
+          name: fileName,
+          type: mimeType,
+        });
+      }
+      return request(`/driver/orders/${dbId}/status`, {
+        method: "POST",
+        body: form,
+      });
+    }
+    return request(`/driver/orders/${dbId}/status`, {
+      method: "PATCH",
+      body: { status },
+    });
+  },
+  updateProfile: (payload) =>
+    request("/driver/profile", {
+      method: "PATCH",
+      body: payload,
+    }),
+  changePassword: (payload) =>
+    request("/driver/change-password", {
+      method: "POST",
+      body: payload,
+    }),
+  reportIssue: (dbId, issue, notes = "") =>
+    request(`/driver/orders/${dbId}/report`, {
+      method: "POST",
+      body: { issue, notes },
+    }),
+  updateLocation: (latitude, longitude) =>
+    request("/driver/location", {
+      method: "PATCH",
+      body: { latitude, longitude },
+    }),
+  updateDeliveryLocation: (deliveryId, latitude, longitude) =>
+    request(`/deliveries/${deliveryId}/location`, {
+      method: "PATCH",
+      body: { latitude, longitude },
+    }),
+  deliveryLocation: (deliveryId) => request(`/deliveries/${deliveryId}/location`),
+  tracking: (dbId) => request(`/driver/orders/${dbId}/tracking`),
+  unreadNotificationsCount: () => request("/notifications/unread-count"),
+  notifications: (tab = null) => request(`/notifications${tab ? `?tab=${tab}` : ""}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
+  logout: async () => {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    await authStorage.clear();
+    if (token) revokeServerToken(token);
+  },
+};
+
 function revokeServerToken(token) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), 8000) : null;
@@ -265,9 +422,7 @@ function revokeServerToken(token) {
     },
     signal: controller?.signal,
   })
-    .catch(() => {
-      // Ignore: the local session is already gone, so the user stays logged out.
-    })
+    .catch(() => {})
     .finally(() => {
       if (timer) clearTimeout(timer);
     });

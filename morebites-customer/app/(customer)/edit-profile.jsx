@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { authStorage, customerApi } from "../src/api/client";
+import { authStorage, customerApi } from "../../src/api/client";
 import {
   Alert,
   Image,

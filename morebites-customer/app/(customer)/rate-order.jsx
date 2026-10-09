@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi } from "../src/api/client";
+import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -84,7 +84,7 @@ export default function RateOrderScreen() {
 
   const goThanks = () => {
     router.replace({
-      pathname: "/rate-thanks",
+      pathname: "/(customer)/rate-thanks",
       params: {
         foodName,
         foodPrice: String(foodPrice),

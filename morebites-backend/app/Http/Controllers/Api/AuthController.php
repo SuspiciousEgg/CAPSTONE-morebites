@@ -79,6 +79,7 @@ class AuthController extends Controller
             'phone' => $user->phone,
             'role' => $user->role,
             'role_access' => $user->resolvedRoleAccess(),
+            'allowed_pages' => $user->resolvedAllowedPages(),
             'status' => $user->status,
         ];
     }

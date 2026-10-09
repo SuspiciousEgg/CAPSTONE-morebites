@@ -43,8 +43,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi } from "../../src/api/client";
-import { feesFromOrder } from "../../src/api/fees";
+import { customerApi } from "../../../src/api/client";
+import { feesFromOrder } from "../../../src/api/fees";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -122,7 +122,7 @@ function OrderCard({ order, onViewDetails }) {
             style={styles.trackButton}
             onPress={() =>
               router.push({
-                pathname: "/order-tracking",
+                pathname: "/(customer)/order-tracking",
                 params: {
                   orderId: order.id,
                   dbId: String(order.db_id || ""),
@@ -144,7 +144,7 @@ function EndOfHistory() {
   return (
     <View style={styles.endState}>
       <Image
-        source={require("../../assets/images/pizza.png")}
+        source={require("../../../assets/images/pizza.png")}
         style={styles.endStateImage}
       />
       <Text style={styles.endStateText}>End of history</Text>
@@ -158,7 +158,7 @@ function EmptyState() {
       <Ionicons name="receipt-outline" size={68} color="#D1D5DB" />
       <Text style={styles.emptyTitle}>No orders yet</Text>
       <Text style={styles.emptySubtitle}>Your order history will appear here</Text>
-      <Pressable style={styles.orderNowButton} onPress={() => router.push("/(tabs)/home")}>
+      <Pressable style={styles.orderNowButton} onPress={() => router.push("/(customer)/(tabs)/home")}>
         <Text style={styles.orderNowText}>Order Now</Text>
       </Pressable>
     </View>
@@ -286,7 +286,7 @@ function OrderDetailsModal({ visible, order, onClose }) {
               onPress={() => {
                 onClose();
                 router.push({
-                  pathname: "/receipt",
+                  pathname: "/(customer)/receipt",
                   params: {
                     orderId: String(order.id || ""),
                     dbId: String(order.db_id || ""),
@@ -548,7 +548,7 @@ export default function OrdersScreen() {
     ) {
       setNotificationsVisible(false);
       router.push({
-        pathname: "/order-tracking",
+        pathname: "/(customer)/order-tracking",
         params: {
           orderId: orderData.order_code || String(orderData.order_id || ""),
           dbId: String(orderData.order_id || ""),

@@ -10,9 +10,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { fetchDeliveryFees } from "../src/api/fees";
-import { useCart } from "../src/context/CartContext";
-import { mediaUrl } from "../src/api/client";
+import { fetchDeliveryFees } from "../../src/api/fees";
+import { useCart } from "../../src/context/CartContext";
+import { mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -107,7 +107,7 @@ export default function CartScreen() {
           <Ionicons name="cart-outline" size={72} color="#D1D5DB" />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
           <Text style={styles.emptySubtitle}>Add items from the menu to get started</Text>
-          <Pressable style={styles.browseButton} onPress={() => router.push("/(tabs)/home")}>
+          <Pressable style={styles.browseButton} onPress={() => router.push("/(customer)/(tabs)/home")}>
             <Text style={styles.browseButtonText}>Browse Menu</Text>
           </Pressable>
         </View>
@@ -128,7 +128,7 @@ export default function CartScreen() {
               />
             ))}
 
-            <Pressable style={styles.addMoreButton} onPress={() => router.push("/(tabs)/home")}>
+            <Pressable style={styles.addMoreButton} onPress={() => router.push("/(customer)/(tabs)/home")}>
               <Text style={styles.addMoreText}>+ Add More Items</Text>
             </Pressable>
 
@@ -145,7 +145,7 @@ export default function CartScreen() {
           </ScrollView>
 
           <View style={styles.footer}>
-            <Pressable style={styles.checkoutButton} onPress={() => router.push("/checkout")}>
+            <Pressable style={styles.checkoutButton} onPress={() => router.push("/(customer)/checkout")}>
               <Text style={styles.checkoutButtonText}>Proceed to Checkout →</Text>
             </Pressable>
           </View>

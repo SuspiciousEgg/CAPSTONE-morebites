@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, customerApi } from "../../src/api/client";
+import { authStorage, mobileApi } from "../../src/api/client";
 import {
   getDeviceId,
   isDeviceTrusted,
@@ -82,9 +82,12 @@ export default function LoginScreen() {
 
     try {
       const deviceId = await getDeviceId();
-      const res = await customerApi.login(phoneValue.trim(), passwordValue, deviceId);
+      const res = await mobileApi.login(phoneValue.trim(), passwordValue, deviceId);
 
       let userObj = res.user || {};
+      const userRole = res.role || userObj.role || "customer";
+      userObj = { ...userObj, role: userRole };
+
       if (!userObj.photo && userObj.phone) {
         const [cachedRaw, savedAccounts] = await Promise.all([
           AsyncStorage.getItem("cached_user_photos"),
@@ -109,6 +112,8 @@ export default function LoginScreen() {
       const cleanPhone = normalizePhoneNumber(userObj.phone || phoneValue);
       const isTrusted = await isDeviceTrusted(cleanPhone, deviceId);
 
+      const targetHome = userRole === "driver" ? "/(driver)/(tabs)/home" : "/(customer)/(tabs)/home";
+
       if (!isTrusted) {
         Alert.alert(
           "New device sign-in detected. If this wasn't you, please secure your account immediately.",
@@ -118,7 +123,7 @@ export default function LoginScreen() {
               text: "This Was Me",
               onPress: async () => {
                 await addTrustedDevice(cleanPhone, deviceId);
-                router.replace("/(tabs)/home");
+                router.replace(targetHome);
               },
             },
             {
@@ -136,11 +141,14 @@ export default function LoginScreen() {
           { cancelable: false }
         );
       } else {
-        router.replace("/(tabs)/home");
+        router.replace(targetHome);
       }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";
-      if (/phone/i.test(msg) && /not found|already|inactive/i.test(msg)) {
+      if (/blacklist|blocklist/i.test(msg)) {
+        setLoginError(msg);
+        setPhoneError(msg);
+      } else if (/phone/i.test(msg) && /not found|already|inactive/i.test(msg)) {
         setPhoneError(msg);
       } else if (/password/i.test(msg)) {
         setPasswordError(msg);

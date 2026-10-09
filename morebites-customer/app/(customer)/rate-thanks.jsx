@@ -83,7 +83,7 @@ export default function RateThanksScreen() {
           />
         </View>
 
-        <Pressable style={styles.homeButton} onPress={() => router.replace("/(tabs)/home")}>
+        <Pressable style={styles.homeButton} onPress={() => router.replace("/(customer)/(tabs)/home")}>
           <Text style={styles.homeButtonText}>Back to Home</Text>
         </Pressable>
       </View>

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { authStorage, customerApi, mediaUrl } from "../../src/api/client";
+import { authStorage, customerApi, mediaUrl } from "../../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -92,13 +92,13 @@ export default function ProfileScreen() {
             icon="location-outline"
             color={DANGER}
             label="Saved Addresses"
-            onPress={() => router.push("/saved-addresses")}
+            onPress={() => router.push("/(customer)/saved-addresses")}
           />
           <MenuRow
             icon="create-outline"
             color="#121212"
             label="Edit Profile"
-            onPress={() => router.push("/edit-profile")}
+            onPress={() => router.push("/(customer)/edit-profile")}
           />
           <MenuRow
             icon="log-out-outline"
@@ -118,7 +118,7 @@ export default function ProfileScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setLogoutVisible(false)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
-            <Image source={require("../../assets/images/logout.png")} style={styles.modalImage} />
+            <Image source={require("../../../assets/images/logout.png")} style={styles.modalImage} />
             <Text style={styles.modalTitle}>Log Out?</Text>
             <Text style={styles.modalText}>Are you sure want to log out of your account?</Text>
             <Pressable style={styles.logoutButton} onPress={logOut}>

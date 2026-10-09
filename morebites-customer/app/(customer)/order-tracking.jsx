@@ -11,8 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline } from "../src/components/AppMap";
-import { customerApi } from "../src/api/client";
+import MapView, { Marker, Polyline } from "../../src/components/AppMap";
+import { customerApi } from "../../src/api/client";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { formatReceiptItemName } from "./receipt";
 
@@ -184,7 +184,7 @@ export default function OrderTrackingScreen() {
   const openRating = () => {
     if (currentStatus === "Delivered" || currentStatus === "Completed") {
       router.push({
-        pathname: "/rate-order",
+        pathname: "/(customer)/rate-order",
         params: {
           dbId: String(dbId || tracking?.db_id || ""),
           foodName: tracking?.items?.[0]?.name || orderParam.items?.[0]?.name || "Your order",
@@ -211,7 +211,7 @@ export default function OrderTrackingScreen() {
         db_id: dbId || tracking?.db_id || orderParam.db_id,
       };
       router.push({
-        pathname: "/receipt",
+        pathname: "/(customer)/receipt",
         params: {
           orderId: String(mergedOrder.orderId || ""),
           dbId: String(mergedOrder.db_id || ""),

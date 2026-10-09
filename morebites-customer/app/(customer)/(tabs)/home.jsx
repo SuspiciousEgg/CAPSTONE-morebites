@@ -11,8 +11,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, customerApi, mediaUrl } from "../../src/api/client";
-import { useCart } from "../../src/context/CartContext";
+import { authStorage, customerApi, mediaUrl } from "../../../src/api/client";
+import { useCart } from "../../../src/context/CartContext";
 
 const ORANGE = "#F97000";
 const CATEGORIES = ["All", "Pizza", "Snacks", "Desserts", "Beverages", "Rice Meals"];
@@ -30,7 +30,7 @@ function FoodCard({ item, horizontal = false }) {
       disabled={!isAvailable}
       onPress={() => {
         if (!isAvailable) return;
-        router.push({ pathname: "/food-details", params: { item: JSON.stringify(item) } });
+        router.push({ pathname: "/(customer)/food-details", params: { item: JSON.stringify(item) } });
       }}
     >
       <View style={styles.imageWrap}>
@@ -176,7 +176,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Pressable style={styles.cartButton} onPress={() => router.push("/cart")} hitSlop={8}>
+          <Pressable style={styles.cartButton} onPress={() => router.push("/(customer)/cart")} hitSlop={8}>
             <Ionicons name="cart-outline" size={26} color="#121212" />
             {cartCount > 0 ? (
               <View style={styles.cartBadge}>
@@ -186,7 +186,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.searchBar} onPress={() => router.push("/search")}>
+        <Pressable style={styles.searchBar} onPress={() => router.push("/(customer)/search")}>
           <Ionicons name="search" size={18} color="#9CA3AF" />
           <Text style={styles.searchPlaceholder}>Search for food</Text>
         </Pressable>

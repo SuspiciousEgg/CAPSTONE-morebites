@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -15,9 +14,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { addressStorage, authStorage, customerApi } from "../src/api/client";
-import { fetchDeliveryFees } from "../src/api/fees";
-import { useCart } from "../src/context/CartContext";
+import { addressStorage, authStorage, customerApi } from "../../src/api/client";
+import { fetchDeliveryFees } from "../../src/api/fees";
+import { useCart } from "../../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -331,7 +330,7 @@ export default function CheckoutScreen() {
 
       clearCart();
       router.push({
-        pathname: "/order-confirmed",
+        pathname: "/(customer)/order-confirmed",
         params: {
           order: JSON.stringify(order),
           orderId: order.orderId,
@@ -353,7 +352,7 @@ export default function CheckoutScreen() {
         style: "destructive",
         onPress: () => {
           clearCart();
-          router.replace("/(tabs)/home");
+          router.replace("/(customer)/(tabs)/home");
         },
       },
     ]);
@@ -414,7 +413,7 @@ export default function CheckoutScreen() {
           <View style={styles.addressHeaderActions}>
             <Pressable
               style={styles.addressActionBtn}
-              onPress={() => router.push({ pathname: "/map-picker", params: { returnTo: "/checkout" } })}
+              onPress={() => router.push({ pathname: "/(customer)/map-picker", params: { returnTo: "/(customer)/checkout" } })}
               hitSlop={8}
             >
               <Ionicons name="map-outline" size={13} color={PRIMARY} />
@@ -422,7 +421,7 @@ export default function CheckoutScreen() {
             </Pressable>
             <Pressable
               style={styles.addressActionBtn}
-              onPress={() => router.push("/saved-addresses")}
+              onPress={() => router.push("/(customer)/saved-addresses")}
               hitSlop={8}
             >
               <Ionicons name="bookmark-outline" size={13} color={PRIMARY} />

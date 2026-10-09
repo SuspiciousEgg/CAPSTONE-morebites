@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { addressStorage, customerApi } from "../src/api/client";
+import { addressStorage, customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -133,7 +133,7 @@ export default function SavedAddressesScreen() {
 
   const editAddress = (address) => {
     router.push({
-      pathname: "/edit-address",
+      pathname: "/(customer)/edit-address",
       params: { address: JSON.stringify(address) },
     });
   };
@@ -151,13 +151,13 @@ export default function SavedAddressesScreen() {
       {addresses.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyContent}>
-            <Image source={require("../assets/images/location.png")} style={styles.emptyImage} />
+            <Image source={require("../../assets/images/location.png")} style={styles.emptyImage} />
             <Text style={styles.emptyTitle}>No saved addresses yet</Text>
             <Text style={styles.emptyText}>
               Add a delivery address so we know where to bring your order.
             </Text>
           </View>
-          <Pressable style={styles.emptyAddButton} onPress={() => router.push("/add-address")}>
+          <Pressable style={styles.emptyAddButton} onPress={() => router.push("/(customer)/add-address")}>
             <Text style={styles.emptyAddButtonText}>+ Add Address</Text>
           </Pressable>
         </View>
@@ -223,7 +223,7 @@ export default function SavedAddressesScreen() {
               </View>
             </View>
           ))}
-          <Pressable style={styles.listAddButton} onPress={() => router.push("/add-address")}>
+          <Pressable style={styles.listAddButton} onPress={() => router.push("/(customer)/add-address")}>
             <Ionicons name="add" size={18} color={PRIMARY} />
             <Text style={styles.listAddButtonText}>Add New Address</Text>
           </Pressable>
@@ -238,7 +238,7 @@ export default function SavedAddressesScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setAddressToDelete(null)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
-            <Image source={require("../assets/images/bin.png")} style={styles.binImage} />
+            <Image source={require("../../assets/images/bin.png")} style={styles.binImage} />
             <Text style={styles.modalTitle}>Remove Address?</Text>
             <Text style={styles.modalText}>
               Are you sure want to remove {addressToDelete?.label} from your saved addresses?

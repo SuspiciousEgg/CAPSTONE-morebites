@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker } from "../src/components/AppMap";
+import MapView, { Marker } from "../../src/components/AppMap";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const FONT = "Plus Jakarta Sans";
@@ -142,7 +142,7 @@ export default function MapPickerScreen() {
   const params = useLocalSearchParams();
   const latitude = Number(firstParam(params.latitude));
   const longitude = Number(firstParam(params.longitude));
-  const returnTo = firstParam(params.returnTo) || "/add-address";
+  const returnTo = firstParam(params.returnTo) || "/(customer)/add-address";
   const draft = firstParam(params.draft) || "{}";
   const initialCoordinate =
     Number.isFinite(latitude) && Number.isFinite(longitude)

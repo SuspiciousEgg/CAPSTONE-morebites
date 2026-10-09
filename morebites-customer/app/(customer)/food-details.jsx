@@ -11,8 +11,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useCart } from "../src/context/CartContext";
-import { mediaUrl } from "../src/api/client";
+import { useCart } from "../../src/context/CartContext";
+import { mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -115,7 +115,7 @@ export default function FoodDetailsScreen() {
 
     setShowSuccess(true);
     navigationTimer.current = setTimeout(() => {
-      router.replace("/(tabs)/home");
+      router.replace("/(customer)/(tabs)/home");
     }, 1500);
   };
 

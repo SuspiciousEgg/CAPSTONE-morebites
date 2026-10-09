@@ -91,26 +91,17 @@ const DEFAULT_ACTIVITY_LOG = [
   { time: '11:40 AM', user: 'Admin', action: 'Updated stock for chicken wing', status: 'Success' },
 ]
 
-const adminNavItems = [
-  { label: 'Dashboard', icon: IconGrid },
-  { label: 'Orders', icon: IconOrders },
-  { label: 'Menu', icon: IconMenu },
-  { label: 'Inventory', icon: IconInventory },
-  { label: 'Dispatch', icon: IconDispatch },
-  { label: 'Reports', icon: IconReports },
-  { label: 'Customers', icon: IconCustomers },
-  { label: 'Account', icon: IconAccount },
-  { label: 'Settings', icon: IconGear },
-]
-
-const cashierNavItems = [
-  { label: 'Dashboard', icon: IconGrid },
-  { label: 'Orders', icon: IconOrders },
-  { label: 'Menu', icon: IconMenu },
-  { label: 'Inventory', icon: IconInventory },
-  { label: 'Dispatch', icon: IconDispatch },
-  { label: 'Reports', icon: IconReports },
-  { label: 'Driver', icon: IconHelmet },
+export const ALL_NAV_ITEMS = [
+  { id: 'Dashboard', label: 'Dashboard', icon: IconGrid },
+  { id: 'Orders', label: 'Orders', icon: IconOrders },
+  { id: 'Menu', label: 'Menu', icon: IconMenu },
+  { id: 'Inventory', label: 'Inventory', icon: IconInventory },
+  { id: 'Dispatch', label: 'Dispatch', icon: IconDispatch },
+  { id: 'Reports', label: 'Reports', icon: IconReports },
+  { id: 'Driver', label: 'Driver', icon: IconHelmet },
+  { id: 'Customers', label: 'Customers', icon: IconCustomers },
+  { id: 'Account', label: 'Account', icon: IconAccount },
+  { id: 'Settings', label: 'Settings', icon: IconGear },
 ]
 
 const notifTabs = ['All', 'Orders', 'Inventory', 'Dispatch', 'System']
@@ -163,9 +154,34 @@ function stockTone(itemOrLevel) {
 }
 
 export default function SuperAdminDashboard({ user, onLogout }) {
-  const isCashier = user?.role === 'cashier'
-  const visibleNavItems = isCashier ? cashierNavItems : adminNavItems
-  const [activeNav, setActiveNav] = useState('Dashboard')
+  const userAllowedPages = useMemo(() => {
+    if (user?.role === 'super_admin') {
+      return ALL_NAV_ITEMS.map((item) => item.label)
+    }
+    const raw = user?.allowed_pages || user?.allowedPages
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw
+    }
+    if (user?.role === 'cashier') {
+      return ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Driver']
+    }
+    return ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Customers', 'Account', 'Settings']
+  }, [user])
+
+  const visibleNavItems = useMemo(() => {
+    const allowedLower = userAllowedPages.map((p) => String(p).toLowerCase())
+    return ALL_NAV_ITEMS.filter((item) => allowedLower.includes(item.id.toLowerCase()))
+  }, [userAllowedPages])
+
+  const [activeNav, setActiveNav] = useState(() => {
+    return visibleNavItems[0]?.label || 'Dashboard'
+  })
+
+  useEffect(() => {
+    if (visibleNavItems.length > 0 && !visibleNavItems.some((item) => item.label.toLowerCase() === activeNav.toLowerCase())) {
+      setActiveNav(visibleNavItems[0].label)
+    }
+  }, [visibleNavItems, activeNav])
   const [salesPeriod, setSalesPeriod] = useState('Daily')
   const [fromTime, setFromTime] = useState('From 8:00 AM')
   const [toTime, setToTime] = useState('To 8:00 PM')
@@ -732,25 +748,25 @@ export default function SuperAdminDashboard({ user, onLogout }) {
           )}
         </div>
 
-        {activeNav === 'Orders' ? (
+        {activeNav === 'Orders' && visibleNavItems.some((i) => i.label === 'Orders') ? (
           <OrderManagement />
-        ) : activeNav === 'Menu' ? (
+        ) : activeNav === 'Menu' && visibleNavItems.some((i) => i.label === 'Menu') ? (
           <MenuManagement />
-        ) : activeNav === 'Inventory' ? (
+        ) : activeNav === 'Inventory' && visibleNavItems.some((i) => i.label === 'Inventory') ? (
           <InventoryPage />
-        ) : activeNav === 'Dispatch' ? (
+        ) : activeNav === 'Dispatch' && visibleNavItems.some((i) => i.label === 'Dispatch') ? (
           <DispatchManagement />
-        ) : activeNav === 'Reports' ? (
+        ) : activeNav === 'Reports' && visibleNavItems.some((i) => i.label === 'Reports') ? (
           <RecordsReports user={user} />
-        ) : activeNav === 'Driver' ? (
+        ) : activeNav === 'Driver' && visibleNavItems.some((i) => i.label === 'Driver') ? (
           <DriverManagement />
-        ) : !isCashier && activeNav === 'Customers' ? (
+        ) : activeNav === 'Customers' && visibleNavItems.some((i) => i.label === 'Customers') ? (
           <CustomerManagement />
-        ) : !isCashier && activeNav === 'Account' ? (
+        ) : activeNav === 'Account' && visibleNavItems.some((i) => i.label === 'Account') ? (
           <AccountManagement />
-        ) : !isCashier && activeNav === 'Settings' ? (
+        ) : activeNav === 'Settings' && visibleNavItems.some((i) => i.label === 'Settings') ? (
           <DeliveryRatesSettings />
-        ) : (
+        ) : activeNav === 'Dashboard' && visibleNavItems.some((i) => i.label === 'Dashboard') ? (
           <>
         <header className="sa-dashboard-header">
           <div>
@@ -1078,6 +1094,13 @@ export default function SuperAdminDashboard({ user, onLogout }) {
           </article>
         </section>
           </>
+        ) : (
+          <div style={{ padding: '3.5rem 2rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #EDEDED', margin: '24px 0' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#1C1B18', marginBottom: '8px' }}>Page Access Restricted</h2>
+            <p style={{ fontSize: '14px', color: '#6B7280', maxWidth: '440px', margin: '0 auto' }}>
+              Your account does not have permission to view the <strong>{activeNav}</strong> module. Please contact the administrator to grant access.
+            </p>
+          </div>
         )}
       </main>
     </div>

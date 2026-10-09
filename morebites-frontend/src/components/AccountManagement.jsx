@@ -91,11 +91,43 @@ const INITIAL_DRIVERS = []
 
 const BLOCK_REASONS = ['Broken inventory', 'Repeated tardiness', 'Unfair behavior', 'Other']
 
-const ROLE_OPTIONS = [
-  { id: 'admin', label: 'Admin' },
-  { id: 'driver', label: 'Driver' },
-  { id: 'cashier', label: 'Cashier' },
+export const PAGE_OPTIONS = [
+  { id: 'Dashboard', label: 'Dashboard', desc: 'Main sales and activity overview' },
+  { id: 'Orders', label: 'Orders', desc: 'Order processing and history' },
+  { id: 'Menu', label: 'Menu', desc: 'Menu items, categories, and ingredients' },
+  { id: 'Inventory', label: 'Inventory', desc: 'Stock inventory, batches, and expiring items' },
+  { id: 'Dispatch', label: 'Dispatch', desc: 'Rider dispatch and real-time fleet map' },
+  { id: 'Reports', label: 'Reports', desc: 'Financial, sales, and inventory reports' },
+  { id: 'Driver', label: 'Driver', desc: 'Driver list, verification, and status' },
+  { id: 'Customers', label: 'Customers', desc: 'Customer list and account status' },
+  { id: 'Account', label: 'Account', desc: 'Staff account management and access controls' },
+  { id: 'Settings', label: 'Settings', desc: 'Delivery rates and system configurations' },
 ]
+
+export const DEFAULT_ADMIN_PAGES = [
+  'Dashboard',
+  'Orders',
+  'Menu',
+  'Inventory',
+  'Dispatch',
+  'Reports',
+  'Driver',
+  'Customers',
+  'Account',
+  'Settings',
+]
+
+export const DEFAULT_CASHIER_PAGES = [
+  'Dashboard',
+  'Orders',
+  'Menu',
+  'Inventory',
+  'Dispatch',
+  'Reports',
+  'Driver',
+]
+
+export const DEFAULT_DRIVER_PAGES = ['Dashboard']
 
 function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -305,41 +337,79 @@ function DocumentUploader({ document, meta, onChange, disabled = false }) {
   )
 }
 
-function RoleAccessEditor({ value = [], onChange, disabled = false }) {
-  function toggle(role) {
+function PageAccessEditor({ value = [], onChange, disabled = false }) {
+  function toggle(pageId) {
     if (disabled) return
-    if (value.includes(role)) {
+    const exists = value.some((p) => p.toLowerCase() === pageId.toLowerCase())
+    if (exists) {
       if (value.length === 1) return
-      onChange(value.filter((r) => r !== role))
+      onChange(value.filter((p) => p.toLowerCase() !== pageId.toLowerCase()))
     } else {
-      onChange([...value, role])
+      onChange([...value, pageId])
     }
   }
 
+  function selectAll() {
+    if (disabled) return
+    onChange(PAGE_OPTIONS.map((p) => p.id))
+  }
+
+  function clearAll() {
+    if (disabled) return
+    onChange(['Dashboard'])
+  }
+
   return (
-    <div className="ac-role-access">
-      <span className="ac-role-access-label">Role Access</span>
-      <div className="ac-role-checks">
-        {ROLE_OPTIONS.map(({ id, label }) => (
-          <label key={id} className="ac-role-check">
-            <input type="checkbox" checked={value.includes(id)} onChange={() => toggle(id)} disabled={disabled} />
-            {label}
-          </label>
-        ))}
+    <div className="ac-page-access">
+      <div className="ac-page-access-head">
+        <span className="ac-page-access-label">Page Access / Permissions</span>
+        {!disabled && (
+          <div className="ac-page-access-actions">
+            <button type="button" className="ac-page-access-btn" onClick={selectAll}>
+              Select All
+            </button>
+            <span>•</span>
+            <button type="button" className="ac-page-access-btn" onClick={clearAll}>
+              Reset
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="ac-page-checks">
+        {PAGE_OPTIONS.map(({ id, label, desc }) => {
+          const isChecked = value.some((p) => p.toLowerCase() === id.toLowerCase())
+          return (
+            <label key={id} className="ac-page-check" title={desc}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={() => toggle(id)}
+                disabled={disabled}
+              />
+              <span>{label}</span>
+            </label>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function AccessBadges({ roles = [] }) {
-  if (!roles.length) return <span className="ac-muted">—</span>
+function PageBadges({ pages = [] }) {
+  if (!pages || !pages.length) return <span className="ac-muted">—</span>
+  if (pages.length >= PAGE_OPTIONS.length) {
+    return <span className="ac-page-badge all">All Pages</span>
+  }
   return (
-    <div className="ac-access-badges">
-      {roles.map((r) => (
-        <span key={r} className="ac-access-badge">
-          {r}
+    <div className="ac-page-badges" title={pages.join(', ')}>
+      {pages.slice(0, 3).map((p) => (
+        <span key={p} className="ac-page-badge">
+          {p}
         </span>
       ))}
+      {pages.length > 3 && (
+        <span className="ac-page-badge-more">+{pages.length - 3}</span>
+      )}
     </div>
   )
 }
@@ -382,6 +452,7 @@ function emptyAdmin() {
     confirm: '',
     photo: null,
     roleAccess: ['admin'],
+    allowedPages: [...DEFAULT_ADMIN_PAGES],
   }
 }
 
@@ -389,6 +460,7 @@ function emptyDriver() {
   return {
     ...emptyAdmin(),
     roleAccess: ['driver'],
+    allowedPages: [...DEFAULT_DRIVER_PAGES],
     license: '',
     expiryMonth: '',
     expiryDay: '',
@@ -403,6 +475,7 @@ function emptyCashier() {
   return {
     ...emptyAdmin(),
     roleAccess: ['cashier'],
+    allowedPages: [...DEFAULT_CASHIER_PAGES],
     photo: null,
   }
 }
@@ -546,6 +619,7 @@ export default function AccountManagement() {
         phone: adminForm.phone || null,
         password: adminForm.password,
         role_access: adminForm.roleAccess,
+        allowed_pages: adminForm.allowedPages,
         photo: adminForm.photo || null,
       })
       await loadAccounts()
@@ -594,6 +668,7 @@ export default function AccountManagement() {
         license_number: driverForm.license || null,
         license_expiry: expiry || null,
         role_access: driverForm.roleAccess,
+        allowed_pages: driverForm.allowedPages,
         photo: driverForm.photo || null,
         license_document: driverForm.licenseDoc || null,
       })
@@ -636,6 +711,7 @@ export default function AccountManagement() {
         phone: cashierForm.phone || null,
         password: cashierForm.password,
         role_access: cashierForm.roleAccess,
+        allowed_pages: cashierForm.allowedPages,
         photo: cashierForm.photo || null,
       })
       await loadAccounts()
@@ -735,14 +811,26 @@ export default function AccountManagement() {
     setSaving(true)
     setFormError('')
     try {
-      await accountsApi.updateRoleAccess(profile.item.db_id, profile.item.roleAccess || [])
+      await accountsApi.updateRoleAccess(
+        profile.item.db_id,
+        profile.item.roleAccess || [],
+        profile.item.allowedPages || []
+      )
       await loadAccounts()
+      const stored = getStoredUser()
+      if (stored && (stored.id === profile.item.db_id || String(stored.admin_id) === String(profile.item.id))) {
+        stored.role_access = profile.item.roleAccess || []
+        stored.allowed_pages = profile.item.allowedPages || []
+        stored.allowedPages = profile.item.allowedPages || []
+        localStorage.setItem('mb_user', JSON.stringify(stored))
+        window.dispatchEvent(new CustomEvent('mb:user-updated', { detail: stored }))
+      }
       setProfile(null)
     } catch (err) {
       const msg =
         err.response?.data?.message ||
         Object.values(err.response?.data?.errors || {})?.[0]?.[0] ||
-        'Failed to update role access.'
+        'Failed to update access permissions.'
       setFormError(msg)
     } finally {
       setSaving(false)
@@ -848,7 +936,7 @@ export default function AccountManagement() {
                   </td>
                   <td>{a.email}</td>
                   <td>
-                    <AccessBadges roles={a.roleAccess} />
+                    <PageBadges pages={a.allowedPages} />
                   </td>
                   <td>
                     <span className="ac-badge active">{a.status}</span>
@@ -945,7 +1033,7 @@ export default function AccountManagement() {
                   <td>{d.email}</td>
                   <td>{d.phone}</td>
                   <td>
-                    <AccessBadges roles={d.roleAccess} />
+                    <PageBadges pages={d.allowedPages} />
                   </td>
                   <td>
                     <span className="ac-badge active">{d.status}</span>
@@ -1042,7 +1130,7 @@ export default function AccountManagement() {
                   <td>{c.email}</td>
                   <td>{c.phone}</td>
                   <td>
-                    <AccessBadges roles={c.roleAccess} />
+                    <PageBadges pages={c.allowedPages} />
                   </td>
                   <td>
                     <span className="ac-badge active">{c.status}</span>
@@ -1241,9 +1329,9 @@ export default function AccountManagement() {
                   />
                 </label>
               </div>
-              <RoleAccessEditor
-                value={adminForm.roleAccess}
-                onChange={(roleAccess) => setAdminForm((f) => ({ ...f, roleAccess }))}
+              <PageAccessEditor
+                value={adminForm.allowedPages}
+                onChange={(allowedPages) => setAdminForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
               />
               {formError ? <p className="ac-form-error">{formError}</p> : null}
@@ -1386,9 +1474,9 @@ export default function AccountManagement() {
                   </div>
                 </div>
               </div>
-              <RoleAccessEditor
-                value={driverForm.roleAccess}
-                onChange={(roleAccess) => setDriverForm((f) => ({ ...f, roleAccess }))}
+              <PageAccessEditor
+                value={driverForm.allowedPages}
+                onChange={(allowedPages) => setDriverForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
               />
               <div className="ac-doc-section">
@@ -1500,9 +1588,9 @@ export default function AccountManagement() {
                   />
                 </label>
               </div>
-              <RoleAccessEditor
-                value={cashierForm.roleAccess}
-                onChange={(roleAccess) => setCashierForm((f) => ({ ...f, roleAccess }))}
+              <PageAccessEditor
+                value={cashierForm.allowedPages}
+                onChange={(allowedPages) => setCashierForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
               />
               {formError ? <p className="ac-form-error">{formError}</p> : null}
@@ -1614,19 +1702,19 @@ export default function AccountManagement() {
               )}
             </dl>
             <div className="ac-drawer-access">
-              <RoleAccessEditor
-                value={profile.item.roleAccess || []}
-                onChange={(roleAccess) =>
-                  setProfile((prev) => ({ ...prev, item: { ...prev.item, roleAccess } }))
+              <PageAccessEditor
+                value={profile.item.allowedPages || []}
+                onChange={(allowedPages) =>
+                  setProfile((prev) => ({ ...prev, item: { ...prev.item, allowedPages } }))
                 }
                 disabled={profile.item.canEditAccess === false}
               />
               {profile.item.canEditAccess !== false ? (
                 <button type="button" className="ac-btn-primary ac-save-access" onClick={saveRoleAccess} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Access'}
+                  {saving ? 'Saving...' : 'Save Permissions'}
                 </button>
               ) : (
-                <p className="ac-access-note">Super admin has full access to all roles.</p>
+                <p className="ac-access-note">Super admin has full access to all pages.</p>
               )}
             </div>
           </aside>
