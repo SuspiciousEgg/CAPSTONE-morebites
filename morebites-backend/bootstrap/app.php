@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         $middleware->alias([
             'not.cashier' => \App\Http\Middleware\EnsureNotCashier::class,
+            'page.access' => \App\Http\Middleware\EnsurePageAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

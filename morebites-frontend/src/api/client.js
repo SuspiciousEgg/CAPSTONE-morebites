@@ -173,7 +173,10 @@ export const accountsApi = {
   createDriver: (payload) => api.post('/accounts/drivers', payload),
   createCashier: (payload) => api.post('/accounts/cashiers', payload),
   update: (id, payload) => api.put(`/accounts/${id}`, payload),
-  updateRoleAccess: (id, role_access) => api.patch(`/accounts/${id}/role-access`, { role_access }),
+  updateRoleAccess: (id, role_access, allowed_pages) =>
+    api.patch(`/accounts/${id}/role-access`, { role_access, allowed_pages }),
+  updateAllowedPages: (id, allowed_pages) =>
+    api.patch(`/accounts/${id}/allowed-pages`, { allowed_pages }),
   block: (id, reason) => api.post(`/accounts/${id}/block`, { reason }),
 }
 

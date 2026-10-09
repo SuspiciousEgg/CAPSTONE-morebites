@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { router } from "expo-router";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { authStorage, customerApi } from "../../src/api/client";
+import { authStorage, mobileApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 
@@ -36,10 +36,15 @@ export default function SplashScreen() {
       try {
         const token = await authStorage.getToken();
         if (token) {
-          const res = await customerApi.me();
+          const res = await mobileApi.me();
           if (res?.user) {
             await authStorage.updateUser(res.user);
-            nextRoute = "/(tabs)/home";
+            const role = res.role || res.user.role;
+            if (role === "driver") {
+              nextRoute = "/(driver)/(tabs)/home";
+            } else {
+              nextRoute = "/(customer)/(tabs)/home";
+            }
           }
         }
       } catch {

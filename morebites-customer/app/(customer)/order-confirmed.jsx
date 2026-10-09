@@ -3,8 +3,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useCart } from "../src/context/CartContext";
-import { feesFromOrder } from "../src/api/fees";
+import { useCart } from "../../src/context/CartContext";
+import { feesFromOrder } from "../../src/api/fees";
 import { formatReceiptItemName } from "./receipt";
 
 const FONT = "Plus Jakarta Sans";
@@ -60,7 +60,7 @@ export default function OrderConfirmedScreen() {
 
   const trackOrder = () => {
     router.push({
-      pathname: "/order-tracking",
+      pathname: "/(customer)/order-tracking",
       params: {
         orderId,
         dbId: String(dbId || ""),
@@ -71,7 +71,7 @@ export default function OrderConfirmedScreen() {
 
   const backToMenu = () => {
     clearCart();
-    router.replace("/(tabs)/home");
+    router.replace("/(customer)/(tabs)/home");
   };
 
   return (

@@ -58,9 +58,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
-import { customerApi } from "../src/api/client";
-import { feesFromOrder } from "../src/api/fees";
-import { useCart } from "../src/context/CartContext";
+import { customerApi } from "../../src/api/client";
+import { feesFromOrder } from "../../src/api/fees";
+import { useCart } from "../../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -541,14 +541,14 @@ export default function ReceiptScreen() {
 
   const backToHome = () => {
     clearCart();
-    router.replace("/(tabs)/home");
+    router.replace("/(customer)/(tabs)/home");
   };
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/orders"))}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(customer)/(tabs)/orders"))}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Back"

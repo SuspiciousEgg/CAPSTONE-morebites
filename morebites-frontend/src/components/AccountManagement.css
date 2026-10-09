@@ -218,23 +218,6 @@
   background: #22C55E;
 }
 
-.ac-access-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ac-access-badge {
-  display: inline-block;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: #F3F4F6;
-  color: #4B5563;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
 .ac-muted {
   color: #9CA3AF;
 }
@@ -599,34 +582,6 @@
   border-color: #FFA500;
   outline: none;
   box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.12);
-}
-
-.ac-role-access {
-  padding: 0 24px 20px;
-}
-
-.ac-role-access-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: #4B5563;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.ac-role-checks {
-  display: flex;
-  gap: 16px;
-}
-
-.ac-role-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #1C1B18;
-  cursor: pointer;
 }
 
 /* Document Uploader */
@@ -1188,4 +1143,123 @@
   color: #64748B;
   line-height: 1.45;
   margin: 0;
+}
+
+/* Page Access Editor */
+.ac-page-access {
+  padding: 0 24px 20px;
+}
+
+.ac-drawer-access .ac-page-access {
+  padding: 14px 0 0;
+}
+
+.ac-page-access-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ac-page-access-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4B5563;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ac-page-access-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9CA3AF;
+}
+
+.ac-page-access-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: #EA580C;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.ac-page-access-btn:hover {
+  background: #FFF7ED;
+}
+
+.ac-page-checks {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+  background: #F9FAFB;
+  border: 1px solid #EDEDED;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ac-page-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1F2937;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.ac-page-check:hover {
+  background: #F3F4F6;
+}
+
+.ac-page-check input[type="checkbox"] {
+  accent-color: #FFA500;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* Page Badges in Table */
+.ac-page-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  max-width: 260px;
+}
+
+.ac-page-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #DBEAFE;
+}
+
+.ac-page-badge.all {
+  background: #ECFDF5;
+  color: #047857;
+  border-color: #A7F3D0;
+  font-weight: 600;
+}
+
+.ac-page-badge-more {
+  display: inline-block;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: #F3F4F6;
+  color: #4B5563;
 }

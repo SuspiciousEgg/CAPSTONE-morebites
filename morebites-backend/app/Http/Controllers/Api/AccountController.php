@@ -58,6 +58,8 @@ class AccountController extends Controller
             'photo' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+            'allowed_pages' => ['nullable', 'array'],
+            'allowed_pages.*' => ['string'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -79,6 +81,10 @@ class AccountController extends Controller
             $access[] = 'admin';
         }
         $user->syncRoleAccess($access);
+
+        if (isset($data['allowed_pages'])) {
+            $user->syncAllowedPages($data['allowed_pages']);
+        }
         $user->save();
 
         $this->processPhoto($request, $user);
@@ -110,6 +116,8 @@ class AccountController extends Controller
             'license_document' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+            'allowed_pages' => ['nullable', 'array'],
+            'allowed_pages.*' => ['string'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -135,6 +143,10 @@ class AccountController extends Controller
             $access[] = 'driver';
         }
         $user->syncRoleAccess($access);
+
+        if (isset($data['allowed_pages'])) {
+            $user->syncAllowedPages($data['allowed_pages']);
+        }
         $user->save();
 
         $this->processPhoto($request, $user);
@@ -162,6 +174,8 @@ class AccountController extends Controller
             'photo' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+            'allowed_pages' => ['nullable', 'array'],
+            'allowed_pages.*' => ['string'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -183,6 +197,10 @@ class AccountController extends Controller
             $access[] = 'cashier';
         }
         $user->syncRoleAccess($access);
+
+        if (isset($data['allowed_pages'])) {
+            $user->syncAllowedPages($data['allowed_pages']);
+        }
         $user->save();
 
         $this->processPhoto($request, $user);
@@ -211,6 +229,8 @@ class AccountController extends Controller
             'license_expiry' => ['nullable', 'date'],
             'photo' => ['nullable', 'string'],
             'license_document' => ['nullable', 'string'],
+            'allowed_pages' => ['nullable', 'array'],
+            'allowed_pages.*' => ['string'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -221,7 +241,11 @@ class AccountController extends Controller
             $data['name'] = trim($first.' '.$last);
         }
 
-        unset($data['photo'], $data['license_document']);
+        if (isset($data['allowed_pages'])) {
+            $user->syncAllowedPages($data['allowed_pages']);
+        }
+
+        unset($data['photo'], $data['license_document'], $data['allowed_pages']);
         $user->update($data);
 
         $this->processPhoto($request, $user);
@@ -243,16 +267,50 @@ class AccountController extends Controller
         }
 
         $data = $request->validate([
-            'role_access' => ['required', 'array', 'min:1'],
+            'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
+            'allowed_pages' => ['nullable', 'array'],
+            'allowed_pages.*' => ['string'],
         ]);
 
-        $user->syncRoleAccess($data['role_access']);
+        if (isset($data['role_access']) && count($data['role_access']) > 0) {
+            $user->syncRoleAccess($data['role_access']);
+        }
+
+        if (isset($data['allowed_pages'])) {
+            $user->syncAllowedPages($data['allowed_pages']);
+        }
         $user->save();
 
         ActivityLog::query()->create([
             'actor' => 'Owner',
-            'action' => 'Updated role access for '.$user->name,
+            'action' => 'Updated access permissions for '.$user->name,
+        ]);
+
+        return response()->json([
+            'data' => $this->payloadForUser($user->fresh()),
+        ]);
+    }
+
+    public function updateAllowedPages(Request $request, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if ($user->role === 'super_admin') {
+            return response()->json(['message' => 'Super admin page access cannot be modified.'], 422);
+        }
+
+        $data = $request->validate([
+            'allowed_pages' => ['required', 'array'],
+            'allowed_pages.*' => ['string'],
+        ]);
+
+        $user->syncAllowedPages($data['allowed_pages']);
+        $user->save();
+
+        ActivityLog::query()->create([
+            'actor' => 'Owner',
+            'action' => 'Updated page access for '.$user->name,
         ]);
 
         return response()->json([
@@ -347,6 +405,8 @@ class AccountController extends Controller
     {
         return [
             'roleAccess' => $u->resolvedRoleAccess(),
+            'allowedPages' => $u->resolvedAllowedPages(),
+            'allowed_pages' => $u->resolvedAllowedPages(),
             'canEditAccess' => $u->role !== 'super_admin',
             'primaryRole' => $u->role,
         ];

@@ -13,9 +13,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker } from "../src/components/AppMap";
+import MapView, { Marker } from "../../src/components/AppMap";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { addressStorage, customerApi } from "../src/api/client";
+import { addressStorage, customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -150,9 +150,9 @@ export default function AddAddressScreen() {
 
   const openMapPicker = () => {
     router.push({
-      pathname: "/map-picker",
+      pathname: "/(customer)/map-picker",
       params: {
-        returnTo: "/add-address",
+        returnTo: "/(customer)/add-address",
         draft: JSON.stringify(form),
         ...(hasLocation
           ? { latitude: String(form.latitude), longitude: String(form.longitude) }
@@ -194,7 +194,7 @@ export default function AddAddressScreen() {
           : await addressStorage.getForCurrentUser();
 
       await addressStorage.saveForCurrentUser(updatedList);
-      router.replace("/saved-addresses");
+      router.replace("/(customer)/saved-addresses");
     } catch (err) {
       Alert.alert("Unable to save address", err?.message || "Please try again.");
       setSaving(false);
@@ -303,7 +303,7 @@ export default function AddAddressScreen() {
             </View>
           ) : (
             <View style={styles.emptyLocationCard}>
-              <Image source={require("../assets/images/map.png")} style={styles.mapImage} />
+              <Image source={require("../../assets/images/map.png")} style={styles.mapImage} />
               <View style={styles.emptyLocationCopy}>
                 <Text style={styles.locationTitle}>Set your location on the map</Text>
                 <Text style={styles.locationHint}>

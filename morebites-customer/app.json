@@ -1,16 +1,19 @@
 {
   "expo": {
-    "name": "customer-morebytes",
-    "slug": "customer-morebytes",
+    "name": "MoreBites",
+    "slug": "morebites-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "customermorebytes",
+    "scheme": "morebites",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "MoreBites needs your location to set delivery addresses on the map."
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSLocationWhenInUseUsageDescription": "MoreBites needs your location for delivery address pinning and live delivery tracking."
       }
     },
     "android": {
@@ -30,7 +33,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow MoreBites to use your location for delivery address pinning."
+          "locationWhenInUsePermission": "Allow MoreBites to use your location for delivery address pinning and live delivery tracking."
         }
       ]
     ],

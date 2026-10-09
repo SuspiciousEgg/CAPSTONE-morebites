@@ -8,9 +8,19 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureNotCashier
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $page = null): Response
     {
-        if ($request->user()?->role === 'cashier') {
+        $user = $request->user();
+
+        if ($user?->role === 'super_admin' || $user?->hasRoleAccess('admin')) {
+            return $next($request);
+        }
+
+        if ($page && $user?->hasPageAccess($page)) {
+            return $next($request);
+        }
+
+        if ($user?->role === 'cashier') {
             abort(403, 'Cashiers cannot access this resource.');
         }
 

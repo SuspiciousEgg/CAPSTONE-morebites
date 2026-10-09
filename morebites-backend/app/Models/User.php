@@ -16,6 +16,19 @@ class User extends Authenticatable
 
     public const ASSIGNABLE_ROLES = ['admin', 'driver', 'cashier'];
 
+    public const AVAILABLE_PAGES = [
+        'Dashboard',
+        'Orders',
+        'Menu',
+        'Inventory',
+        'Dispatch',
+        'Reports',
+        'Driver',
+        'Customers',
+        'Account',
+        'Settings',
+    ];
+
     protected $fillable = [
         'name',
         'first_name',
@@ -27,6 +40,7 @@ class User extends Authenticatable
         'password',
         'role',
         'role_access',
+        'allowed_pages',
         'status',
         'gender',
         'birthday',
@@ -63,6 +77,7 @@ class User extends Authenticatable
             'current_lat' => 'float',
             'current_lng' => 'float',
             'role_access' => 'array',
+            'allowed_pages' => 'array',
         ];
     }
 
@@ -98,6 +113,53 @@ class User extends Authenticatable
         if ($this->role !== 'super_admin' && count($normalized) === 1) {
             $this->role = $normalized[0];
         }
+    }
+
+    public function resolvedAllowedPages(): array
+    {
+        if ($this->role === 'super_admin') {
+            return self::AVAILABLE_PAGES;
+        }
+
+        if (is_array($this->allowed_pages) && count($this->allowed_pages) > 0) {
+            // Case-preserving match against AVAILABLE_PAGES
+            $allowedLower = array_map('strtolower', $this->allowed_pages);
+            $filtered = [];
+            foreach (self::AVAILABLE_PAGES as $page) {
+                if (in_array(strtolower($page), $allowedLower, true)) {
+                    $filtered[] = $page;
+                }
+            }
+            return array_values($filtered);
+        }
+
+        return match ($this->role) {
+            'admin' => self::AVAILABLE_PAGES,
+            'cashier' => ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Driver'],
+            default => ['Dashboard'],
+        };
+    }
+
+    public function hasPageAccess(string $page): bool
+    {
+        if ($this->role === 'super_admin') {
+            return true;
+        }
+
+        $resolvedLower = array_map('strtolower', $this->resolvedAllowedPages());
+        return in_array(strtolower($page), $resolvedLower, true);
+    }
+
+    public function syncAllowedPages(array $pages): void
+    {
+        $pagesLower = array_map('strtolower', $pages);
+        $normalized = [];
+        foreach (self::AVAILABLE_PAGES as $page) {
+            if (in_array(strtolower($page), $pagesLower, true)) {
+                $normalized[] = $page;
+            }
+        }
+        $this->allowed_pages = array_values($normalized);
     }
 
     public function reviews(): HasMany
