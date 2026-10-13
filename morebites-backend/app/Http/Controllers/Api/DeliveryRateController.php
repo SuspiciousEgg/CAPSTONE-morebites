@@ -55,13 +55,13 @@ class DeliveryRateController extends Controller
 
     public function store(Request $request)
     {
-        $this->ensureAdmin($request);
+        $this->ensureSuperAdmin($request);
         abort(403, 'Delivery distance tiers are fixed and cannot be added.');
     }
 
     public function update(Request $request, DeliveryRate $deliveryRate)
     {
-        $this->ensureAdmin($request);
+        $this->ensureSuperAdmin($request);
         $data = $request->validate([
             'fee' => ['required', 'numeric', 'min:0'],
             'active' => ['sometimes', 'boolean'],
@@ -77,14 +77,14 @@ class DeliveryRateController extends Controller
 
     public function destroy(Request $request, DeliveryRate $deliveryRate)
     {
-        $this->ensureAdmin($request);
+        $this->ensureSuperAdmin($request);
         abort(403, 'Delivery distance tiers are fixed and cannot be deleted.');
     }
 
-    private function ensureAdmin(Request $request): void
+    private function ensureSuperAdmin(Request $request): void
     {
         $user = $request->user();
-        abort_unless($user && in_array($user->role, ['super_admin', 'admin'], true), 403);
+        abort_unless($user && $user->role === 'super_admin', 403, 'Only the Owner can configure delivery settings.');
     }
 
     private function transform(DeliveryRate $r): array

@@ -27,7 +27,7 @@ import {
   IconStarFill,
   IconUser,
 } from './Icons'
-import { driversApi, getStoredUser } from '../api/client'
+import { driversApi, getStoredUser, mediaUrl } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
 import './DriverManagement.css'
@@ -53,6 +53,7 @@ function isExpired(dateStr) {
 export default function DriverManagement({ embedded = false }) {
   const auth = useAuth()
   const currentUser = auth?.user || getStoredUser()
+  const isOwner = currentUser?.role === 'super_admin'
   const [drivers, setDrivers] = useState([])
   const [search, setSearch] = useState('')
 
@@ -350,7 +351,13 @@ export default function DriverManagement({ embedded = false }) {
             </div>
 
             <div className="dm-profile">
-              <div className="dm-avatar"><IconUser /></div>
+              <div className="dm-avatar">
+                {selected.photo ? (
+                  <img src={mediaUrl(selected.photo)} alt={selected.name} className="dm-avatar-img" />
+                ) : (
+                  <IconUser />
+                )}
+              </div>
               <div>
                 <div className="dm-name-row">
                   <strong>{selected.name}</strong>
@@ -387,7 +394,7 @@ export default function DriverManagement({ embedded = false }) {
               ))}
             </ul>
 
-            {Number(selected.db_id) !== Number(currentUser?.id) && (
+            {isOwner && Number(selected.db_id) !== Number(currentUser?.id) && (
               <div className="dm-drawer-actions">
                 {selected.status === 'Active' ? (
                   <button

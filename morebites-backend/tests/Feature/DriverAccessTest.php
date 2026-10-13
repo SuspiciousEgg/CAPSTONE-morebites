@@ -67,26 +67,41 @@ class DriverAccessTest extends TestCase
         $showResponse->assertStatus(200);
         $showResponse->assertJsonPath('data.name', 'John Driver');
 
-        // Cashier suspends driver
+        // Non-owner (cashier) is rejected from suspending or reactivating driver
+        $this->postJson("/api/drivers/{$driver->id}/suspend")->assertStatus(403);
+        $this->postJson("/api/drivers/{$driver->id}/reactivate")->assertStatus(403);
+        $this->postJson("/api/drivers/{$driver->id}/unsuspend")->assertStatus(403);
+
+        // Non-owner (cashier) is rejected from blacklisting driver
+        $this->postJson("/api/drivers/{$driver->id}/blacklist", [
+            'reason' => 'Repeated tardiness and delivery complaints',
+        ])->assertStatus(403);
+
+        // Super-admin (owner) can suspend and reactivate driver
+        $owner = User::query()->create([
+            'name' => 'Store Owner',
+            'email' => 'owner_driver_test@test.com',
+            'password' => bcrypt('password'),
+            'role' => 'super_admin',
+            'status' => 'Active',
+        ]);
+        Sanctum::actingAs($owner);
+
         $suspendResponse = $this->postJson("/api/drivers/{$driver->id}/suspend");
         $suspendResponse->assertStatus(200);
         $this->assertEquals('Inactive', $driver->fresh()->status);
-        $this->assertNull($driver->fresh()->archived_at);
-        $this->assertDatabaseMissing('driver_blacklist', ['driver_id' => $driver->id]);
 
-        // Cashier reactivates driver
         $reactivateResponse = $this->postJson("/api/drivers/{$driver->id}/reactivate");
         $reactivateResponse->assertStatus(200);
         $this->assertEquals('Active', $driver->fresh()->status);
 
-        // Unsuspend alias also works
+        // Unsuspend alias also works for owner
         $this->postJson("/api/drivers/{$driver->id}/suspend");
         $this->assertEquals('Inactive', $driver->fresh()->status);
         $unsuspendResponse = $this->postJson("/api/drivers/{$driver->id}/unsuspend");
         $unsuspendResponse->assertStatus(200);
         $this->assertEquals('Active', $driver->fresh()->status);
 
-        // Blacklist driver with reason
         $blacklistResponse = $this->postJson("/api/drivers/{$driver->id}/blacklist", [
             'reason' => 'Repeated tardiness and delivery complaints',
         ]);
@@ -113,7 +128,12 @@ class DriverAccessTest extends TestCase
             'role' => 'admin',
             'status' => 'Active',
         ]);
+        // Non-super_admin (admin) receives 403 on /api/blacklist (Owner only)
         Sanctum::actingAs($admin);
+        $this->getJson('/api/blacklist')->assertStatus(403);
+
+        // Super-admin (owner) can view /api/blacklist
+        Sanctum::actingAs($owner);
         $blacklistListResponse = $this->getJson('/api/blacklist');
         $blacklistListResponse->assertStatus(200);
         $blacklistListResponse->assertJsonFragment(['name' => 'John Driver']);
@@ -147,5 +167,38 @@ class DriverAccessTest extends TestCase
         $successfulLogin->assertStatus(200);
         $successfulLogin->assertJsonStructure(['token', 'user']);
     }
+
+    public function test_permanent_delete_is_refused_for_archive_endpoint(): void
+    {
+        $owner = User::query()->create([
+            'name' => 'Store Owner',
+            'email' => 'owner_archive_test@test.com',
+            'password' => bcrypt('password'),
+            'role' => 'super_admin',
+            'status' => 'Active',
+        ]);
+
+        $driver = User::query()->create([
+            'name' => 'Archived Driver',
+            'email' => 'archived_driver@test.com',
+            'phone' => '09123334444',
+            'password' => bcrypt('password'),
+            'role' => 'driver',
+            'status' => 'Inactive',
+            'archived_at' => now(),
+        ]);
+
+        Sanctum::actingAs($owner);
+
+        $response = $this->deleteJson("/api/archive/{$driver->id}");
+        $response->assertStatus(403);
+        $response->assertJsonFragment([
+            'message' => 'Permanent deletion is disabled. Accounts can only be archived or restored.',
+        ]);
+
+        // Assert user was NOT hard-deleted from database
+        $this->assertDatabaseHas('users', ['id' => $driver->id]);
+    }
 }
+
 

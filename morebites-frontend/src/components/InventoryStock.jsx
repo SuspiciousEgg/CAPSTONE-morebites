@@ -23,7 +23,6 @@ import {
 } from 'react-icons/lu'
 import {
   IconBox,
-  IconCalendar,
   IconCart,
   IconCheck,
   IconChevronDown,
@@ -509,7 +508,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   }
 
   function validateForm() {
-    if (!form.category || form.category === '__add_new__') {
+    if (!form.category) {
       alert('Please select a category first.')
       return false
     }
@@ -647,11 +646,6 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   }
 
   function handleCategoryChange(category) {
-    if (category === '__add_new__') {
-      setShowNewCatInput(true)
-      setNewCatError('')
-      return
-    }
     setShowNewCatInput(false)
     setNewCatError('')
     const config = getCategoryConfig(category)
@@ -687,9 +681,6 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     setShowNewCatInput(false)
     setNewCatName('')
     setNewCatError('')
-    if (form.category === '__add_new__') {
-      setForm((f) => ({ ...f, category: '' }))
-    }
   }
 
   function openRestock(item) {
@@ -755,15 +746,10 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 </div>
                 <select
                   id="inv-category-select"
-                  value={showNewCatInput ? '__add_new__' : form.category}
+                  value={form.category}
                   onChange={(e) => {
-                    if (e.target.value === '__add_new__') {
-                      setShowNewCatInput(true)
-                      setNewCatError('')
-                    } else {
-                      setShowNewCatInput(false)
-                      handleCategoryChange(e.target.value)
-                    }
+                    setShowNewCatInput(false)
+                    handleCategoryChange(e.target.value)
                   }}
                 >
                   <option value="">Select category...</option>
@@ -772,7 +758,6 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       {c}
                     </option>
                   ))}
-                  <option value="__add_new__">+ Add New Category</option>
                 </select>
               </div>
 
@@ -879,7 +864,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       placeholder="e.g. Frozen Fries"
                     />
                   </label>
-                  <div className="inv-form-row">
+                  <div className="inv-form-grid">
                     <label>
                       Unit Type
                       <select
@@ -922,29 +907,23 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
 
                 <section className="inv-form-section">
                   <h3 className="inv-form-section-title">DATE INFORMATION</h3>
-                  <div className="inv-form-row">
+                  <div className={showExpiry ? 'inv-form-grid' : ''}>
                     <label>
                       Date Placed
-                      <div className="inv-date-field">
-                        <IconCalendar />
-                        <input
-                          type="date"
-                          value={form.date_placed}
-                          onChange={(e) => setForm((f) => ({ ...f, date_placed: e.target.value }))}
-                        />
-                      </div>
+                      <input
+                        type="date"
+                        value={form.date_placed}
+                        onChange={(e) => setForm((f) => ({ ...f, date_placed: e.target.value }))}
+                      />
                     </label>
                     {showExpiry ? (
                       <label>
                         Expiry Date
-                        <div className="inv-date-field">
-                          <IconCalendar />
-                          <input
-                            type="date"
-                            value={form.expiry_date}
-                            onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
-                          />
-                        </div>
+                        <input
+                          type="date"
+                          value={form.expiry_date}
+                          onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
+                        />
                       </label>
                     ) : null}
                   </div>

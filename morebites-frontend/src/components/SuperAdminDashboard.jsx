@@ -160,12 +160,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     }
     const raw = user?.allowed_pages || user?.allowedPages
     if (Array.isArray(raw) && raw.length > 0) {
-      return raw
+      return raw.filter((p) => !['account', 'settings'].includes(String(p).toLowerCase()))
     }
     if (user?.role === 'cashier') {
       return ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Driver']
     }
-    return ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Customers', 'Account', 'Settings']
+    return ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Driver', 'Customers']
   }, [user])
 
   const visibleNavItems = useMemo(() => {

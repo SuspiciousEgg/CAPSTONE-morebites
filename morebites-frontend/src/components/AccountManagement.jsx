@@ -100,8 +100,8 @@ export const PAGE_OPTIONS = [
   { id: 'Reports', label: 'Reports', desc: 'Financial, sales, and inventory reports' },
   { id: 'Driver', label: 'Driver', desc: 'Driver list, verification, and status' },
   { id: 'Customers', label: 'Customers', desc: 'Customer list and account status' },
-  { id: 'Account', label: 'Account', desc: 'Staff account management and access controls' },
-  { id: 'Settings', label: 'Settings', desc: 'Delivery rates and system configurations' },
+  { id: 'Account', label: 'Account', desc: 'Staff account management and access controls', ownerOnly: true },
+  { id: 'Settings', label: 'Settings', desc: 'Delivery rates and system configurations', ownerOnly: true },
 ]
 
 export const DEFAULT_ADMIN_PAGES = [
@@ -113,8 +113,6 @@ export const DEFAULT_ADMIN_PAGES = [
   'Reports',
   'Driver',
   'Customers',
-  'Account',
-  'Settings',
 ]
 
 export const DEFAULT_CASHIER_PAGES = [
@@ -337,21 +335,31 @@ function DocumentUploader({ document, meta, onChange, disabled = false }) {
   )
 }
 
-function PageAccessEditor({ value = [], onChange, disabled = false }) {
+function PageAccessEditor({ value = [], onChange, disabled = false, isSuperAdmin = false }) {
+  const OWNER_ONLY_PAGES = ['Account', 'Settings']
+
+  const sanitizedValue = isSuperAdmin
+    ? value
+    : value.filter((p) => !OWNER_ONLY_PAGES.some((o) => o.toLowerCase() === String(p).toLowerCase()))
+
   function toggle(pageId) {
     if (disabled) return
-    const exists = value.some((p) => p.toLowerCase() === pageId.toLowerCase())
+    if (!isSuperAdmin && OWNER_ONLY_PAGES.some((o) => o.toLowerCase() === pageId.toLowerCase())) {
+      return
+    }
+    const exists = sanitizedValue.some((p) => p.toLowerCase() === pageId.toLowerCase())
     if (exists) {
-      if (value.length === 1) return
-      onChange(value.filter((p) => p.toLowerCase() !== pageId.toLowerCase()))
+      if (sanitizedValue.length === 1) return
+      onChange(sanitizedValue.filter((p) => p.toLowerCase() !== pageId.toLowerCase()))
     } else {
-      onChange([...value, pageId])
+      onChange([...sanitizedValue, pageId])
     }
   }
 
   function selectAll() {
     if (disabled) return
-    onChange(PAGE_OPTIONS.map((p) => p.id))
+    const selectable = PAGE_OPTIONS.filter((p) => isSuperAdmin || !p.ownerOnly)
+    onChange(selectable.map((p) => p.id))
   }
 
   function clearAll() {
@@ -376,17 +384,23 @@ function PageAccessEditor({ value = [], onChange, disabled = false }) {
         )}
       </div>
       <div className="ac-page-checks">
-        {PAGE_OPTIONS.map(({ id, label, desc }) => {
-          const isChecked = value.some((p) => p.toLowerCase() === id.toLowerCase())
+        {PAGE_OPTIONS.map(({ id, label, desc, ownerOnly }) => {
+          const isLocked = !isSuperAdmin && ownerOnly
+          const isChecked = !isLocked && sanitizedValue.some((p) => p.toLowerCase() === id.toLowerCase())
           return (
-            <label key={id} className="ac-page-check" title={desc}>
+            <label
+              key={id}
+              className={`ac-page-check${isLocked ? ' is-locked' : ''}`}
+              title={isLocked ? `${label} is locked to Owner only.` : desc}
+            >
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => toggle(id)}
-                disabled={disabled}
+                disabled={disabled || isLocked}
               />
               <span>{label}</span>
+              {isLocked && <span className="ac-page-locked-badge">Owner only</span>}
             </label>
           )
         })}
@@ -582,12 +596,28 @@ export default function AccountManagement() {
   const currentCashierPage = Math.min(cashierPage, totalCashierPages)
   const pagedCashiers = cashiers.slice((currentCashierPage - 1) * PAGE_SIZE, currentCashierPage * PAGE_SIZE)
 
+  const stripOwnerOnlyPages = (pages) =>
+    Array.isArray(pages)
+      ? pages.filter((p) => !['account', 'settings'].includes(String(p).toLowerCase()))
+      : []
+
+  const sanitizeAccountPages = (account) => {
+    if (!account) return account
+    const isSuper = account.role === 'super_admin' || account.primaryRole === 'super_admin'
+    if (isSuper) return account
+    return {
+      ...account,
+      allowedPages: stripOwnerOnlyPages(account.allowedPages || account.allowed_pages),
+      allowed_pages: stripOwnerOnlyPages(account.allowed_pages || account.allowedPages),
+    }
+  }
+
   async function loadAccounts() {
     const r = await accountsApi.list()
     const d = r.data?.data || r.data || {}
-    setAdmins(d.admins || [])
-    setDrivers(d.drivers || [])
-    setCashiers(d.cashiers || [])
+    setAdmins((d.admins || []).map(sanitizeAccountPages))
+    setDrivers((d.drivers || []).map(sanitizeAccountPages))
+    setCashiers((d.cashiers || []).map(sanitizeAccountPages))
   }
 
   useEffect(() => {
@@ -619,7 +649,7 @@ export default function AccountManagement() {
         phone: adminForm.phone || null,
         password: adminForm.password,
         role_access: adminForm.roleAccess,
-        allowed_pages: adminForm.allowedPages,
+        allowed_pages: stripOwnerOnlyPages(adminForm.allowedPages),
         photo: adminForm.photo || null,
       })
       await loadAccounts()
@@ -668,7 +698,7 @@ export default function AccountManagement() {
         license_number: driverForm.license || null,
         license_expiry: expiry || null,
         role_access: driverForm.roleAccess,
-        allowed_pages: driverForm.allowedPages,
+        allowed_pages: stripOwnerOnlyPages(driverForm.allowedPages),
         photo: driverForm.photo || null,
         license_document: driverForm.licenseDoc || null,
       })
@@ -711,7 +741,7 @@ export default function AccountManagement() {
         phone: cashierForm.phone || null,
         password: cashierForm.password,
         role_access: cashierForm.roleAccess,
-        allowed_pages: cashierForm.allowedPages,
+        allowed_pages: stripOwnerOnlyPages(cashierForm.allowedPages),
         photo: cashierForm.photo || null,
       })
       await loadAccounts()
@@ -810,18 +840,22 @@ export default function AccountManagement() {
     if (!profile?.item?.db_id || profile.item.canEditAccess === false) return
     setSaving(true)
     setFormError('')
+    const isSuper = profile.item.role === 'super_admin' || profile.item.primaryRole === 'super_admin'
+    const cleanPages = isSuper
+      ? profile.item.allowedPages || []
+      : stripOwnerOnlyPages(profile.item.allowedPages)
     try {
       await accountsApi.updateRoleAccess(
         profile.item.db_id,
         profile.item.roleAccess || [],
-        profile.item.allowedPages || []
+        cleanPages
       )
       await loadAccounts()
       const stored = getStoredUser()
       if (stored && (stored.id === profile.item.db_id || String(stored.admin_id) === String(profile.item.id))) {
         stored.role_access = profile.item.roleAccess || []
-        stored.allowed_pages = profile.item.allowedPages || []
-        stored.allowedPages = profile.item.allowedPages || []
+        stored.allowed_pages = cleanPages
+        stored.allowedPages = cleanPages
         localStorage.setItem('mb_user', JSON.stringify(stored))
         window.dispatchEvent(new CustomEvent('mb:user-updated', { detail: stored }))
       }
@@ -1333,6 +1367,7 @@ export default function AccountManagement() {
                 value={adminForm.allowedPages}
                 onChange={(allowedPages) => setAdminForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
+                isSuperAdmin={false}
               />
               {formError ? <p className="ac-form-error">{formError}</p> : null}
             </div>
@@ -1478,6 +1513,7 @@ export default function AccountManagement() {
                 value={driverForm.allowedPages}
                 onChange={(allowedPages) => setDriverForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
+                isSuperAdmin={false}
               />
               <div className="ac-doc-section">
                 <span className="ac-field-label">Driver Documents / License</span>
@@ -1592,6 +1628,7 @@ export default function AccountManagement() {
                 value={cashierForm.allowedPages}
                 onChange={(allowedPages) => setCashierForm((f) => ({ ...f, allowedPages }))}
                 disabled={saving}
+                isSuperAdmin={false}
               />
               {formError ? <p className="ac-form-error">{formError}</p> : null}
             </div>
@@ -1708,6 +1745,7 @@ export default function AccountManagement() {
                   setProfile((prev) => ({ ...prev, item: { ...prev.item, allowedPages } }))
                 }
                 disabled={profile.item.canEditAccess === false}
+                isSuperAdmin={profile.item.role === 'super_admin' || profile.item.primaryRole === 'super_admin'}
               />
               {profile.item.canEditAccess !== false ? (
                 <button type="button" className="ac-btn-primary ac-save-access" onClick={saveRoleAccess} disabled={saving}>

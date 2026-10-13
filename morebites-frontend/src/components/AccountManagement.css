@@ -1227,6 +1227,28 @@
   cursor: pointer;
 }
 
+.ac-page-check.is-locked {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: transparent !important;
+}
+
+.ac-page-check.is-locked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.ac-page-locked-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6B7280;
+  background: #E5E7EB;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
 /* Page Badges in Table */
 .ac-page-badges {
   display: flex;

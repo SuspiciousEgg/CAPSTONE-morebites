@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\DriverBlacklist;
 use App\Models\User;
+use App\Support\Media;
 use Illuminate\Http\Request;
 
 class DriverController extends Controller
@@ -44,7 +45,7 @@ class DriverController extends Controller
 
     public function show(User $user)
     {
-        abort_unless($user->role === 'driver', 404);
+        abort_unless($user->role === 'driver' || $user->hasRoleAccess('driver'), 404);
         $user->load('reviews');
 
         return response()->json(['data' => $this->transform($user)]);
@@ -52,7 +53,11 @@ class DriverController extends Controller
 
     public function suspend(Request $request, User $user)
     {
-        abort_unless($user->role === 'driver', 404);
+        if ($request->user()?->role !== 'super_admin') {
+            abort(403, 'Only the Owner can suspend or reactivate drivers.');
+        }
+
+        abort_unless($user->role === 'driver' || $user->hasRoleAccess('driver'), 404);
 
         if ((int) $request->user()?->id === (int) $user->id) {
             return response()->json([
@@ -65,9 +70,13 @@ class DriverController extends Controller
         return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
     }
 
-    public function reactivate(User $user)
+    public function reactivate(Request $request, User $user)
     {
-        abort_unless($user->role === 'driver', 404);
+        if ($request->user()?->role !== 'super_admin') {
+            abort(403, 'Only the Owner can suspend or reactivate drivers.');
+        }
+
+        abort_unless($user->role === 'driver' || $user->hasRoleAccess('driver'), 404);
         $user->update(['status' => 'Active']);
 
         return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
@@ -75,7 +84,11 @@ class DriverController extends Controller
 
     public function blacklist(Request $request, User $user)
     {
-        abort_unless($user->role === 'driver', 404);
+        if ($request->user()?->role !== 'super_admin') {
+            abort(403, 'Only the Owner can archive or blocklist accounts.');
+        }
+
+        abort_unless($user->role === 'driver' || $user->hasRoleAccess('driver'), 404);
 
         if ((int) $request->user()?->id === (int) $user->id) {
             return response()->json([
@@ -119,6 +132,7 @@ class DriverController extends Controller
             'id' => $u->driverDisplayId(),
             'db_id' => $u->id,
             'name' => $u->name,
+            'photo' => $u->photo ? Media::url($u->photo) : null,
             'license' => $u->license_number ?: 'N/A',
             'vehicle' => $u->vehicle_type ?: 'Motorcycle',
             'plate' => $u->plate_no ?: 'N/A',
