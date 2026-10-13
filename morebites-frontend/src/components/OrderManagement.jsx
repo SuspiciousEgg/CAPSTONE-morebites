@@ -93,7 +93,42 @@ function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
   )
 }
 
-function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefreshMenu }) {
+/**
+ * PROMPT 81 DIAGNOSTIC REPORT — POS Modal ("Unavailable" for Disabled or Out-of-Ingredient Items):
+ *
+ * 1. Did Create New Order modal still render the disabled/unavailable treatment?
+ *    - No. `OrderController::menuOptions()` previously filtered out unavailable items via
+ *      `->where('available', true)` and `->filter(fn ($m) => $service->canServe($m))`, and omitted
+ *      the `available` field from the JSON response. Meanwhile `CreateOrderModal` rendered every
+ *      card in `visibleMenu` as active/clickable without any `.unavailable` class, `"Unavailable"`
+ *      badge, or struck-through price.
+ * 2. Did it read the same availability field Menu Management toggles (including `syncMenuAvailability`)?
+ *    - `OrderController::menuOptions()` called `syncMenuAvailability()` and queried `MenuItem.available`
+ *      (the same DB column toggled by `MenuController::toggleAvailability()`), but hid unavailable items
+ *      instead of returning `available: false` to the frontend.
+ * 3. Did it reload menu data each time the modal opens or use data fetched earlier?
+ *    - It reloaded on open via `refreshMenuCatalog()` (called both in the `Create Order` button `onClick`
+ *      and the `useEffect([createOpen])` hook). Consolidated to a single fetch on modal open (`createOpen`).
+ * 4. What happened for a sized item when only one size lacked ingredients?
+ *    - `InventoryDeductionService::unserviceableReason($item)` with `$size = null` previously checked all
+ *      `$item->ingredients` across all sizes combined, so a single out-of-stock size disabled the entire
+ *      parent item, and `menuOptions()` did not include per-size `available` flags. Fixed so the parent
+ *      item stays available if at least one size can be made, while unavailable sizes are marked
+ *      `available: false` and disabled in the size picker with `"Unavailable"` and a struck-through price.
+ * 5. Does `OrderController::store` reject an order containing a disabled or unserviceable item?
+ *    - Yes. `OrderController::store` calls `InventoryDeductionService::validateCartAvailability($data['items'])`
+ *      before opening the DB transaction, throwing a 422 `ValidationException` if any item is disabled,
+ *      archived, or lacks sufficient unexpired ingredient stock for the requested size and quantity.
+ */
+function CreateOrderModal({
+  orderId,
+  onClose,
+  onPlace,
+  menuCatalog = [],
+  onRefreshMenu,
+  orderError = '',
+  onClearError,
+}) {
   const [menuTab, setMenuTab] = useState('All')
   const [orderType, setOrderType] = useState('Dine-in')
   const [customerName, setCustomerName] = useState('')
@@ -118,6 +153,29 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
       setMenuTab('All')
     }
   }, [availableCategories, menuTab])
+
+  // Keep active overlays synced if menuCatalog refreshes while modal is open
+  useEffect(() => {
+    if (activeItem != null) {
+      const fresh = menuCatalog.find((m) => m.id === activeItem)
+      if (!fresh || !isMenuItemAvailable(fresh)) {
+        setActiveItem(null)
+      }
+    }
+    if (activeSizedItem != null) {
+      const fresh = menuCatalog.find((m) => m.id === activeSizedItem.id)
+      if (!fresh || !isMenuItemAvailable(fresh)) {
+        setActiveSizedItem(null)
+      } else {
+        setActiveSizedItem(fresh)
+        const currSize = fresh.sizes?.find((s) => s.name === selectedSize)
+        if (!currSize || currSize.available === false) {
+          const firstAvail = fresh.sizes?.find((s) => s.available !== false)
+          setSelectedSize(firstAvail?.name || null)
+        }
+      }
+    }
+  }, [menuCatalog])
 
   useEffect(() => {
     function onDoc(e) {
@@ -149,12 +207,25 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
 
   const total = cart.reduce((sum, line) => sum + line.price * line.qty, 0)
 
+  function isMenuItemAvailable(item) {
+    if (!item || item.available === false || item.stockOk === false) return false
+    const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
+    if (hasSizes) {
+      return item.sizes.some((s) => s.available !== false)
+    }
+    return true
+  }
+
   function handleCardClick(item) {
+    if (!isMenuItemAvailable(item)) return
+    if (onClearError) onClearError()
+
     const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
     if (hasSizes) {
       setActiveItem(null)
       setActiveSizedItem(item)
-      setSelectedSize(item.sizes[0]?.name || null)
+      const firstAvailableSize = item.sizes.find((s) => s.available !== false)
+      setSelectedSize(firstAvailableSize?.name || null)
       setQty(1)
     } else {
       setActiveSizedItem(null)
@@ -168,6 +239,13 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
   }
 
   function addToCart(item, sizeName, unitPrice) {
+    if (!isMenuItemAvailable(item)) return
+    if (sizeName && Array.isArray(item.sizes)) {
+      const sizeObj = item.sizes.find((s) => s.name === sizeName)
+      if (sizeObj && sizeObj.available === false) return
+    }
+    if (onClearError) onClearError()
+
     const lineKey = sizeName ? `${item.id}-${sizeName}` : String(item.id)
     const displayName = sizeName ? `${item.name} (${sizeName})` : item.name
     const price = unitPrice !== undefined ? unitPrice : Number(item.price || 0)
@@ -271,21 +349,36 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
               ) : (
                 visibleMenu.map((item) => {
                   const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
-                  const isActive = !hasSizes && activeItem === item.id
+                  const isAvailable = isMenuItemAvailable(item)
+                  const isActive = isAvailable && !hasSizes && activeItem === item.id
                   const unitPrice = Number(item.price || 0)
 
                   return (
                     <div
                       key={item.id}
-                      className={`om-menu-card${isActive ? ' active' : ''}`}
+                      className={`om-menu-card${isActive ? ' active' : ''}${!isAvailable ? ' unavailable' : ''}`}
                       onClick={() => handleCardClick(item)}
-                      title={hasSizes ? 'Click to select size & quantity' : 'Click to add to cart'}
+                      aria-disabled={!isAvailable}
+                      title={
+                        !isAvailable
+                          ? 'Unavailable'
+                          : hasSizes
+                            ? 'Click to select size & quantity'
+                            : 'Click to add to cart'
+                      }
                     >
-                      <div className="om-menu-card-name">{item.name}</div>
+                      <div className="om-menu-card-top">
+                        <div className="om-menu-card-name">{item.name}</div>
+                        {!isAvailable && (
+                          <span className="om-unavailable-badge">Unavailable</span>
+                        )}
+                      </div>
                       <div className="om-menu-card-meta">
                         {item.category?.toUpperCase()}
                       </div>
-                      <div className="om-menu-card-price">{formatItemCardPrice(item)}</div>
+                      <div className={`om-menu-card-price${!isAvailable ? ' unavailable' : ''}`}>
+                        {formatItemCardPrice(item)}
+                      </div>
 
                       {isActive && (
                         <div
@@ -358,6 +451,22 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
 
           <section className="om-details-pane">
             <h3 className="om-pane-title">Customer & Details</h3>
+
+            {orderError && (
+              <div className="om-order-error-banner" role="alert">
+                <span>{orderError}</span>
+                {onClearError && (
+                  <button
+                    type="button"
+                    className="om-order-error-close"
+                    onClick={onClearError}
+                    aria-label="Dismiss error"
+                  >
+                    <LuX size={14} />
+                  </button>
+                )}
+              </div>
+            )}
 
             <label className="om-field-label" htmlFor="order-type">
               Order Type
@@ -467,8 +576,9 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
         {/* Floating Popover for Sized Items */}
         {activeSizedItem && (() => {
           const selectedSizeObj =
-            activeSizedItem.sizes?.find((s) => s.name === selectedSize) ||
-            activeSizedItem.sizes?.[0]
+            activeSizedItem.sizes?.find((s) => s.name === selectedSize && s.available !== false) ||
+            activeSizedItem.sizes?.find((s) => s.available !== false) ||
+            null
           const sizeUnitPrice = selectedSizeObj ? Number(selectedSizeObj.price) : 0
           const sizeSubtotal = sizeUnitPrice * qty
 
@@ -507,16 +617,25 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
                     <label className="om-size-popover-label">Select Size</label>
                     <div className="om-size-option-grid">
                       {activeSizedItem.sizes?.map((s) => {
-                        const isSel = selectedSizeObj?.name === s.name
+                        const sizeAvailable = s.available !== false
+                        const isSel = sizeAvailable && selectedSizeObj?.name === s.name
                         return (
                           <button
                             key={s.name}
                             type="button"
-                            className={`om-size-option-card${isSel ? ' selected' : ''}`}
-                            onClick={() => setSelectedSize(s.name)}
+                            disabled={!sizeAvailable}
+                            className={`om-size-option-card${isSel ? ' selected' : ''}${!sizeAvailable ? ' unavailable' : ''}`}
+                            onClick={() => {
+                              if (sizeAvailable) setSelectedSize(s.name)
+                            }}
                           >
                             <span className="om-size-option-name">{s.name}</span>
-                            <span className="om-size-option-price">{peso(s.price)}.00</span>
+                            <span className={`om-size-option-price${!sizeAvailable ? ' unavailable' : ''}`}>
+                              {peso(s.price)}.00
+                            </span>
+                            {!sizeAvailable && (
+                              <span className="om-size-option-unavail">Unavailable</span>
+                            )}
                           </button>
                         )
                       })}
@@ -567,8 +686,11 @@ function CreateOrderModal({ orderId, onClose, onPlace, menuCatalog = [], onRefre
                   <button
                     type="button"
                     className="om-btn-primary"
+                    disabled={!selectedSizeObj || selectedSizeObj.available === false}
                     onClick={() => {
-                      addToCart(activeSizedItem, selectedSizeObj?.name, sizeUnitPrice)
+                      if (selectedSizeObj && selectedSizeObj.available !== false) {
+                        addToCart(activeSizedItem, selectedSizeObj.name, sizeUnitPrice)
+                      }
                     }}
                   >
                     Add to Cart — {peso(sizeSubtotal)}.00
@@ -708,6 +830,7 @@ export default function OrderManagement() {
   const [viewOrder, setViewOrder] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelling, setCancelling] = useState(false)
+  const [orderError, setOrderError] = useState('')
 
   const statusRef = useRef(null)
   const typeRef = useRef(null)
@@ -741,6 +864,7 @@ export default function OrderManagement() {
 
   useEffect(() => {
     if (createOpen) {
+      setOrderError('')
       refreshMenuCatalog().catch(console.error)
     }
   }, [createOpen])
@@ -830,6 +954,7 @@ export default function OrderManagement() {
 
   async function handlePlace(payload) {
     setSaving(true)
+    setOrderError('')
     try {
       await ordersApi.create(payload)
       await loadOrders()
@@ -837,7 +962,13 @@ export default function OrderManagement() {
       setPage(1)
     } catch (err) {
       console.error(err)
-      alert(err.response?.data?.message || 'Failed to create order.')
+      const message =
+        err.response?.data?.errors?.items?.[0] ||
+        err.response?.data?.message ||
+        'Failed to create order.'
+      setOrderError(message)
+      await refreshMenuCatalog()
+      alert(message)
     } finally {
       setSaving(false)
     }
@@ -992,7 +1123,6 @@ export default function OrderManagement() {
           type="button"
           className="om-create-btn"
           onClick={() => {
-            refreshMenuCatalog().catch(console.error)
             setCreateOpen(true)
           }}
         >
@@ -1202,6 +1332,8 @@ export default function OrderManagement() {
           onClose={() => setCreateOpen(false)}
           onPlace={handlePlace}
           onRefreshMenu={refreshMenuCatalog}
+          orderError={orderError}
+          onClearError={() => setOrderError('')}
         />
       )}
 

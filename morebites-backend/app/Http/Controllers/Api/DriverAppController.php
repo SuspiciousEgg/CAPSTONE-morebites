@@ -290,6 +290,13 @@ class DriverAppController extends Controller
             'action' => 'Driver reported '.$data['issue'].' on '.$order->order_code.($data['notes'] ? ': '.$data['notes'] : ''),
         ]);
 
+        Notification::createRiderIssueNotification(
+            $order,
+            $user,
+            $data['issue'],
+            $data['notes'] ?? null
+        );
+
         return response()->json(['message' => 'Issue reported']);
     }
 

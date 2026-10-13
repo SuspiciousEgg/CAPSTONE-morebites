@@ -206,15 +206,25 @@ class OrderController extends Controller
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
-            ->where('available', true)
             ->orderBy('name')
             ->get()
-            ->filter(fn (MenuItem $m) => $service->canServe($m))
-            ->map(function (MenuItem $m) {
-                $sizes = $m->sizes->map(fn ($s) => [
-                    'name' => $s->name,
-                    'price' => (float) $s->price,
-                ])->values();
+            ->map(function (MenuItem $m) use ($service) {
+                $stockReason = $service->unserviceableReason($m);
+                $stockOk = $stockReason === null;
+
+                $sizes = $m->sizes->map(function ($s) use ($m, $service) {
+                    $sizeReason = $service->unserviceableReason($m, 1, $s->name);
+
+                    return [
+                        'name' => $s->name,
+                        'price' => (float) $s->price,
+                        'available' => (bool) $m->available && $sizeReason === null,
+                        'stockReason' => $sizeReason,
+                    ];
+                })->values();
+
+                $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
+                $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
 
                 $minPrice = $sizes->min('price');
                 $maxPrice = $sizes->max('price');
@@ -233,6 +243,9 @@ class OrderController extends Controller
                     'subcategory' => $m->subcategory,
                     'price' => $effectivePrice,
                     'price_formatted' => $priceFormatted,
+                    'available' => $itemAvailable,
+                    'stockOk' => $stockOk,
+                    'stockReason' => $stockReason,
                     'has_sizes' => (bool) $m->has_sizes,
                     'sizes' => $sizes,
                 ];

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InventoryItem;
 use App\Models\InventoryLog;
 use App\Models\MenuItemIngredient;
+use App\Models\Notification;
 use App\Services\InventoryDeductionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -223,6 +224,43 @@ class InventoryController extends Controller
             'status' => InventoryItem::deriveStatus($stock, $reorder, $expiry),
         ]);
 
+        if (array_key_exists('stock', $data) && $inventory->batches()->exists()) {
+            if ($inventory->batches()->count() === 1) {
+                $b = $inventory->batches()->first();
+                $b->update([
+                    'stock' => $stock,
+                    'status' => \App\Models\InventoryBatch::deriveBatchStatus($stock, $expiry ?? $b->expiry_date),
+                ]);
+            } else {
+                $diff = $stock - $prevStock;
+                if ($diff > 0) {
+                    $latestBatch = $inventory->batches()->latest('id')->first();
+                    if ($latestBatch) {
+                        $newBatchStock = (float) $latestBatch->stock + $diff;
+                        $latestBatch->update([
+                            'stock' => $newBatchStock,
+                            'status' => \App\Models\InventoryBatch::deriveBatchStatus($newBatchStock, $latestBatch->expiry_date),
+                        ]);
+                    }
+                } elseif ($diff < 0) {
+                    $neededToDeduct = abs($diff);
+                    foreach ($inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->get() as $b) {
+                        if ($neededToDeduct <= 0) {
+                            break;
+                        }
+                        $bStock = (float) $b->stock;
+                        $deduct = min($bStock, $neededToDeduct);
+                        $rem = max(0.0, $bStock - $deduct);
+                        $b->update([
+                            'stock' => $rem,
+                            'status' => \App\Models\InventoryBatch::deriveBatchStatus($rem, $b->expiry_date),
+                        ]);
+                        $neededToDeduct -= $deduct;
+                    }
+                }
+            }
+        }
+
         $this->writeLog($request, $inventory->fresh(), [
             'quantity' => $stock - $prevStock,
             'previous_stock' => $prevStock,
@@ -231,6 +269,8 @@ class InventoryController extends Controller
             'notes' => 'Stock updated via edit stock form.',
             'log_type' => 'Updated',
         ]);
+
+        Notification::notifyIfLowStock($inventory->fresh());
 
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
 
@@ -315,7 +355,7 @@ class InventoryController extends Controller
         ]);
 
         $service = app(InventoryDeductionService::class);
-        $service->disableMenuItems($menuItemIds);
+        $service->disableMenuItems($menuItemIds, $inventory->id);
 
         return response()->json(['data' => $this->transform($inventory->fresh())]);
     }

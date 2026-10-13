@@ -13,8 +13,17 @@ import {
 } from 'recharts'
 import {
   LuShoppingCart,
-  LuBike,
+  LuCircleCheck,
+  LuChefHat,
+  LuConciergeBell,
   LuPackage,
+  LuUserCheck,
+  LuBike,
+  LuCircleX,
+  LuTriangleAlert,
+  LuUtensilsCrossed,
+  LuPackageMinus,
+  LuBell,
   LuUsers,
   LuShieldAlert,
   LuSettings,
@@ -104,36 +113,83 @@ export const ALL_NAV_ITEMS = [
   { id: 'Settings', label: 'Settings', icon: IconGear },
 ]
 
-const notifTabs = ['All', 'Orders', 'Inventory', 'Dispatch', 'System']
+const notifTabs = ['All', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'System']
 
 const NOTIF_CONFIG = {
   order_new: {
     icon: LuShoppingCart,
-    tone: { bg: '#FFF4E5', color: '#FFA500' },
+    tone: { bg: '#FFF4E5', color: '#F97316' },
+    label: 'New Order',
   },
-  dispatch: {
+  order_confirmed: {
+    icon: LuCircleCheck,
+    tone: { bg: '#EBF5FF', color: '#2563EB' },
+    label: 'Order Confirmed',
+  },
+  preparing: {
+    icon: LuChefHat,
+    tone: { bg: '#FEF3C7', color: '#D97706' },
+    label: 'Preparing',
+  },
+  ready_serve: {
+    icon: LuConciergeBell,
+    tone: { bg: '#CCFBF1', color: '#0F766E' },
+    label: 'Ready to Serve',
+  },
+  ready_dispatch: {
+    icon: LuPackage,
+    tone: { bg: '#F3E8FF', color: '#9333EA' },
+    label: 'Ready for Dispatch',
+  },
+  rider_assigned: {
+    icon: LuUserCheck,
+    tone: { bg: '#EBF5FF', color: '#2563EB' },
+    label: 'Rider Assigned',
+  },
+  out_for_delivery: {
     icon: LuBike,
     tone: { bg: '#E8F1FC', color: '#3B82F6' },
-  },
-  low_stock: {
-    icon: LuPackage,
-    tone: { bg: '#FEF3C7', color: '#F59E0B' },
+    label: 'Out for Delivery',
   },
   order_completed: {
     icon: TbClipboardList,
     tone: { bg: '#E8F7EE', color: '#22C55E' },
+    label: 'Order Completed',
+  },
+  order_cancelled: {
+    icon: LuCircleX,
+    tone: { bg: '#FEE2E2', color: '#EF4444' },
+    label: 'Order Cancelled',
+  },
+  rider_issue: {
+    icon: LuTriangleAlert,
+    tone: { bg: '#FEE2E2', color: '#DC2626' },
+    label: 'Rider Issue',
+  },
+  menu_unavailable: {
+    icon: LuUtensilsCrossed,
+    tone: { bg: '#FEF3C7', color: '#D97706' },
+    label: 'Menu Unavailable',
+  },
+  low_stock: {
+    icon: LuPackageMinus,
+    tone: { bg: '#FEF3C7', color: '#D97706' },
+    label: 'Low Stock Alert',
   },
   account: {
     icon: LuUsers,
     tone: { bg: '#F3E8FF', color: '#A855F7' },
+    label: 'Account Alert',
   },
   security: {
     icon: LuShieldAlert,
     tone: { bg: '#FEE2E2', color: '#EF4444' },
+    label: 'Security Alert',
   },
   system: {
-    icon: LuSettings,
+    icon: LuBell,
     tone: { bg: '#F3F4F6', color: '#4B5563' },
+    label: 'System Notification',
   },
 }
 
@@ -193,7 +249,162 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   const [modalSearch, setModalSearch] = useState('')
 
   const getNotifMeta = (n) => {
-    return NOTIF_CONFIG[n?.type] || NOTIF_CONFIG.system
+    if (!n) {
+      return {
+        icon: LuBell,
+        tone: { bg: '#F3F4F6', color: '#4B5563' },
+        label: 'Notification',
+      }
+    }
+
+    const type = String(n.type || '').toLowerCase()
+    const status = String(n.data?.status || '').toLowerCase()
+    const title = String(n.title || '').toLowerCase()
+    const body = String(n.body || n.message || '').toLowerCase()
+
+    // 1. Direct specific type match (excluding generic grouping types)
+    if (NOTIF_CONFIG[type] && type !== 'order_status' && type !== 'dispatch') {
+      return NOTIF_CONFIG[type]
+    }
+
+    // 2. Rider issue report: warning triangle, red
+    if (
+      type === 'rider_issue' ||
+      title.includes('rider issue') ||
+      body.includes('rider issue') ||
+      title.includes('reported issue')
+    ) {
+      return NOTIF_CONFIG.rider_issue
+    }
+
+    // 3. Menu item auto-unavailable: crossed fork and knife, amber
+    if (
+      type === 'menu_unavailable' ||
+      title.includes('menu item unavailable') ||
+      body.includes('automatically marked unavailable')
+    ) {
+      return NOTIF_CONFIG.menu_unavailable
+    }
+
+    // 4. Low stock: package with minus, amber
+    if (
+      type === 'low_stock' ||
+      title.includes('low stock') ||
+      body.includes('low stock') ||
+      body.includes('reorder level')
+    ) {
+      return NOTIF_CONFIG.low_stock
+    }
+
+    // 5. Cancelled: circle with X, red
+    if (
+      type === 'order_cancelled' ||
+      type === 'cancelled' ||
+      status === 'cancelled' ||
+      title.includes('cancelled') ||
+      body.includes('cancelled')
+    ) {
+      return NOTIF_CONFIG.order_cancelled
+    }
+
+    // 6. Completed: clipboard with check, green
+    if (
+      type === 'order_completed' ||
+      type === 'completed' ||
+      status === 'completed' ||
+      status === 'delivered' ||
+      title.includes('completed') ||
+      title.includes('delivered')
+    ) {
+      return NOTIF_CONFIG.order_completed
+    }
+
+    // 7. Out for delivery: motorbike, blue
+    if (
+      status === 'out for delivery' ||
+      status === 'picked up' ||
+      title.includes('out for delivery') ||
+      body.includes('delivery is in progress') ||
+      body.includes('out for delivery')
+    ) {
+      return NOTIF_CONFIG.out_for_delivery
+    }
+
+    // 8. Rider assigned: user with check, blue
+    if (
+      status === 'assigned' ||
+      title.includes('rider assigned') ||
+      body.includes('assigned to a delivery rider') ||
+      body.includes('assigned to rider')
+    ) {
+      return NOTIF_CONFIG.rider_assigned
+    }
+
+    // 9. Ready for dispatch: package, purple
+    if (
+      title.includes('ready for delivery') ||
+      title.includes('ready for dispatch') ||
+      body.includes('ready for dispatch') ||
+      (status === 'ready' && n.tab === 'Dispatch')
+    ) {
+      return NOTIF_CONFIG.ready_dispatch
+    }
+
+    // 10. Ready to serve or ready for pickup: service bell, teal
+    if (
+      title.includes('ready to serve') ||
+      title.includes('ready for pickup') ||
+      body.includes('ready to be served') ||
+      body.includes('ready for pickup') ||
+      (status === 'ready' && n.tab !== 'Dispatch')
+    ) {
+      return NOTIF_CONFIG.ready_serve
+    }
+
+    // 11. Preparing: chef hat, amber
+    if (
+      status === 'preparing' ||
+      title.includes('preparing') ||
+      title.includes('is being prepared') ||
+      body.includes('being prepared')
+    ) {
+      return NOTIF_CONFIG.preparing
+    }
+
+    // 12. Order confirmed: circle with check, blue
+    if (
+      status === 'confirmed' ||
+      title.includes('confirmed') ||
+      body.includes('order confirmed')
+    ) {
+      return NOTIF_CONFIG.order_confirmed
+    }
+
+    // 13. New order received: shopping cart, orange
+    if (
+      type === 'order_new' ||
+      status === 'pending' ||
+      title.includes('new order') ||
+      body.includes('new order has been placed')
+    ) {
+      return NOTIF_CONFIG.order_new
+    }
+
+    // 14. Account or Security
+    if (type === 'account' && NOTIF_CONFIG.account) return NOTIF_CONFIG.account
+    if (type === 'security' && NOTIF_CONFIG.security) return NOTIF_CONFIG.security
+
+    // 15. Fallback for generic dispatch
+    if (type === 'dispatch') {
+      return NOTIF_CONFIG.out_for_delivery
+    }
+
+    // 16. Any unknown type falls back to a generic bell
+    return {
+      icon: LuBell,
+      tone: { bg: '#F3F4F6', color: '#4B5563' },
+      label: 'Notification',
+    }
   }
 
   /**
@@ -635,8 +846,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                         <Icon size={20} />
                       </div>
                       <div className="sa-notif-body">
-                        <strong className="sa-notif-title">{n.title}</strong>
-                        <p className="sa-notif-desc">{n.body}</p>
+                        <strong className="sa-notif-title">{n.title || meta.label || 'Notification'}</strong>
+                        <p className="sa-notif-desc">{n.body || n.message || 'No details provided.'}</p>
                         <span className="sa-notif-time">{n.time}</span>
                       </div>
                       {n.unread && <span className="sa-notif-unread-dot" />}
@@ -718,8 +929,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                           <Icon size={20} />
                         </div>
                         <div className="sa-notif-body">
-                          <strong className="sa-notif-title">{n.title}</strong>
-                          <p className="sa-notif-desc">{n.body}</p>
+                          <strong className="sa-notif-title">{n.title || meta.label || 'Notification'}</strong>
+                          <p className="sa-notif-desc">{n.body || n.message || 'No details provided.'}</p>
                           <span className="sa-notif-time">{n.time}</span>
                         </div>
                         {n.unread && <span className="sa-notif-unread-dot" />}
