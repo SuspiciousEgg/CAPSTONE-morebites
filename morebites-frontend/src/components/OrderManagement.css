@@ -1660,3 +1660,128 @@
   color: #B91C1C !important;
 }
 
+/* POS Loyalty Member Lookup */
+.om-loyalty-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.om-loyalty-input-wrap .om-input {
+  margin-bottom: 0;
+  padding-right: 80px;
+}
+
+.om-loyalty-status-hint {
+  position: absolute;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFA500;
+  pointer-events: none;
+}
+
+.om-loyalty-error-text {
+  font-size: 11px;
+  color: #DC2626;
+  margin: -4px 0 10px 0;
+  font-weight: 500;
+}
+
+.om-loyalty-not-found {
+  font-size: 12px;
+  color: #6B7280;
+  background: #F3F4F6;
+  border: 1px dashed #D1D5DB;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.om-loyalty-matched-card {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.om-loyalty-matched-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.om-loyalty-matched-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #15803D;
+}
+
+.om-loyalty-check-icon {
+  color: #16A34A;
+}
+
+.om-loyalty-detach-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #9CA3AF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.om-loyalty-detach-btn:hover {
+  color: #DC2626;
+  background: #FEE2E2;
+}
+
+.om-loyalty-matched-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.om-loyalty-code {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4B5563;
+  background: #E5E7EB;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.om-loyalty-points-tag {
+  font-weight: 700;
+  color: #15803D;
+}
+
+.om-loyalty-matched-note {
+  font-size: 11px;
+  color: #6B7280;
+  font-style: italic;
+}
+
+.om-loyalty-member-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #15803D;
+  background: #DCFCE7;
+  padding: 2px 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+

@@ -151,7 +151,8 @@ class ReportController extends Controller
             ->map(function (Customer $c) {
                 $count = (int) ($c->completed_orders_count ?? 0);
                 $spent = (float) ($c->completed_orders_sum ?? 0);
-                $pts = (int) round($spent / 2);
+                $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
+                $pts = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
                 $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
                 $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
 
@@ -335,7 +336,8 @@ class ReportController extends Controller
         $items = collect($paginated->items())->map(function (Customer $c) {
             $count = (int) ($c->completed_orders_count ?? 0);
             $spent = (float) ($c->completed_orders_sum ?? 0);
-            $pts = (int) round($spent / 2);
+            $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
+            $pts = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
             $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
             $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
 

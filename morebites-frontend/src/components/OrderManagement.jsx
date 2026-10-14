@@ -132,6 +132,11 @@ function CreateOrderModal({
   const [menuTab, setMenuTab] = useState('All')
   const [orderType, setOrderType] = useState('Dine-in')
   const [customerName, setCustomerName] = useState('')
+  const [loyaltyPhone, setLoyaltyPhone] = useState('')
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState(null)
+  const [loyaltySearching, setLoyaltySearching] = useState(false)
+  const [loyaltyNotFound, setLoyaltyNotFound] = useState(false)
+  const [loyaltyError, setLoyaltyError] = useState('')
   const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
   const [activeSizedItem, setActiveSizedItem] = useState(null)
@@ -139,6 +144,48 @@ function CreateOrderModal({
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
   const typeRef = useRef(null)
+
+  function handleClearLoyalty() {
+    setLoyaltyPhone('')
+    setLoyaltyCustomer(null)
+    setLoyaltyNotFound(false)
+    setLoyaltyError('')
+  }
+
+  async function handleLoyaltyPhoneChange(e) {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 11)
+    setLoyaltyPhone(val)
+    setLoyaltyCustomer(null)
+    setLoyaltyNotFound(false)
+    setLoyaltyError('')
+
+    if (val.length === 11) {
+      if (!val.startsWith('09')) {
+        setLoyaltyError('Phone must start with 09 (11 digits)')
+        return
+      }
+      setLoyaltySearching(true)
+      try {
+        const res = await ordersApi.lookupLoyalty(val)
+        if (res.data?.found && res.data?.customer) {
+          setLoyaltyCustomer(res.data.customer)
+          setLoyaltyNotFound(false)
+          if (!customerName.trim() && res.data.customer.name) {
+            setCustomerName(res.data.customer.name)
+          }
+        } else {
+          setLoyaltyCustomer(null)
+          setLoyaltyNotFound(true)
+        }
+      } catch (err) {
+        console.error('Loyalty lookup error:', err)
+        setLoyaltyCustomer(null)
+        setLoyaltyNotFound(true)
+      } finally {
+        setLoyaltySearching(false)
+      }
+    }
+  }
 
   const availableCategories = useMemo(() => {
     const cats = new Set()
@@ -296,6 +343,7 @@ function CreateOrderModal({
       customer_name: customerName.trim(),
       order_type: orderType,
       status: 'Preparing',
+      loyalty_customer_id: loyaltyCustomer ? loyaltyCustomer.id : null,
       items: cart.map((c) => ({
         name: c.baseName || c.name,
         menu_item_id: c.id,
@@ -510,6 +558,50 @@ function CreateOrderModal({
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
             />
+
+            <label className="om-field-label" htmlFor="loyalty-phone">
+              Loyalty Member Phone (Optional)
+            </label>
+            <div className="om-loyalty-input-wrap">
+              <input
+                id="loyalty-phone"
+                className="om-input"
+                placeholder="09XXXXXXXXX (11 digits)"
+                value={loyaltyPhone}
+                onChange={handleLoyaltyPhoneChange}
+                maxLength={11}
+              />
+              {loyaltySearching && <span className="om-loyalty-status-hint">Checking...</span>}
+            </div>
+            {loyaltyError && <p className="om-loyalty-error-text">{loyaltyError}</p>}
+            {loyaltyNotFound && (
+              <div className="om-loyalty-not-found">No loyalty account for this number</div>
+            )}
+            {loyaltyCustomer && (
+              <div className="om-loyalty-matched-card">
+                <div className="om-loyalty-matched-header">
+                  <span className="om-loyalty-matched-name">
+                    <LuCircleCheck size={14} className="om-loyalty-check-icon" /> {loyaltyCustomer.name}
+                  </span>
+                  <button
+                    type="button"
+                    className="om-loyalty-detach-btn"
+                    onClick={handleClearLoyalty}
+                    title="Remove loyalty member"
+                    aria-label="Remove loyalty member"
+                  >
+                    <LuX size={13} />
+                  </button>
+                </div>
+                <div className="om-loyalty-matched-body">
+                  <span className="om-loyalty-code">{loyaltyCustomer.customer_code}</span>
+                  <span className="om-loyalty-points-tag">
+                    {loyaltyCustomer.points} pts (worth ₱{Number(loyaltyCustomer.points_worth || 0).toFixed(2)})
+                  </span>
+                </div>
+                <div className="om-loyalty-matched-note">Points will be credited when order is completed.</div>
+              </div>
+            )}
 
             <div className="om-cart">
               {cart.length === 0 ? (
@@ -1384,7 +1476,12 @@ export default function OrderManagement() {
               )}
               <div>
                 <dt>Customer</dt>
-                <dd>{viewOrder.customer}</dd>
+                <dd>
+                  {viewOrder.customer}
+                  {viewOrder.loyalty_customer_id && (
+                    <span className="om-loyalty-member-tag">Loyalty Member</span>
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Order Type</dt>

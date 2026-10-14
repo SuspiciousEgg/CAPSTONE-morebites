@@ -93,6 +93,10 @@ class CustomerController extends Controller
             ? 'Rider rating: '.number_format($ratingAvg, 1).' average from '.$ratingCount.' '.($ratingCount === 1 ? 'delivery' : 'deliveries')
             : 'No ratings yet';
 
+        $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
+        $points = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
+        $expiryFormatted = $c->points_expire_at ? $c->points_expire_at->format('M d, Y') : null;
+
         return [
             'id' => $c->customer_code,
             'db_id' => $c->id,
@@ -110,6 +114,10 @@ class CustomerController extends Controller
             'rider_rating_avg' => $ratingAvg !== null ? round($ratingAvg, 1) : null,
             'rider_rating_count' => $ratingCount,
             'rider_rating_text' => $ratingText,
+            'loyalty_points' => $points,
+            'points_expire_at' => $expiryFormatted,
+            'points_expire_at_raw' => $c->points_expire_at?->toIso8601String(),
+            'points_expired' => $isExpired,
         ];
     }
 }

@@ -167,6 +167,7 @@ class DriverAppController extends Controller
 
         if ($status === 'Completed') {
             $user->increment('completed_orders');
+            app(\App\Services\LoyaltyService::class)->creditForOrder($order->fresh());
         }
 
         Notification::createOrderNotification($order->fresh());

@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ExpiringStockController;
 use App\Http\Controllers\Api\DriverAppController;
 use App\Http\Controllers\Api\DriverController;
 use App\Http\Controllers\Api\InventoryController;
+use App\Http\Controllers\Api\LoyaltySettingController;
 use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\NotificationController;
@@ -37,6 +38,8 @@ Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/customer/me', [CustomerAppController::class, 'me']);
     Route::patch('/customer/profile', [CustomerAppController::class, 'updateProfile']);
+    Route::get('/customer/loyalty', [CustomerAppController::class, 'loyalty']);
+    Route::get('/customer/loyalty/history', [CustomerAppController::class, 'loyaltyHistory']);
     Route::get('/customer/addresses', [CustomerAppController::class, 'addresses']);
     Route::post('/customer/addresses', [CustomerAppController::class, 'storeAddress']);
     Route::put('/customer/addresses/{address}', [CustomerAppController::class, 'updateAddress']);
@@ -67,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/mobile/me', [MobileAuthController::class, 'me']);
+    Route::get('/loyalty/rates', [LoyaltySettingController::class, 'rates']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::middleware('page.access:Dashboard')->group(function () {
@@ -79,6 +83,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
 
     Route::middleware('page.access:Orders')->group(function () {
+        Route::get('/orders/lookup-loyalty', [OrderController::class, 'lookupLoyalty']);
         Route::get('/orders/menu-options', [OrderController::class, 'menuOptions']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::post('/orders', [OrderController::class, 'store']);
@@ -143,6 +148,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/delivery-rates', [DeliveryRateController::class, 'store']);
         Route::put('/delivery-rates/{deliveryRate}', [DeliveryRateController::class, 'update']);
         Route::delete('/delivery-rates/{deliveryRate}', [DeliveryRateController::class, 'destroy']);
+        Route::get('/loyalty-settings', [LoyaltySettingController::class, 'show']);
+        Route::put('/loyalty-settings', [LoyaltySettingController::class, 'update']);
+        Route::get('/loyalty-settings/history', [LoyaltySettingController::class, 'history']);
+        Route::get('/loyalty/settings/history', [LoyaltySettingController::class, 'history']);
     });
 
     Route::middleware(['page.access:Customers', 'not.cashier:Customers'])->group(function () {

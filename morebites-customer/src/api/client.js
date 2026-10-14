@@ -283,6 +283,7 @@ export const customerApi = {
       auth: false,
     }),
   me: () => request("/customer/me"),
+  loyalty: () => request("/customer/loyalty"),
   updateProfile: (payload) =>
     request("/customer/profile", { method: "PATCH", body: payload }),
   addresses: () => request("/customer/addresses"),

@@ -274,6 +274,11 @@ function buildReceiptHtml(receiptData) {
               <td style="padding: 7px 0; color: #6B7280; font-size: 13px;">Loyalty Program</td>
               <td style="padding: 7px 0; color: #F97000; font-size: 13px; font-weight: 700; text-align: right;">Points Earned: ${receiptData.pointsEarned} pts</td>
             </tr>
+            ${receiptData.pointsUsed > 0 ? `
+            <tr>
+              <td style="padding: 7px 0; color: #6B7280; font-size: 13px;">Points Used</td>
+              <td style="padding: 7px 0; color: #C2410C; font-size: 13px; font-weight: 700; text-align: right;">-${receiptData.pointsUsed} pts (-&#8369;${Number(receiptData.pointsDiscount).toLocaleString()})</td>
+            </tr>` : ""}
           </table>
         </div>
 
@@ -288,6 +293,11 @@ function buildReceiptHtml(receiptData) {
               <td style="padding: 5px 0; color: #6B7280; font-size: 13px;">Subtotal</td>
               <td style="padding: 5px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">&#8369;${Number(receiptData.subtotal).toLocaleString()}</td>
             </tr>
+            ${receiptData.pointsUsed > 0 ? `
+            <tr>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600;">Points Discount (${receiptData.pointsUsed} pts)</td>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600; text-align: right;">-&#8369;${Number(receiptData.pointsDiscount).toLocaleString()}</td>
+            </tr>` : ""}
             <tr>
               <td style="padding: 5px 0; color: #6B7280; font-size: 13px;">Delivery Fee</td>
               <td style="padding: 5px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">&#8369;${Number(receiptData.deliveryFee).toLocaleString()}</td>
@@ -408,11 +418,10 @@ export default function ReceiptScreen() {
     [orderData?.street, orderData?.barangay, orderData?.city].filter(Boolean).join(", ") ||
     "Delivery address unavailable";
 
-  // Loyalty calculation matching ReportController.php (`(int) round($spent / 2)`)
-  const pointsEarned =
-    orderData?.points_earned != null
-      ? Number(orderData.points_earned)
-      : Math.round(total / 2);
+  // Points credited and redeemed for this order from backend loyalty ledger
+  const pointsEarned = Number(orderData?.points_earned ?? 0);
+  const pointsUsed = Number(orderData?.points_used ?? 0);
+  const pointsDiscount = Number(orderData?.points_discount ?? 0);
 
   const shareReceipt = async () => {
     if (sharing) return;
@@ -427,6 +436,8 @@ export default function ReceiptScreen() {
       riderName,
       address,
       pointsEarned,
+      pointsUsed,
+      pointsDiscount,
       items,
       subtotal,
       deliveryFee,
@@ -443,6 +454,7 @@ export default function ReceiptScreen() {
       `Rider: ${riderName}`,
       `Delivery Address: ${address}`,
       `Points Earned: ${pointsEarned} pts`,
+      ...(pointsUsed > 0 ? [`Points Used: ${pointsUsed} pts (-₱${pointsDiscount.toLocaleString()})`] : []),
       `---`,
       ...items.map(
         (item) =>
@@ -451,6 +463,7 @@ export default function ReceiptScreen() {
           ).toLocaleString()}`
       ),
       `Subtotal: ₱${subtotal.toLocaleString()}`,
+      ...(pointsUsed > 0 ? [`Points Discount: -₱${pointsDiscount.toLocaleString()}`] : []),
       `Delivery Fee: ₱${deliveryFee.toLocaleString()}`,
       `Service Fee: ₱${serviceFee.toLocaleString()}`,
       `Total Amount Paid: ₱${total.toLocaleString()}`,
@@ -598,6 +611,16 @@ export default function ReceiptScreen() {
               </View>
               <Text style={styles.loyaltyText}>Points Earned: {pointsEarned} pts</Text>
             </View>
+            {pointsUsed > 0 ? (
+              <View style={[styles.loyaltyBanner, { marginTop: 8, backgroundColor: "#FFF7ED" }]}>
+                <View style={[styles.loyaltyIconWrap, { backgroundColor: "#FFEDD5" }]}>
+                  <Ionicons name="ribbon-outline" size={16} color={PRIMARY} />
+                </View>
+                <Text style={[styles.loyaltyText, { color: "#C2410C" }]}>
+                  Points Used: {pointsUsed} pts (-₱{Number(pointsDiscount).toFixed(2)})
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.summaryCard}>
@@ -622,6 +645,16 @@ export default function ReceiptScreen() {
 
             <View style={styles.divider} />
             <SummaryRow label="Subtotal" value={subtotal} />
+            {pointsUsed > 0 ? (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: "#16A34A" }]}>
+                  Points Discount ({pointsUsed} pts)
+                </Text>
+                <Text style={[styles.summaryValue, { color: "#16A34A" }]}>
+                  -₱{Number(pointsDiscount || 0).toLocaleString()}
+                </Text>
+              </View>
+            ) : null}
             <SummaryRow label="Delivery Fee" value={deliveryFee} />
             <SummaryRow label="Service Fee" value={serviceFee} />
             <View style={styles.divider} />
