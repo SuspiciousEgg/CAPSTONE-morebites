@@ -14,6 +14,7 @@ class Order extends Model
         'delivery_address', 'dest_lat', 'dest_lng', 'current_lat', 'current_lng', 'driver_id', 'assigned_at', 'delivered_at',
         'proof_of_delivery', 'delivery_minutes', 'delivery_distance_km', 'route_coordinates',
         'food_rating', 'food_comment', 'rider_rating', 'rider_comment', 'rated_at',
+        'customer_rating',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class Order extends Model
             'assigned_at' => 'datetime',
             'delivered_at' => 'datetime',
             'rated_at' => 'datetime',
+            'customer_rating' => 'integer',
             'delivery_distance_km' => 'float',
             'dest_lat' => 'float',
             'dest_lng' => 'float',

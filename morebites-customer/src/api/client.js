@@ -337,10 +337,13 @@ export const driverApi = {
   orders: (status = "All") =>
     request(`/driver/orders${status && status !== "All" ? `?status=${encodeURIComponent(status)}` : ""}`),
   order: (dbId) => request(`/driver/orders/${dbId}`),
-  updateStatus: (dbId, status, proof) => {
+  updateStatus: (dbId, status, proof, customerRating) => {
     if (proof) {
       const form = new FormData();
       form.append("status", status);
+      if (customerRating !== undefined && customerRating !== null && Number(customerRating) > 0) {
+        form.append("customer_rating", String(customerRating));
+      }
       if (proof.file) {
         form.append("proof_of_delivery", proof.file, proof.fileName || "proof.jpg");
       } else {
@@ -367,9 +370,13 @@ export const driverApi = {
         body: form,
       });
     }
+    const payload = { status };
+    if (customerRating !== undefined && customerRating !== null && Number(customerRating) > 0) {
+      payload.customer_rating = Number(customerRating);
+    }
     return request(`/driver/orders/${dbId}/status`, {
       method: "PATCH",
-      body: { status },
+      body: payload,
     });
   },
   updateProfile: (payload) =>

@@ -51,7 +51,7 @@ export default function ConfirmDeliveryScreen() {
     if (!isReadyToComplete || !dbId) return;
     setSaving(true);
     try {
-      const res = await driverApi.updateStatus(dbId, "Delivered", photo);
+      const res = await driverApi.updateStatus(dbId, "Delivered", photo, rating > 0 ? rating : null);
       const data = res.data || {};
       const mins = data.eta_mins ?? order?.eta_mins;
       router.replace({
@@ -220,7 +220,7 @@ export default function ConfirmDeliveryScreen() {
               <TouchableOpacity
                 key={starValue}
                 activeOpacity={0.7}
-                onPress={() => setRating(starValue)}
+                onPress={() => setRating(rating === starValue ? 0 : starValue)}
                 style={styles.starTouch}
               >
                 <Ionicons

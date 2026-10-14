@@ -145,7 +145,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/delivery-rates/{deliveryRate}', [DeliveryRateController::class, 'destroy']);
     });
 
-    Route::middleware(['page.access:Customers', 'not.cashier'])->group(function () {
+    Route::middleware(['page.access:Customers', 'not.cashier:Customers'])->group(function () {
         Route::get('/customers', [CustomerController::class, 'index']);
         Route::get('/customers/{customer}', [CustomerController::class, 'show']);
     });

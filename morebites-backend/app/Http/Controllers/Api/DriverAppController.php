@@ -127,10 +127,18 @@ class DriverAppController extends Controller
             ], 403);
         }
 
+        abort_if($order->status === 'Completed', 422, 'Customer rating cannot be modified after the order is completed.');
+
         $data = $request->validate([
             'status' => ['required', 'string', Rule::in(self::DRIVER_STATUSES)],
             'proof_of_delivery' => ['nullable', 'image', 'max:8192'],
+            'customer_rating' => ['nullable', 'integer', 'min:1', 'max:5'],
         ]);
+
+        if ($request->filled('customer_rating')) {
+            abort_if($data['status'] !== 'Delivered', 422, 'Customer rating can only be set when marking the order as Delivered.');
+            abort_if($order->order_type !== 'Online Order', 422, 'Walk-in orders do not support rider ratings.');
+        }
 
         $status = $data['status'] === 'Delivered' ? 'Completed' : $data['status'];
 
@@ -144,6 +152,9 @@ class DriverAppController extends Controller
             if ($request->hasFile('proof_of_delivery')) {
                 $path = $request->file('proof_of_delivery')->store('proofs', 'public');
                 $payload['proof_of_delivery'] = '/storage/'.$path;
+            }
+            if ($request->filled('customer_rating')) {
+                $payload['customer_rating'] = (int) $data['customer_rating'];
             }
         }
 
@@ -382,6 +393,7 @@ class DriverAppController extends Controller
             'assigned_at' => $o->assigned_at?->toIso8601String(),
             'delivered_at' => $o->delivered_at?->toIso8601String(),
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
+            'customer_rating' => $o->customer_rating ? (int) $o->customer_rating : null,
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
             'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
             'route' => is_array($o->route_coordinates) ? $o->route_coordinates : [],

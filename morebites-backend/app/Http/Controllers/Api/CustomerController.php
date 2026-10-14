@@ -16,6 +16,8 @@ class CustomerController extends Controller
             ->with('user')
             ->withCount('orders')
             ->withSum('orders', 'total')
+            ->withCount(['orders as rider_rating_count' => fn ($q) => $q->whereNotNull('customer_rating')->where('order_type', 'Online Order')])
+            ->withAvg(['orders as rider_rating_avg' => fn ($q) => $q->whereNotNull('customer_rating')->where('order_type', 'Online Order')], 'customer_rating')
             ->latest('registered_at');
 
         if ($status = $request->query('status')) {
@@ -55,6 +57,8 @@ class CustomerController extends Controller
         $customer->load(['user', 'orders' => fn ($q) => $q->with('items')->latest()->take(10)]);
         $customer->loadCount('orders');
         $customer->loadSum('orders', 'total');
+        $customer->loadCount(['orders as rider_rating_count' => fn ($q) => $q->whereNotNull('customer_rating')->where('order_type', 'Online Order')]);
+        $customer->loadAvg(['orders as rider_rating_avg' => fn ($q) => $q->whereNotNull('customer_rating')->where('order_type', 'Online Order')], 'customer_rating');
 
         $history = $customer->orders->map(fn ($o) => [
             'id' => $o->order_code,
@@ -80,6 +84,15 @@ class CustomerController extends Controller
 
         $user = $c->relationLoaded('user') ? $c->user : ($c->user_id ? $c->user()->first() : null);
 
+        $ratingCount = (int) ($c->rider_rating_count ?? $c->orders()->whereNotNull('customer_rating')->where('order_type', 'Online Order')->count());
+        $ratingAvg = $c->rider_rating_avg !== null
+            ? (float) $c->rider_rating_avg
+            : ($ratingCount > 0 ? (float) $c->orders()->whereNotNull('customer_rating')->where('order_type', 'Online Order')->avg('customer_rating') : null);
+
+        $ratingText = $ratingCount > 0 && $ratingAvg !== null
+            ? 'Rider rating: '.number_format($ratingAvg, 1).' average from '.$ratingCount.' '.($ratingCount === 1 ? 'delivery' : 'deliveries')
+            : 'No ratings yet';
+
         return [
             'id' => $c->customer_code,
             'db_id' => $c->id,
@@ -94,6 +107,9 @@ class CustomerController extends Controller
             'spent' => (float) ($c->orders_sum_total ?? 0),
             'lastOrder' => $last?->created_at?->format('M d, Y') ?? '-',
             'status' => $c->status,
+            'rider_rating_avg' => $ratingAvg !== null ? round($ratingAvg, 1) : null,
+            'rider_rating_count' => $ratingCount,
+            'rider_rating_text' => $ratingText,
         ];
     }
 }
