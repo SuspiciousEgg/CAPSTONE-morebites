@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
   LuRotateCcw,
-  LuTrash2,
   LuChevronLeft,
   LuChevronRight,
   LuShield,
   LuCar,
   LuX,
-  LuTriangleAlert,
 } from 'react-icons/lu'
-import { IconCheck, IconTrash } from './Icons'
+import { IconCheck } from './Icons'
 import { archiveApi } from '../api/client'
 import EmptyState from './EmptyState'
 import './ArchivePage.css'
@@ -73,7 +71,6 @@ export default function ArchivePage({ embedded = false }) {
   const [admins, setAdmins] = useState([])
   const [drivers, setDrivers] = useState([])
   const [stats, setStats] = useState({ active_admins: 0, active_drivers: 0 })
-  const [confirm, setConfirm] = useState(null)
   const [restoreTarget, setRestoreTarget] = useState(null)
   const [restoring, setRestoring] = useState(false)
   const [adminPage, setAdminPage] = useState(1)
@@ -110,28 +107,6 @@ export default function ArchivePage({ embedded = false }) {
       console.error(err)
     } finally {
       setRestoring(false)
-    }
-  }
-
-  function askDelete(type, item) {
-    setConfirm({
-      type,
-      item,
-      message:
-        type === 'admin'
-          ? `Are you sure you're going to permanently delete ${item.name} as admin?`
-          : `Are you sure you're going to permanently delete ${item.name} as Driver?`,
-    })
-  }
-
-  async function doDelete() {
-    if (!confirm?.item?.db_id) return
-    try {
-      await archiveApi.destroy(confirm.item.db_id)
-      await loadArchive()
-      setConfirm(null)
-    } catch (err) {
-      console.error(err)
     }
   }
 
@@ -195,9 +170,6 @@ export default function ArchivePage({ embedded = false }) {
                       <div className="ar-actions" style={{ justifyContent: 'flex-end' }}>
                         <button type="button" className="ar-icon restore" aria-label="Restore" onClick={() => setRestoreTarget({ type: 'admin', item: a })}>
                           <LuRotateCcw size={15} />
-                        </button>
-                        <button type="button" className="ar-icon danger" aria-label="Delete" onClick={() => askDelete('admin', a)}>
-                          <LuTrash2 size={15} />
                         </button>
                       </div>
                     </td>
@@ -282,9 +254,6 @@ export default function ArchivePage({ embedded = false }) {
                         <button type="button" className="ar-icon restore" aria-label="Restore" onClick={() => setRestoreTarget({ type: 'driver', item: d })}>
                           <LuRotateCcw size={15} />
                         </button>
-                        <button type="button" className="ar-icon danger" aria-label="Delete" onClick={() => askDelete('driver', d)}>
-                          <LuTrash2 size={15} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -331,29 +300,6 @@ export default function ArchivePage({ embedded = false }) {
           </div>
         </div>
       </section>
-
-      {confirm && (
-        <div className="ar-backdrop" onClick={() => setConfirm(null)} role="presentation">
-          <div className="ar-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="ar-modal-head">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <LuTriangleAlert size={22} color="#EF4444" />
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1C1B18' }}>Warning</h2>
-              </div>
-              <button type="button" className="ar-modal-close-circle" onClick={() => setConfirm(null)} aria-label="Close">
-                <LuX size={18} />
-              </button>
-            </div>
-            <div style={{ padding: '20px 24px' }}>
-              <p style={{ margin: 0, fontSize: 14, color: '#4B5563', lineHeight: 1.5 }}>{confirm.message}</p>
-            </div>
-            <div className="ar-modal-foot">
-              <button type="button" className="ar-btn-cancel" onClick={() => setConfirm(null)}>Cancel</button>
-              <button type="button" className="ar-btn-yes" onClick={doDelete}>Delete Permanently</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {restoreTarget && (
         <ArchiveRestoreModal

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
+import { LuChevronLeft, LuChevronRight, LuTrash2, LuTriangleAlert } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -38,9 +38,9 @@ import './ExpiringStock.css'
  *    - Resolve is fully independent and non-destructive. It can be clicked at any time (even directly from
  *      'Pending review') without Promo, Kitchen, or Waste having been selected first. It updates the disposition
  *      to 'resolved' and sets `resolved_at = now()` while leaving physical stock unchanged.
- *    - Per Prompt 60 guidelines ("If Resolve is confirmed to be independent of the other three and non-destructive,
- *      keep it available on overdue rows too"), Resolve remains available on overdue rows, while Promo and Kitchen
- *      are strictly restricted/blocked on overdue batches both client-side and server-side.
+ *    - Per Prompt 80: for a batch past its expiry date, Resolve is disabled in the UI and rejected on the
+ *      backend with 422 ("This item is expired and can only be marked as Waste."), so overdue batches can
+ *      only be cleared via Waste (with an Archive-style confirmation modal).
  * ============================================================================
  */
 
@@ -69,6 +69,60 @@ function formatDaysUntil(days) {
   return `${days}d left`
 }
 
+function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
+  const [step, setStep] = useState(1)
+  const name = row?.name || 'this item'
+  const batchLabel = row?.batch_no ? ` (Batch ${row.batch_no})` : ''
+  const qtyLabel = `${row?.stock ?? 0} ${row?.unit || ''}`.trim()
+
+  return (
+    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="menu-modal-confirm-card"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`menu-confirm-icon-wrap ${step === 2 ? 'warn' : 'archive'}`}>
+          {step === 2 ? <LuTriangleAlert size={28} /> : <LuTrash2 size={26} />}
+        </div>
+        <h2 className="menu-confirm-title">
+          {step === 2 ? 'Are you sure?' : 'Mark Batch as Waste'}
+        </h2>
+        <p className="menu-confirm-subtext">
+          {step === 1
+            ? `Mark all remaining ${qtyLabel} of "${name}"${batchLabel} as waste? This zeroes out the batch stock, records a spoilage loss in the activity log, and cannot be undone.`
+            : `Are you sure you really want to mark ${qtyLabel} of "${name}"${batchLabel} as waste? This action is permanent and cannot be undone.`}
+        </p>
+        <div className="menu-confirm-actions">
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          {step === 1 ? (
+            <button
+              type="button"
+              className="menu-modal-btn confirm-archive"
+              onClick={() => setStep(2)}
+              disabled={saving}
+            >
+              Confirm Waste
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="menu-modal-btn confirm-archive"
+              onClick={onConfirm}
+              disabled={saving}
+            >
+              {saving ? 'Marking as Waste…' : 'Confirm Waste'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ExpiringStock() {
   const [rows, setRows] = useState([])
   const [page, setPage] = useState(1)
@@ -80,6 +134,7 @@ export default function ExpiringStock() {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [wasteRow, setWasteRow] = useState(null)
   const [promoRow, setPromoRow] = useState(null)
   const [promoMenuId, setPromoMenuId] = useState('')
   const [promoDiscount, setPromoDiscount] = useState('15')
@@ -101,13 +156,16 @@ export default function ExpiringStock() {
     window.dispatchEvent(new Event('mb:inventory-changed'))
   }
 
-  async function markWaste(row) {
-    if (!window.confirm(`Mark all remaining ${row.stock} ${row.unit} of "${row.name}" (Batch ${row.batch_no || row.id}) as waste?`)) {
-      return
-    }
+  function markWaste(row) {
+    setWasteRow(row)
+  }
+
+  async function confirmWaste() {
+    if (!wasteRow) return
     setSaving(true)
     try {
-      await expiringStockApi.markWaste(row.id)
+      await expiringStockApi.markWaste(wasteRow.id)
+      setWasteRow(null)
       await afterAction()
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to mark as waste.')
@@ -133,6 +191,10 @@ export default function ExpiringStock() {
   }
 
   async function resolveRow(row) {
+    if (row.days_until_expiry != null && row.days_until_expiry < 0) {
+      alert('This item is expired and can only be marked as Waste.')
+      return
+    }
     setSaving(true)
     try {
       await expiringStockApi.resolve(row.id)
@@ -347,9 +409,13 @@ export default function ExpiringStock() {
                           <button
                             type="button"
                             className="exp-action resolve"
-                            disabled={saving}
+                            disabled={saving || isOverdue}
                             onClick={() => resolveRow(row)}
-                            title="Resolve disposition"
+                            title={
+                              isOverdue
+                                ? 'This item is expired and can only be marked as Waste.'
+                                : 'Resolve disposition'
+                            }
                           >
                             Resolve
                           </button>
@@ -400,6 +466,15 @@ export default function ExpiringStock() {
           </div>
         </div>
       </section>
+
+      {wasteRow && (
+        <WasteConfirmModal
+          row={wasteRow}
+          saving={saving}
+          onClose={() => setWasteRow(null)}
+          onConfirm={confirmWaste}
+        />
+      )}
 
       {promoRow && (
         <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">

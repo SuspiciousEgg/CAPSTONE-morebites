@@ -9,17 +9,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Order extends Model
 {
     protected $fillable = [
-        'order_code', 'customer_id', 'customer_name', 'order_type',
-        'total', 'delivery_fee', 'service_fee', 'status', 'cancellation_reason', 'inventory_deducted', 'order_date', 'payment_method', 'payment_status',
+        'order_code', 'customer_id', 'loyalty_customer_id', 'customer_name', 'order_type',
+        'total', 'points_used', 'points_discount', 'delivery_fee', 'service_fee', 'status', 'cancellation_reason', 'inventory_deducted', 'order_date', 'payment_method', 'payment_status',
         'delivery_address', 'dest_lat', 'dest_lng', 'current_lat', 'current_lng', 'driver_id', 'assigned_at', 'delivered_at',
         'proof_of_delivery', 'delivery_minutes', 'delivery_distance_km', 'route_coordinates',
         'food_rating', 'food_comment', 'rider_rating', 'rider_comment', 'rated_at',
+        'customer_rating',
     ];
 
     protected function casts(): array
     {
         return [
             'total' => 'float',
+            'points_used' => 'integer',
+            'points_discount' => 'float',
+            'loyalty_customer_id' => 'integer',
             'delivery_fee' => 'float',
             'service_fee' => 'float',
             'inventory_deducted' => 'boolean',
@@ -27,6 +31,7 @@ class Order extends Model
             'assigned_at' => 'datetime',
             'delivered_at' => 'datetime',
             'rated_at' => 'datetime',
+            'customer_rating' => 'integer',
             'delivery_distance_km' => 'float',
             'dest_lat' => 'float',
             'dest_lng' => 'float',
@@ -44,6 +49,11 @@ class Order extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function loyaltyCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'loyalty_customer_id');
     }
 
     public function driver(): BelongsTo
@@ -103,9 +113,13 @@ class Order extends Model
         return 'RCPT-'.str_pad($digits, 5, '0', STR_PAD_LEFT);
     }
 
+    public function loyaltyEntries(): HasMany
+    {
+        return $this->hasMany(LoyaltyLedger::class);
+    }
+
     /**
-     * Calculate loyalty points earned on order completion using the established
-     * system-wide formula from ReportController (round(total / 2) pts).
+     * Get loyalty points credited for this completed order from the loyalty ledger.
      */
     public function loyaltyPointsEarned(): int
     {
@@ -113,7 +127,11 @@ class Order extends Model
             return 0;
         }
 
-        return (int) round(((float) $this->total) / 2);
+        $entry = $this->relationLoaded('loyaltyEntries')
+            ? $this->loyaltyEntries->firstWhere('type', 'earn')
+            : $this->hasMany(LoyaltyLedger::class)->where('type', 'earn')->first();
+
+        return $entry ? (int) $entry->points : 0;
     }
 }
 

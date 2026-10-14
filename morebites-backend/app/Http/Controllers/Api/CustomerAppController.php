@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\CustomerAddress;
+use App\Models\LoyaltyLedger;
+use App\Models\LoyaltySetting;
 use App\Models\MenuItem;
 use App\Models\Notification;
 use App\Models\Order;
@@ -15,6 +17,7 @@ use App\Models\TrustedDevice;
 use App\Models\User;
 use App\Services\DeliveryRateService;
 use App\Services\InventoryDeductionService;
+use App\Services\LoyaltyService;
 use App\Services\SmsOtpService;
 use App\Services\TopSellingService;
 use App\Services\TrackingService;
@@ -433,6 +436,98 @@ class CustomerAppController extends Controller
         return response()->json(['user' => $this->userPayload($this->customerUser($request))]);
     }
 
+    public function loyalty(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        // Apply lazy expiry first under row lock
+        app(LoyaltyService::class)->lazyCheckExpiry($customer);
+        $customer->refresh();
+
+        $settings = LoyaltySetting::current();
+
+        $entries = LoyaltyLedger::query()
+            ->where('customer_id', $customer->id)
+            ->with('order')
+            ->latest('id')
+            ->get();
+
+        $points = (int) $customer->loyalty_points;
+        $pesoValuePerPoint = (float) $settings->peso_value_per_point;
+        $worth = round($points * $pesoValuePerPoint, 2);
+
+        $spendFormatted = ((float) $settings->spend_per_point == (int) $settings->spend_per_point)
+            ? (string) (int) $settings->spend_per_point
+            : number_format((float) $settings->spend_per_point, 2);
+        $minPoints = (int) $settings->minimum_points_to_redeem;
+        $explanation = "Earn 1 point per ₱{$spendFormatted} on food. Use points to pay up to all of your food total. Minimum {$minPoints} points.";
+
+        $history = $entries->map(function (LoyaltyLedger $entry) {
+            return [
+                'id' => $entry->id,
+                'type' => $entry->type,
+                'points' => (int) $entry->points,
+                'balance_after' => (int) $entry->balance_after,
+                'order_id' => $entry->order_id,
+                'order_code' => $entry->order?->order_code,
+                'note' => $entry->note,
+                'created_at' => $entry->created_at?->toIso8601String(),
+                'date' => $entry->created_at?->format('M j, Y · g:i A'),
+                'date_short' => $entry->created_at?->format('M j, Y'),
+            ];
+        })->values();
+
+        return response()->json([
+            'enabled' => (bool) $settings->enabled,
+            'points' => $points,
+            'peso_value_per_point' => $pesoValuePerPoint,
+            'points_worth' => $worth,
+            'points_worth_label' => '₱'.number_format($worth, 2),
+            'points_expire_at' => $customer->points_expire_at?->toIso8601String(),
+            'expiry_date_label' => $customer->points_expire_at ? $customer->points_expire_at->format('M j, Y') : null,
+            'expiry_days' => (int) $settings->points_expiry_days,
+            'expiry_enabled' => (int) $settings->points_expiry_days > 0,
+            'explanation' => $explanation,
+            'spend_per_point' => (float) $settings->spend_per_point,
+            'minimum_points_to_redeem' => $minPoints,
+            'history' => $history,
+        ]);
+    }
+
+    public function loyaltyHistory(Request $request)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        app(LoyaltyService::class)->lazyCheckExpiry($customer);
+
+        $entries = LoyaltyLedger::query()
+            ->where('customer_id', $customer->id)
+            ->with('order')
+            ->latest('id')
+            ->get();
+
+        $history = $entries->map(function (LoyaltyLedger $entry) {
+            return [
+                'id' => $entry->id,
+                'type' => $entry->type,
+                'points' => (int) $entry->points,
+                'balance_after' => (int) $entry->balance_after,
+                'order_id' => $entry->order_id,
+                'order_code' => $entry->order?->order_code,
+                'note' => $entry->note,
+                'created_at' => $entry->created_at?->toIso8601String(),
+                'date' => $entry->created_at?->format('M j, Y · g:i A'),
+                'date_short' => $entry->created_at?->format('M j, Y'),
+            ];
+        })->values();
+
+        return response()->json([
+            'history' => $history,
+        ]);
+    }
+
     public function updateProfile(Request $request)
     {
         $user = $this->customerUser($request);
@@ -809,6 +904,8 @@ class CustomerAppController extends Controller
             'longitude' => ['nullable', 'numeric'],
             'dest_lng' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
+            'use_points' => ['nullable', 'boolean'],
+            'expected_points' => ['nullable', 'integer'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.name' => ['required', 'string'],
@@ -829,6 +926,10 @@ class CustomerAppController extends Controller
         $service->validateCartAvailability($data['items']);
 
         $order = DB::transaction(function () use ($data, $customer) {
+            $lockedCustomer = Customer::query()->where('id', $customer->id)->lockForUpdate()->first();
+            app(\App\Services\LoyaltyService::class)->lazyCheckExpiry($lockedCustomer);
+            $lockedCustomer->refresh();
+
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $tracking = app(TrackingService::class);
             $rates = app(DeliveryRateService::class);
@@ -853,15 +954,48 @@ class CustomerAppController extends Controller
             }
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
-            $total = $subtotal + $deliveryFee + $serviceFee;
+
+            // Loyalty points redemption
+            $pointsUsed = 0;
+            $pointsDiscount = 0.0;
+            $usePoints = ! empty($data['use_points']);
+
+            if ($usePoints) {
+                $loyaltySettings = LoyaltySetting::current();
+                if ($loyaltySettings->enabled) {
+                    $balance = (int) $lockedCustomer->loyalty_points;
+                    $minPoints = (int) $loyaltySettings->minimum_points_to_redeem;
+
+                    if ($balance < $minPoints) {
+                        throw ValidationException::withMessages([
+                            'points' => ["You need at least {$minPoints} points to redeem (you currently have {$balance} points)."],
+                        ]);
+                    }
+
+                    if (isset($data['expected_points']) && $balance < (int) $data['expected_points']) {
+                        throw ValidationException::withMessages([
+                            'points' => ["Your points balance changed. You now have {$balance} points. Please review your order."],
+                        ]);
+                    }
+
+                    $pesoVal = (float) $loyaltySettings->peso_value_per_point;
+                    $maxPts = (int) ceil($subtotal / $pesoVal);
+                    $pointsUsed = min($balance, $maxPts);
+                    $pointsDiscount = min(round($pointsUsed * $pesoVal, 2), (float) $subtotal);
+                }
+            }
+
+            $total = max(0, $subtotal - $pointsDiscount) + $deliveryFee + $serviceFee;
             $orderCode = $this->nextOrderCode();
 
             $order = Order::query()->create([
                 'order_code' => $orderCode,
-                'customer_id' => $customer->id,
+                'customer_id' => $lockedCustomer->id,
                 'customer_name' => $data['full_name'],
                 'order_type' => 'Online Order',
                 'total' => $total,
+                'points_used' => $pointsUsed,
+                'points_discount' => $pointsDiscount,
                 'delivery_fee' => $deliveryFee,
                 'service_fee' => $serviceFee,
                 'status' => 'Pending',
@@ -873,6 +1007,27 @@ class CustomerAppController extends Controller
                 'delivery_distance_km' => $distanceKm,
                 'delivery_minutes' => max(15, (int) round($distanceKm * 4)),
             ]);
+
+            if ($pointsUsed > 0) {
+                $newBalance = (int) $lockedCustomer->loyalty_points - $pointsUsed;
+                $expiryDays = (int) $loyaltySettings->points_expiry_days;
+                $expiryAt = $expiryDays > 0 ? now()->addDays($expiryDays) : null;
+
+                $lockedCustomer->update([
+                    'loyalty_points' => $newBalance,
+                    'points_expire_at' => $expiryAt,
+                ]);
+
+                LoyaltyLedger::query()->create([
+                    'customer_id' => $lockedCustomer->id,
+                    'order_id' => $order->id,
+                    'type' => 'redeem',
+                    'points' => -$pointsUsed,
+                    'balance_after' => $newBalance,
+                    'note' => "Redeemed {$pointsUsed} points for order {$order->order_code}",
+                    'created_at' => now(),
+                ]);
+            }
 
             foreach ($data['items'] as $item) {
                 OrderItem::query()->create([
@@ -940,6 +1095,8 @@ class CustomerAppController extends Controller
     private function userPayload(User $user): array
     {
         $customer = $this->ensureCustomerRecord($user);
+        app(\App\Services\LoyaltyService::class)->lazyCheckExpiry($customer);
+        $customer->refresh();
 
         return [
             'id' => $user->id,
@@ -954,6 +1111,8 @@ class CustomerAppController extends Controller
             'status' => $user->status,
             'delivery_address' => $customer->delivery_address,
             'customer_code' => $customer->customer_code,
+            'loyalty_points' => (int) $customer->loyalty_points,
+            'points_expire_at' => $customer->points_expire_at?->toIso8601String(),
         ];
     }
 
@@ -1108,6 +1267,8 @@ class CustomerAppController extends Controller
             'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
             'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
             'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
             'points_earned' => $o->loyaltyPointsEarned(),
         ];
     }

@@ -99,9 +99,16 @@ class InventoryDeductionService
                         'inventory_item_id' => $invId,
                         'inventory' => $inventory,
                         'qty' => 0.0,
+                        'item_names' => [],
                     ];
                 }
                 $demands[$invId]['qty'] += $qty;
+                $label = ! empty($lineSize) && $menu->has_sizes
+                    ? "{$menu->name} ({$lineSize})"
+                    : $menu->name;
+                if (! in_array($label, $demands[$invId]['item_names'], true)) {
+                    $demands[$invId]['item_names'][] = $label;
+                }
             }
         }
 
@@ -116,17 +123,27 @@ class InventoryDeductionService
             if ($menuId) {
                 $menu = MenuItem::query()->find($menuId);
                 if ($menu) {
-                    if (! $menu->available) {
-                        throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' is currently unavailable."],
-                        ]);
-                    }
                     $lineQty = (int) (is_array($line) ? ($line['qty'] ?? 1) : $line->qty);
                     $lineSize = is_array($line) ? ($line['size'] ?? null) : $line->size;
+                    $itemLabel = ! empty($lineSize) && $menu->has_sizes
+                        ? "{$menu->name} ({$lineSize})"
+                        : $menu->name;
+
+                    if (! $menu->available || $menu->archived) {
+                        throw ValidationException::withMessages([
+                            'items' => ["The item '{$itemLabel}' is currently unavailable."],
+                        ]);
+                    }
+
                     $reason = $this->unserviceableReason($menu, $lineQty, $lineSize);
                     if ($reason === 'expired') {
                         throw ValidationException::withMessages([
-                            'items' => ["The item '{$menu->name}' cannot be ordered because one or more ingredients are expired."],
+                            'items' => ["The item '{$itemLabel}' cannot be ordered because one or more ingredients are expired."],
+                        ]);
+                    }
+                    if ($reason === 'missing') {
+                        throw ValidationException::withMessages([
+                            'items' => ["The item '{$itemLabel}' is currently unavailable."],
                         ]);
                     }
                 }
@@ -141,10 +158,11 @@ class InventoryDeductionService
             /** @var InventoryItem $inventory */
             $inventory = $demand['inventory'];
             $needed = (float) $demand['qty'];
+            $itemNames = ! empty($demand['item_names']) ? implode(', ', $demand['item_names']) : 'selected item';
 
             if ($inventory->trashed() || $inventory->status === 'Archived') {
                 throw ValidationException::withMessages([
-                    'items' => ["The item containing ingredient '{$inventory->name}' is currently unavailable."],
+                    'items' => ["The item '{$itemNames}' (ingredient '{$inventory->name}') is currently unavailable."],
                 ]);
             }
 
@@ -168,7 +186,7 @@ class InventoryDeductionService
                 $availStr = $this->formatQuantity($available, $stockUnit);
                 $shortStr = $this->formatQuantity($shortfall, $stockUnit);
 
-                $shortfalls[] = "Insufficient stock for {$inventory->name}: needed {$neededStr}, but only {$availStr} available (short by {$shortStr}).";
+                $shortfalls[] = "The item '{$itemNames}' is unavailable — Insufficient stock for {$inventory->name}: needed {$neededStr}, but only {$availStr} available (short by {$shortStr}).";
             }
         }
 
@@ -224,6 +242,25 @@ class InventoryDeductionService
             }
 
             return $this->evaluateIngredientsReason($ingredients, $qty);
+        }
+
+        // When no specific size is requested on a sized item with size-specific recipes,
+        // the item as a whole is serviceable as long as at least one size can be made.
+        if ($item->has_sizes && $item->sizes->isNotEmpty() && $item->ingredients->whereNotNull('menu_item_size_id')->isNotEmpty()) {
+            $reasons = [];
+            foreach ($item->sizes as $sizeModel) {
+                $reason = $this->unserviceableReason($item, $qty, $sizeModel->name);
+                if ($reason === null) {
+                    return null;
+                }
+                $reasons[] = $reason;
+            }
+
+            if (in_array('expired', $reasons, true)) {
+                return 'expired';
+            }
+
+            return $reasons[0] ?? 'insufficient';
         }
 
         return $this->evaluateIngredientsReason($item->ingredients, $qty);
@@ -283,7 +320,7 @@ class InventoryDeductionService
     public function syncMenuAvailability(?Collection $items = null): void
     {
         $items ??= MenuItem::query()
-            ->with(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
+            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
             ->where('archived', false)
             ->get();
 
@@ -293,7 +330,12 @@ class InventoryDeductionService
             }
 
             if (! $this->canServe($item)) {
+                $wasAvailable = (bool) $item->available;
                 $item->update(['available' => false]);
+
+                if ($wasAvailable) {
+                    $this->notifyMenuAutoUnavailable($item);
+                }
             }
         }
     }
@@ -311,26 +353,75 @@ class InventoryDeductionService
         }
 
         $items = MenuItem::query()
-            ->with(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
+            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
             ->whereIn('id', $menuIds)
             ->where('archived', false)
             ->get();
 
         foreach ($items as $item) {
-            $item->update(['available' => $this->canServe($item)]);
+            $wasAvailable = (bool) $item->available;
+            $canServe = $this->canServe($item);
+            $item->update(['available' => $canServe]);
+
+            if ($wasAvailable && ! $canServe) {
+                $this->notifyMenuAutoUnavailable($item, $inventoryItemId);
+            }
         }
     }
 
-    public function disableMenuItems(iterable $menuItemIds): void
+    public function disableMenuItems(iterable $menuItemIds, ?int $triggerInventoryId = null): void
     {
         $ids = collect($menuItemIds)->filter()->unique()->values();
         if ($ids->isEmpty()) {
             return;
         }
 
-        MenuItem::query()
+        $items = MenuItem::query()
+            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
             ->whereIn('id', $ids)
-            ->update(['available' => false]);
+            ->where('archived', false)
+            ->get();
+
+        foreach ($items as $item) {
+            $wasAvailable = (bool) $item->available;
+            $item->update(['available' => false]);
+
+            if ($wasAvailable) {
+                $this->notifyMenuAutoUnavailable($item, $triggerInventoryId);
+            }
+        }
+    }
+
+    private function notifyMenuAutoUnavailable(MenuItem $item, ?int $triggerInventoryId = null): void
+    {
+        $item->loadMissing(['ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])]);
+        $reason = $this->unserviceableReason($item) ?: 'insufficient';
+        $ingredientName = $this->resolveLimitingIngredientName($item, $triggerInventoryId);
+
+        \App\Models\Notification::createMenuUnavailableNotification($item, $ingredientName, $reason);
+    }
+
+    private function resolveLimitingIngredientName(MenuItem $item, ?int $triggerInventoryId = null): string
+    {
+        if ($triggerInventoryId) {
+            $matched = $item->ingredients->firstWhere('inventory_item_id', $triggerInventoryId);
+            if ($matched?->inventoryItem?->name) {
+                return $matched->inventoryItem->name;
+            }
+            $inv = InventoryItem::withTrashed()->find($triggerInventoryId);
+            if ($inv?->name) {
+                return $inv->name;
+            }
+        }
+
+        foreach ($item->ingredients as $ingredient) {
+            $singleReason = $this->evaluateIngredientsReason([$ingredient], 1);
+            if ($singleReason !== null && $ingredient->inventoryItem?->name) {
+                return $ingredient->inventoryItem->name;
+            }
+        }
+
+        return $item->ingredients->first()?->inventoryItem?->name ?? 'linked ingredient';
     }
 
     public function deductForOrder(Order $order): void

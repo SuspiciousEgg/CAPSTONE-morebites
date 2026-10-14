@@ -11,11 +11,16 @@ class Customer extends Model
     protected $fillable = [
         'user_id', 'customer_code', 'full_name', 'phone', 'email', 'password',
         'delivery_address', 'status', 'registered_at',
+        'loyalty_points', 'points_expire_at',
     ];
 
     protected function casts(): array
     {
-        return ['registered_at' => 'datetime'];
+        return [
+            'registered_at' => 'datetime',
+            'loyalty_points' => 'integer',
+            'points_expire_at' => 'datetime',
+        ];
     }
 
     public function user(): BelongsTo
@@ -31,6 +36,11 @@ class Customer extends Model
     public function addresses(): HasMany
     {
         return $this->hasMany(CustomerAddress::class);
+    }
+
+    public function loyaltyLedgerEntries(): HasMany
+    {
+        return $this->hasMany(LoyaltyLedger::class);
     }
 
     public static function generateCustomerCode(): string

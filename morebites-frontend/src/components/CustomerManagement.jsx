@@ -155,7 +155,9 @@ export default function CustomerManagement() {
     customersApi
       .show(selected.db_id)
       .then((r) => {
-        setOrderHistory(r.data?.data?.order_history || [])
+        const data = r.data?.data || {}
+        setOrderHistory(data.order_history || [])
+        setSelected((prev) => (prev ? { ...prev, ...data } : prev))
       })
       .catch(() => setOrderHistory([]))
   }, [selected?.db_id])
@@ -476,10 +478,31 @@ export default function CustomerManagement() {
                     <span className="cm-info-label">Date Registered</span>
                     <span className="cm-info-value">{selected.registered || '—'}</span>
                   </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Loyalty Balance</span>
+                    <span className="cm-info-value" style={{ color: '#EA580C', fontWeight: 700 }}>
+                      {(selected.loyalty_points ?? 0).toLocaleString()} pts
+                    </span>
+                  </div>
+                  <div className="cm-info-card">
+                    <span className="cm-info-label">Points Expiry</span>
+                    <span className={`cm-info-value${selected.points_expired ? ' cm-expired' : !selected.points_expire_at ? ' cm-empty' : ''}`}>
+                      {selected.points_expired
+                        ? 'Expired'
+                        : (selected.points_expire_at || 'No expiry')}
+                    </span>
+                  </div>
                   <div className="cm-info-card cm-span-2">
                     <span className="cm-info-label">Delivery Address</span>
                     <span className={`cm-info-value${!selected.address ? ' cm-empty' : ''}`}>
                       {selected.address || 'Not provided yet'}
+                    </span>
+                  </div>
+                  <div className="cm-info-card cm-span-2">
+                    <span className="cm-info-label">Rider Rating</span>
+                    <span className="cm-info-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {selected.rider_rating_avg ? <LuStar size={14} color="#F59E0B" fill="#F59E0B" /> : null}
+                      <span>{selected.rider_rating_text || 'No ratings yet'}</span>
                     </span>
                   </div>
                 </div>

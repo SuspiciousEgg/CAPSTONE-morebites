@@ -463,4 +463,111 @@ class WholeCartIngredientAggregationTest extends TestCase
         $this->assertEquals(0.1, round((float) $batch->fresh()->stock, 4));
         $this->assertEquals(0.1, round((float) $mozzarella->fresh()->stock, 4));
     }
+
+    public function test_pos_menu_options_includes_unavailable_items_and_per_size_availability(): void
+    {
+        $admin = $this->createAdminUser();
+        Sanctum::actingAs($admin);
+
+        // Dough: 0.25 kg available (enough for Small = 0.20 kg, not enough for Large = 0.40 kg)
+        $dough = InventoryItem::query()->create([
+            'name' => 'Pizza Dough',
+            'category' => 'Bakery',
+            'stock' => 0.25,
+            'unit' => 'kg',
+            'reorder_level' => 0.1,
+            'status' => 'In Stock',
+            'date_placed' => now()->toDateString(),
+        ]);
+
+        InventoryBatch::query()->create([
+            'inventory_item_id' => $dough->id,
+            'batch_no' => 'BATCH-DOUGH-001',
+            'stock' => 0.25,
+            'initial_stock' => 0.25,
+            'expiry_date' => now()->addDays(5)->toDateString(),
+            'date_placed' => now()->toDateString(),
+            'status' => 'Good',
+        ]);
+
+        $manuallyDisabled = MenuItem::query()->create([
+            'name' => 'Garlic Bread',
+            'category' => 'Sides',
+            'price' => 95,
+            'available' => false,
+            'archived' => false,
+        ]);
+
+        $sizedPizza = MenuItem::query()->create([
+            'name' => 'Margherita Pizza',
+            'category' => 'Pizza',
+            'price' => 250,
+            'has_sizes' => true,
+            'available' => true,
+            'archived' => false,
+        ]);
+
+        $smallSize = MenuItemSize::query()->create([
+            'menu_item_id' => $sizedPizza->id,
+            'name' => 'Small',
+            'price' => 250,
+        ]);
+
+        $largeSize = MenuItemSize::query()->create([
+            'menu_item_id' => $sizedPizza->id,
+            'name' => 'Large',
+            'price' => 380,
+        ]);
+
+        MenuItemIngredient::query()->create([
+            'menu_item_id' => $sizedPizza->id,
+            'menu_item_size_id' => $smallSize->id,
+            'inventory_item_id' => $dough->id,
+            'qty_per_serving' => 0.20,
+            'unit' => 'kg',
+        ]);
+
+        MenuItemIngredient::query()->create([
+            'menu_item_id' => $sizedPizza->id,
+            'menu_item_size_id' => $largeSize->id,
+            'inventory_item_id' => $dough->id,
+            'qty_per_serving' => 0.40,
+            'unit' => 'kg',
+        ]);
+
+        $res = $this->getJson('/api/orders/menu-options');
+        $res->assertOk();
+
+        $catalog = collect($res->json('data'));
+
+        $garlicEntry = $catalog->firstWhere('id', $manuallyDisabled->id);
+        $this->assertNotNull($garlicEntry);
+        $this->assertFalse($garlicEntry['available']);
+
+        $pizzaEntry = $catalog->firstWhere('id', $sizedPizza->id);
+        $this->assertNotNull($pizzaEntry);
+        $this->assertTrue($pizzaEntry['available']);
+
+        $sizes = collect($pizzaEntry['sizes']);
+        $this->assertTrue($sizes->firstWhere('name', 'Small')['available']);
+        $this->assertFalse($sizes->firstWhere('name', 'Large')['available']);
+
+        // Attempting to order Large must be rejected naming Margherita Pizza (Large)
+        $orderRes = $this->postJson('/api/orders', [
+            'customer_name' => 'Walk-in Guest',
+            'order_type' => 'Dine-in',
+            'items' => [
+                [
+                    'menu_item_id' => $sizedPizza->id,
+                    'name' => 'Margherita Pizza',
+                    'size' => 'Large',
+                    'qty' => 1,
+                    'unit_price' => 380,
+                ],
+            ],
+        ]);
+
+        $orderRes->assertStatus(422);
+        $this->assertStringContainsString('Margherita Pizza (Large)', $orderRes->json('errors.items.0'));
+    }
 }

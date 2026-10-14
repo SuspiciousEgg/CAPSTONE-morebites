@@ -84,5 +84,51 @@ class DynamicPageAccessTest extends TestCase
         $this->getJson('/api/inventory')->assertStatus(200);
         $this->getJson('/api/dispatch')->assertStatus(403);
     }
+
+    public function test_account_and_settings_are_strictly_owner_only(): void
+    {
+        $superAdmin = User::factory()->create([
+            'role' => 'super_admin',
+            'status' => 'Active',
+        ]);
+
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'status' => 'Active',
+            // Even if explicitly set in factory/DB:
+            'allowed_pages' => ['Account', 'Settings', 'Orders'],
+        ]);
+
+        // Non-super_admin resolvedAllowedPages strips Account and Settings
+        $this->assertNotContains('Account', $admin->resolvedAllowedPages());
+        $this->assertNotContains('Settings', $admin->resolvedAllowedPages());
+        $this->assertFalse($admin->hasPageAccess('Account'));
+        $this->assertFalse($admin->hasPageAccess('Settings'));
+
+        // Non-super_admin calling Account endpoints gets 403
+        Sanctum::actingAs($admin);
+        $this->getJson('/api/accounts')->assertStatus(403);
+        $this->getJson('/api/archive')->assertStatus(403);
+        $this->getJson('/api/blacklist')->assertStatus(403);
+
+        // Non-super_admin attempting to restore an archived user gets 403
+        $archived = User::factory()->create([
+            'role' => 'driver',
+            'archived_at' => now(),
+        ]);
+        $this->postJson("/api/archive/{$archived->id}/restore")->assertStatus(403);
+
+        // Non-super_admin attempting to blacklist driver gets 403
+        $driver = User::factory()->create(['role' => 'driver', 'status' => 'Active']);
+        $this->postJson("/api/drivers/{$driver->id}/blacklist", ['reason' => 'Test'])->assertStatus(403);
+
+        // Super-admin patching allowed_pages with Account or Settings strips them for non-super_admin
+        Sanctum::actingAs($superAdmin);
+        $res = $this->patchJson("/api/accounts/{$admin->id}/allowed-pages", [
+            'allowed_pages' => ['Dashboard', 'Account', 'Settings', 'Menu'],
+        ]);
+        $res->assertStatus(200);
+        $this->assertEquals(['Dashboard', 'Menu'], $admin->fresh()->resolvedAllowedPages());
+    }
 }
 

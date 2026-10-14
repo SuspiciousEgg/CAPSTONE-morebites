@@ -329,12 +329,137 @@ class Notification extends Model
         return $adminNotification;
     }
 
+    public static function createRiderIssueNotification(Order $order, User $driver, string $issue, ?string $notes = null): self
+    {
+        $rawCode = (string) $order->order_code;
+        $code = str_starts_with($rawCode, '#') ? $rawCode : '#'.$rawCode;
+        $riderName = $driver->name ?: 'Rider';
+
+        $title = "Rider {$riderName} reported issue on {$code}";
+        $message = "Rider {$riderName} reported '{$issue}' on Order {$code}".($notes ? ": {$notes}" : '.');
+
+        $existing = self::query()
+            ->whereNull('user_id')
+            ->where('type', 'rider_issue')
+            ->where(function ($q) use ($order, $code) {
+                $q->where('data->order_id', $order->id)
+                    ->orWhere('data->order_id', (string) $order->id)
+                    ->orWhere('data->order_code', $code);
+            })
+            ->where(function ($q) use ($issue, $title) {
+                $q->where('data->issue', $issue)
+                    ->orWhere('title', $title);
+            })
+            ->where('message', $message)
+            ->latest('id')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return self::create([
+            'user_id' => null,
+            'title' => $title,
+            'message' => $message,
+            'type' => 'rider_issue',
+            'tab' => 'Dispatch',
+            'nav' => 'Dispatch',
+            'is_read' => false,
+            'data' => [
+                'order_id' => $order->id,
+                'order_code' => $code,
+                'driver_id' => $driver->id,
+                'driver_name' => $riderName,
+                'issue' => $issue,
+                'notes' => $notes,
+            ],
+        ]);
+    }
+
+    public static function createMenuUnavailableNotification(MenuItem $item, string $ingredientName, ?string $reason = null): self
+    {
+        $reasonText = match ($reason) {
+            'expired' => "expired ingredient stock for {$ingredientName}",
+            'missing' => "missing ingredient {$ingredientName}",
+            default => "insufficient stock for {$ingredientName}",
+        };
+
+        $title = "Menu item unavailable: {$item->name}";
+        $message = "{$item->name} was automatically marked unavailable due to {$reasonText}.";
+
+        $existing = self::query()
+            ->whereNull('user_id')
+            ->where('type', 'menu_unavailable')
+            ->where(function ($q) use ($item) {
+                $q->where('data->menu_item_id', $item->id)
+                    ->orWhere('data->menu_item_id', (string) $item->id);
+            })
+            ->where('title', $title)
+            ->where('created_at', '>=', now()->subMinutes(10))
+            ->latest('id')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return self::create([
+            'user_id' => null,
+            'title' => $title,
+            'message' => $message,
+            'type' => 'menu_unavailable',
+            'tab' => 'Menu',
+            'nav' => 'Menu',
+            'is_read' => false,
+            'data' => [
+                'menu_item_id' => $item->id,
+                'menu_item_name' => $item->name,
+                'ingredient_name' => $ingredientName,
+                'reason' => $reason,
+            ],
+        ]);
+    }
+
+    public static function notifyIfLowStock(InventoryItem $item): ?self
+    {
+        if ($item->status === 'Archived' || $item->trashed()) {
+            return null;
+        }
+
+        if ((float) $item->stock > (float) $item->reorder_level) {
+            return null;
+        }
+
+        return self::createLowStockNotification($item);
+    }
+
     public static function createLowStockNotification(InventoryItem $item): self
     {
+        $hasRecent = self::query()
+            ->whereNull('user_id')
+            ->where('type', 'low_stock')
+            ->where(function ($q) use ($item) {
+                $q->where('data->inventory_item_id', $item->id)
+                    ->orWhere('data->inventory_item_id', (string) $item->id);
+            })
+            ->where('created_at', '>=', now()->subHours(12))
+            ->latest('id')
+            ->first();
+
+        if ($hasRecent) {
+            return $hasRecent;
+        }
+
+        $stockFormatted = rtrim(rtrim(number_format((float) $item->stock, 4, '.', ''), '0'), '.');
+        if ($stockFormatted === '' || $stockFormatted === '-0') {
+            $stockFormatted = '0';
+        }
+
         return self::create([
             'user_id' => null,
             'title' => "Low stock alert: {$item->name}",
-            'message' => "Only {$item->stock} {$item->unit} remaining in stock.",
+            'message' => "Only {$stockFormatted} {$item->unit} remaining in stock.",
             'type' => 'low_stock',
             'tab' => 'Inventory',
             'nav' => 'Inventory',
@@ -342,7 +467,8 @@ class Notification extends Model
             'data' => [
                 'inventory_item_id' => $item->id,
                 'item_name' => $item->name,
-                'stock' => $item->stock,
+                'stock' => (float) $item->stock,
+                'reorder_level' => (float) $item->reorder_level,
             ],
         ]);
     }

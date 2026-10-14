@@ -12,6 +12,8 @@ class BlacklistController extends Controller
 {
     public function index(Request $request)
     {
+        $this->ensureSuperAdmin($request);
+
         $query = DriverBlacklist::query()
             ->with('driver')
             ->whereHas('driver', fn ($q) => $q->whereNotNull('archived_at'))
@@ -31,13 +33,17 @@ class BlacklistController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function show(DriverBlacklist $blacklist)
+    public function show(Request $request, DriverBlacklist $blacklist)
     {
+        $this->ensureSuperAdmin($request);
+
         return response()->json(['data' => $this->transform($blacklist)]);
     }
 
     public function updateNotes(Request $request, DriverBlacklist $blacklist)
     {
+        $this->ensureSuperAdmin($request);
+
         $data = $request->validate([
             'notes' => ['nullable', 'string'],
         ]);
@@ -49,6 +55,8 @@ class BlacklistController extends Controller
 
     public function unblacklist(Request $request, DriverBlacklist $blacklist)
     {
+        $this->ensureSuperAdmin($request);
+
         $driver = $blacklist->driver ?: User::find($blacklist->driver_id);
         if ($driver) {
             $driver->update([
@@ -67,6 +75,13 @@ class BlacklistController extends Controller
         return response()->json([
             'message' => 'Driver has been reinstated and restored to active drivers.',
         ]);
+    }
+
+    private function ensureSuperAdmin(Request $request): void
+    {
+        if ($request->user()?->role !== 'super_admin') {
+            abort(403, 'Only the Owner can archive or blocklist accounts.');
+        }
     }
 
     private function transform(DriverBlacklist $d): array

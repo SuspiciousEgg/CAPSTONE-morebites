@@ -27,6 +27,17 @@ return new class extends Migration
             'Settings',
         ];
 
+        $adminPages = [
+            'Dashboard',
+            'Orders',
+            'Menu',
+            'Inventory',
+            'Dispatch',
+            'Reports',
+            'Driver',
+            'Customers',
+        ];
+
         $cashierPages = [
             'Dashboard',
             'Orders',
@@ -39,10 +50,11 @@ return new class extends Migration
 
         foreach (DB::table('users')->get() as $user) {
             $pages = match ($user->role) {
-                'super_admin', 'admin' => $allPages,
+                'super_admin' => $allPages,
+                'admin' => $adminPages,
                 'cashier' => $cashierPages,
                 'driver' => ['Dashboard'],
-                default => $allPages,
+                default => $adminPages,
             };
 
             DB::table('users')->where('id', $user->id)->update([

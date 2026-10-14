@@ -78,6 +78,7 @@ export const ordersApi = {
   updateStatus: (id, payload) =>
     api.patch(`/orders/${id}/status`, typeof payload === 'string' ? { status: payload } : payload),
   menuOptions: () => api.get('/orders/menu-options'),
+  lookupLoyalty: (phone) => api.get('/orders/lookup-loyalty', { params: { phone } }),
 }
 
 export function mediaUrl(path) {
@@ -152,6 +153,13 @@ export const deliveryRatesApi = {
   create: (payload) => api.post('/delivery-rates', payload),
   update: (id, payload) => api.put(`/delivery-rates/${id}`, payload),
   remove: (id) => api.delete(`/delivery-rates/${id}`),
+}
+
+export const loyaltySettingsApi = {
+  get: () => api.get('/loyalty-settings'),
+  update: (payload) => api.put('/loyalty-settings', payload),
+  rates: () => api.get('/loyalty/rates'),
+  history: (params) => api.get('/loyalty-settings/history', { params }),
 }
 
 export const reportsApi = {

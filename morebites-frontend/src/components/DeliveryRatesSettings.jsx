@@ -3,6 +3,7 @@ import { LuPencil, LuX, LuCalculator } from 'react-icons/lu'
 import { IconClose, IconEdit } from './Icons'
 import { deliveryRatesApi } from '../api/client'
 import EmptyState from './EmptyState'
+import LoyaltySettingsSection from './LoyaltySettingsSection'
 import './DeliveryRatesSettings.css'
 
 const EMPTY = {
@@ -78,7 +79,7 @@ export default function DeliveryRatesSettings() {
         <div>
           <h1>Settings</h1>
           <p className="dr-sub">
-            Delivery rate table — distance-based pricing tiers (capped at 10 km maximum delivery radius)
+            Store configuration — delivery distance tiers and customer loyalty program
           </p>
         </div>
       </header>
@@ -196,6 +197,8 @@ export default function DeliveryRatesSettings() {
           </div>
         ) : null}
       </section>
+
+      <LoyaltySettingsSection />
 
       {modal && (
         <div className="dr-backdrop" onClick={() => setModal(null)} role="presentation">

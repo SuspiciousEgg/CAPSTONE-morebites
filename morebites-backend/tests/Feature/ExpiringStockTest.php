@@ -110,14 +110,14 @@ class ExpiringStockTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertEquals(0, (float) $inventory->fresh()->stock);
-        $this->assertEquals('Expired', $inventory->fresh()->status);
+        $this->assertEquals('Expired', $inventory->batches()->first()?->status);
         $this->assertEquals(
             InventoryDisposition::WASTE,
             $inventory->fresh()->dispositions()->latest('id')->first()?->disposition
         );
     }
 
-    public function test_overdue_inventory_allows_resolve(): void
+    public function test_overdue_inventory_rejects_resolve_with_422(): void
     {
         $admin = $this->createAdminUser();
 
@@ -134,14 +134,24 @@ class ExpiringStockTest extends TestCase
 
         $response = $this->actingAs($admin)->postJson("/api/inventory/{$inventory->id}/expiring/resolve");
 
-        $response->assertStatus(200);
+        $response->assertStatus(422);
         $this->assertEquals(
-            InventoryDisposition::RESOLVED,
-            $inventory->fresh()->dispositions()->latest('id')->first()?->disposition
+            'This item is expired and can only be marked as Waste.',
+            $response->json('message')
+        );
+
+        $batch = $inventory->batches()->first();
+        $this->assertNotNull($batch);
+
+        $batchRes = $this->actingAs($admin)->postJson("/api/inventory/batches/{$batch->id}/expiring/resolve");
+        $batchRes->assertStatus(422);
+        $this->assertEquals(
+            'This item is expired and can only be marked as Waste.',
+            $batchRes->json('message')
         );
     }
 
-    public function test_non_overdue_inventory_allows_kitchen_priority_and_promo(): void
+    public function test_non_overdue_inventory_allows_kitchen_priority_promo_and_resolve(): void
     {
         $admin = $this->createAdminUser();
 
@@ -188,6 +198,14 @@ class ExpiringStockTest extends TestCase
         $promoRes->assertStatus(200);
         $this->assertEquals(
             InventoryDisposition::PROMO,
+            $inventory->fresh()->dispositions()->latest('id')->first()?->disposition
+        );
+
+        // Resolve allowed on non-overdue batch
+        $resolveRes = $this->actingAs($admin)->postJson("/api/inventory/{$inventory->id}/expiring/resolve");
+        $resolveRes->assertStatus(200);
+        $this->assertEquals(
+            InventoryDisposition::RESOLVED,
             $inventory->fresh()->dispositions()->latest('id')->first()?->disposition
         );
     }

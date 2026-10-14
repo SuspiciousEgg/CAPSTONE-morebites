@@ -9,8 +9,10 @@ use Illuminate\Http\Request;
 
 class ArchiveController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $this->ensureSuperAdmin($request);
+
         $admins = User::query()
             ->whereIn('role', ['super_admin', 'admin'])
             ->whereNotNull('archived_at')
@@ -49,8 +51,10 @@ class ArchiveController extends Controller
         ]);
     }
 
-    public function restore(User $user)
+    public function restore(Request $request, User $user)
     {
+        $this->ensureSuperAdmin($request);
+
         if ($user->role === 'driver') {
             DriverBlacklist::query()->where('driver_id', $user->id)->delete();
         }
@@ -65,19 +69,15 @@ class ArchiveController extends Controller
 
     public function destroy(Request $request, User $user)
     {
-        if ((int) $request->user()?->id === (int) $user->id) {
-            return response()->json([
-                'message' => 'You cannot delete your own account',
-            ], 422);
+        return response()->json([
+            'message' => 'Permanent deletion is disabled. Accounts can only be archived or restored.',
+        ], 403);
+    }
+
+    private function ensureSuperAdmin(Request $request): void
+    {
+        if ($request->user()?->role !== 'super_admin') {
+            abort(403, 'Only the Owner can archive or blocklist accounts.');
         }
-
-        if ($user->role === 'driver') {
-            DriverBlacklist::query()->where('driver_id', $user->id)->delete();
-        }
-
-        $user->tokens()->delete();
-        $user->delete();
-
-        return response()->json(['message' => 'Deleted']);
     }
 }

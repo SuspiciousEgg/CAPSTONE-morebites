@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -52,7 +53,21 @@ export default function CheckoutScreen() {
   const [serviceFee, setServiceFee] = useState(20);
   const [feeQuote, setFeeQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
-  const total = cartTotal + deliveryFee + serviceFee;
+
+  const [loyalty, setLoyalty] = useState(null);
+  const [usePoints, setUsePoints] = useState(false);
+
+  const balance = Number(loyalty?.points || 0);
+  const pesoValue = Number(loyalty?.peso_value_per_point || 0.1);
+  const minPoints = Number(loyalty?.minimum_points_to_redeem || 100);
+  const loyaltyEnabled = loyalty?.enabled !== false;
+  const canRedeem = loyaltyEnabled && balance >= minPoints;
+  const pointsNeeded = Math.max(0, minPoints - balance);
+
+  const maxPointsNeeded = Math.ceil(cartTotal / (pesoValue || 0.1));
+  const pointsUsed = usePoints && canRedeem ? Math.min(balance, maxPointsNeeded) : 0;
+  const pointsDiscount = usePoints && canRedeem ? Math.min(pointsUsed * pesoValue, cartTotal) : 0;
+  const total = Math.max(0, cartTotal - pointsDiscount) + deliveryFee + serviceFee;
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -95,6 +110,23 @@ export default function CheckoutScreen() {
       });
     }
   };
+
+  const loadLoyalty = useCallback(async () => {
+    try {
+      const res = await customerApi.loyalty();
+      if (res) {
+        setLoyalty(res);
+      }
+    } catch (err) {
+      console.warn("[Checkout] Failed to load loyalty data:", err?.message || err);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLoyalty();
+    }, [loadLoyalty])
+  );
 
   useEffect(() => {
     fetchDeliveryFees().then((fees) => {
@@ -301,6 +333,8 @@ export default function CheckoutScreen() {
         latitude: coordinates?.latitude ?? null,
         longitude: coordinates?.longitude ?? null,
         payment_method: "COD",
+        use_points: usePoints && canRedeem,
+        expected_points: loyalty?.points ?? null,
         items: cartItems.map((item) => ({
           menu_item_id: item.db_id ?? (Number(item.id) || null),
           name: item.name,
@@ -317,6 +351,8 @@ export default function CheckoutScreen() {
         db_id: placed?.db_id,
         items: cartItems,
         total: placed?.total ?? total,
+        points_used: placed?.points_used ?? pointsUsed,
+        points_discount: placed?.points_discount ?? pointsDiscount,
         delivery_fee: placed?.delivery_fee ?? deliveryFee,
         service_fee: placed?.service_fee ?? serviceFee,
         fullName,
@@ -339,6 +375,7 @@ export default function CheckoutScreen() {
       });
     } catch (err) {
       Alert.alert("Order failed", err.message || "Could not place order. Please try again.");
+      loadLoyalty();
     } finally {
       setSubmitting(false);
     }
@@ -549,6 +586,49 @@ export default function CheckoutScreen() {
           onBlur={blurField}
         />
 
+        {/* Loyalty Points Redemption Card */}
+        {loyalty && loyaltyEnabled ? (
+          <View style={styles.loyaltyRedeemCard}>
+            <View style={styles.loyaltyRedeemTop}>
+              <View style={styles.loyaltyRedeemIconWrap}>
+                <Ionicons name="ribbon-outline" size={20} color={PRIMARY} />
+              </View>
+              <View style={styles.loyaltyRedeemInfo}>
+                <Text style={styles.loyaltyRedeemTitle}>MoreBites Loyalty</Text>
+                {canRedeem ? (
+                  <Text style={styles.loyaltyRedeemSubtitle}>
+                    You have {balance} points (worth ₱{(balance * pesoValue).toFixed(2)})
+                  </Text>
+                ) : (
+                  <Text style={styles.loyaltyRedeemWarning}>
+                    You have {balance} points. Earn {pointsNeeded} more points to use points at checkout (minimum {minPoints}).
+                  </Text>
+                )}
+              </View>
+              {canRedeem ? (
+                <View style={styles.toggleWrap}>
+                  <Text style={styles.toggleLabel}>Use my points</Text>
+                  <Switch
+                    value={usePoints}
+                    onValueChange={setUsePoints}
+                    trackColor={{ false: "#D1D5DB", true: "#FDBA74" }}
+                    thumbColor={usePoints ? PRIMARY : "#F4F3F4"}
+                  />
+                </View>
+              ) : null}
+            </View>
+
+            {canRedeem && usePoints ? (
+              <View style={styles.loyaltyAppliedWrap}>
+                <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
+                <Text style={styles.loyaltyAppliedText}>
+                  Using {pointsUsed} points for ₱{Number(pointsDiscount).toFixed(2)} discount on food
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.feeCard}>
           <View style={styles.feeHeader}>
             <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
@@ -590,6 +670,16 @@ export default function CheckoutScreen() {
                     <Text style={styles.feeLabel}>Subtotal</Text>
                     <Text style={styles.feeValue}>₱{Number(cartTotal).toFixed(2)}</Text>
                   </View>
+                  {usePoints && pointsDiscount > 0 ? (
+                    <View style={styles.feeRow}>
+                      <Text style={[styles.feeLabel, { color: "#16A34A", fontWeight: "600" }]}>
+                        Points discount ({pointsUsed} pts)
+                      </Text>
+                      <Text style={[styles.feeValue, { color: "#16A34A", fontWeight: "700" }]}>
+                        -₱{Number(pointsDiscount).toFixed(2)}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.feeRow}>
                     <Text style={styles.feeLabel}>Delivery fee</Text>
                     <Text style={styles.feeValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
@@ -598,6 +688,14 @@ export default function CheckoutScreen() {
                     <Text style={styles.feeLabel}>Service fee</Text>
                     <Text style={styles.feeValue}>₱{Number(serviceFee).toFixed(2)}</Text>
                   </View>
+                  {usePoints && pointsDiscount >= cartTotal ? (
+                    <View style={styles.feesToPayBanner}>
+                      <Ionicons name="sparkles" size={14} color="#D97706" />
+                      <Text style={styles.feesToPayText}>
+                        Fees to pay: ₱{Number(deliveryFee + serviceFee).toFixed(2)}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.feeDivider} />
                   <View style={styles.feeTotalRow}>
                     <Text style={styles.feeTotalLabel}>Total Amount</Text>
@@ -670,6 +768,20 @@ export default function CheckoutScreen() {
               ))}
               <View style={styles.sheetDivider} />
               <View style={styles.sheetRow}>
+                <Text style={styles.sheetSummaryLabel}>Subtotal</Text>
+                <Text style={styles.sheetSummaryValue}>₱{Number(cartTotal).toFixed(2)}</Text>
+              </View>
+              {usePoints && pointsDiscount > 0 ? (
+                <View style={styles.sheetRow}>
+                  <Text style={[styles.sheetSummaryLabel, { color: "#16A34A" }]}>
+                    Points discount ({pointsUsed} pts)
+                  </Text>
+                  <Text style={[styles.sheetSummaryValue, { color: "#16A34A" }]}>
+                    -₱{Number(pointsDiscount).toFixed(2)}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.sheetRow}>
                 <Text style={styles.sheetSummaryLabel}>Delivery fee</Text>
                 <Text style={styles.sheetSummaryValue}>₱{Number(deliveryFee).toFixed(2)}</Text>
               </View>
@@ -677,6 +789,14 @@ export default function CheckoutScreen() {
                 <Text style={styles.sheetSummaryLabel}>Service fee</Text>
                 <Text style={styles.sheetSummaryValue}>₱{Number(serviceFee).toFixed(2)}</Text>
               </View>
+              {usePoints && pointsDiscount >= cartTotal ? (
+                <View style={styles.feesToPayBanner}>
+                  <Ionicons name="sparkles" size={14} color="#D97706" />
+                  <Text style={styles.feesToPayText}>
+                    Fees to pay: ₱{Number(deliveryFee + serviceFee).toFixed(2)}
+                  </Text>
+                </View>
+              ) : null}
               {feeQuote?.formula ? (
                 <Text style={styles.sheetFormula}>{feeQuote.formula}</Text>
               ) : null}
@@ -1310,6 +1430,93 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontFamily: FONT,
     fontSize: 15,
+    fontWeight: "700",
+  },
+  loyaltyRedeemCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+    padding: 14,
+    marginBottom: 16,
+  },
+  loyaltyRedeemTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  loyaltyRedeemIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFEDD5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  loyaltyRedeemInfo: {
+    flex: 1,
+  },
+  loyaltyRedeemTitle: {
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  loyaltyRedeemSubtitle: {
+    color: "#4B5563",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  loyaltyRedeemWarning: {
+    color: "#D97706",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  toggleWrap: {
+    alignItems: "flex-end",
+    marginLeft: 8,
+  },
+  toggleLabel: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 11,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  loyaltyAppliedWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 6,
+  },
+  loyaltyAppliedText: {
+    color: "#16A34A",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  feesToPayBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 6,
+    gap: 6,
+    alignSelf: "flex-start",
+  },
+  feesToPayText: {
+    color: "#92400E",
+    fontFamily: FONT,
+    fontSize: 12,
     fontWeight: "700",
   },
 });

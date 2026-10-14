@@ -898,3 +898,8 @@
   font-weight: 400;
 }
 
+.cm-expired {
+  color: #DC2626;
+  font-weight: 600;
+}
+

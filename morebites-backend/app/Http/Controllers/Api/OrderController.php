@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Customer;
+use App\Models\LoyaltySetting;
 use App\Models\MenuItem;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\InventoryDeductionService;
+use App\Services\LoyaltyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -79,12 +81,56 @@ class OrderController extends Controller
         return response()->json(['data' => $orders, 'meta' => ['stats' => $stats]]);
     }
 
+    public function lookupLoyalty(Request $request)
+    {
+        $request->validate([
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
+        ], [
+            'phone.regex' => 'Phone must be an 11-digit Philippine mobile number starting with 09.',
+        ]);
+
+        $phone = $request->query('phone');
+
+        $customer = Customer::query()
+            ->where('phone', $phone)
+            ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$phone])
+            ->first();
+
+        if (! $customer) {
+            return response()->json([
+                'found' => false,
+                'message' => 'No loyalty account for this number',
+            ]);
+        }
+
+        app(LoyaltyService::class)->lazyCheckExpiry($customer);
+        $customer->refresh();
+
+        $settings = LoyaltySetting::current();
+        $pesoValue = (float) $settings->peso_value_per_point;
+        $balance = (int) $customer->loyalty_points;
+
+        return response()->json([
+            'found' => true,
+            'customer' => [
+                'id' => $customer->id,
+                'customer_code' => $customer->customer_code,
+                'name' => $customer->full_name,
+                'phone' => $customer->phone,
+                'points' => $balance,
+                'points_worth' => round($balance * $pesoValue, 2),
+                'points_expire_at' => $customer->points_expire_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
             'customer_name' => ['required', 'string'],
             'order_type' => ['required', 'string', 'in:Dine-in,Takeout'],
             'status' => ['nullable', 'string'],
+            'loyalty_customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.name' => ['required', 'string'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
@@ -110,6 +156,7 @@ class OrderController extends Controller
             $order = Order::query()->create([
                 'order_code' => Order::generateOrderCode(),
                 'customer_id' => null,
+                'loyalty_customer_id' => $data['loyalty_customer_id'] ?? null,
                 'customer_name' => $data['customer_name'],
                 'order_type' => $data['order_type'],
                 'total' => $total,
@@ -187,8 +234,13 @@ class OrderController extends Controller
         }
         $order->update($updatePayload);
 
+        if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
+            app(\App\Services\LoyaltyService::class)->creditForOrder($order->fresh());
+        }
+
         if ($data['status'] === 'Cancelled' && $previous !== 'Cancelled') {
             app(InventoryDeductionService::class)->restockForOrder($order);
+            app(\App\Services\LoyaltyService::class)->refundForOrder($order);
         }
 
         if ($data['status'] !== $previous) {
@@ -206,15 +258,25 @@ class OrderController extends Controller
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
-            ->where('available', true)
             ->orderBy('name')
             ->get()
-            ->filter(fn (MenuItem $m) => $service->canServe($m))
-            ->map(function (MenuItem $m) {
-                $sizes = $m->sizes->map(fn ($s) => [
-                    'name' => $s->name,
-                    'price' => (float) $s->price,
-                ])->values();
+            ->map(function (MenuItem $m) use ($service) {
+                $stockReason = $service->unserviceableReason($m);
+                $stockOk = $stockReason === null;
+
+                $sizes = $m->sizes->map(function ($s) use ($m, $service) {
+                    $sizeReason = $service->unserviceableReason($m, 1, $s->name);
+
+                    return [
+                        'name' => $s->name,
+                        'price' => (float) $s->price,
+                        'available' => (bool) $m->available && $sizeReason === null,
+                        'stockReason' => $sizeReason,
+                    ];
+                })->values();
+
+                $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
+                $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
 
                 $minPrice = $sizes->min('price');
                 $maxPrice = $sizes->max('price');
@@ -233,6 +295,9 @@ class OrderController extends Controller
                     'subcategory' => $m->subcategory,
                     'price' => $effectivePrice,
                     'price_formatted' => $priceFormatted,
+                    'available' => $itemAvailable,
+                    'stockOk' => $stockOk,
+                    'stockReason' => $stockReason,
                     'has_sizes' => (bool) $m->has_sizes,
                     'sizes' => $sizes,
                 ];
@@ -268,6 +333,7 @@ class OrderController extends Controller
             'inventory_deducted' => (bool) $o->inventory_deducted,
             'action' => $action,
             'address' => $o->delivery_address,
+            'loyalty_customer_id' => $o->loyalty_customer_id,
             'created_at' => $o->created_at?->toIso8601String(),
         ];
     }

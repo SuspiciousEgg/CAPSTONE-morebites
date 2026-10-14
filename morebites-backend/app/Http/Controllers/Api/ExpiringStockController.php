@@ -92,6 +92,8 @@ class ExpiringStockController extends Controller
         $this->resolveBatchDisposition($batch, InventoryDisposition::WASTE, $request);
         $item->recalculateStockFromBatches();
 
+        \App\Models\Notification::notifyIfLowStock($item->fresh());
+
         if ((float) $item->stock <= 0) {
             $this->clearPromosForInventory($item->id);
         }
@@ -107,7 +109,7 @@ class ExpiringStockController extends Controller
 
         $daysUntil = $batch->daysUntilExpiry();
         if (($daysUntil !== null && $daysUntil < 0) || $batch->isExpired()) {
-            abort(422, 'This batch is expired and can only be marked as Waste.');
+            abort(422, 'This item is expired and can only be marked as Waste.');
         }
 
         $this->upsertBatchDisposition($batch, [
@@ -125,7 +127,7 @@ class ExpiringStockController extends Controller
 
         $daysUntil = $batch->daysUntilExpiry();
         if (($daysUntil !== null && $daysUntil < 0) || $batch->isExpired()) {
-            abort(422, 'This batch is expired and can only be marked as Waste.');
+            abort(422, 'This item is expired and can only be marked as Waste.');
         }
 
         $data = $request->validate([
@@ -165,6 +167,11 @@ class ExpiringStockController extends Controller
 
     public function resolveBatch(Request $request, InventoryBatch $batch)
     {
+        $daysUntil = $batch->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $batch->isExpired()) {
+            abort(422, 'This item is expired and can only be marked as Waste.');
+        }
+
         $this->resolveBatchDisposition($batch, InventoryDisposition::RESOLVED, $request);
         $this->clearPromosForInventory($batch->inventory_item_id);
 
@@ -174,11 +181,7 @@ class ExpiringStockController extends Controller
     // Backward compatibility handlers accepting InventoryItem $inventory
     public function markWaste(Request $request, InventoryItem $inventory)
     {
-        $batchId = $request->input('batch_id');
-        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
-        if (! $batch) {
-            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
-        }
+        $batch = $this->ensureActiveBatch($inventory, $request->input('batch_id'));
 
         if ($batch) {
             return $this->markWasteBatch($request, $batch);
@@ -187,6 +190,7 @@ class ExpiringStockController extends Controller
         abort_unless($inventory->expiry_date, 422, 'This item is not perishable.');
         $inventory->update(['stock' => 0, 'status' => 'Expired']);
         $this->clearPromosForInventory($inventory->id);
+        \App\Models\Notification::notifyIfLowStock($inventory->fresh());
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
 
         return response()->json(['message' => 'Item marked as waste']);
@@ -194,11 +198,7 @@ class ExpiringStockController extends Controller
 
     public function setKitchenPriority(Request $request, InventoryItem $inventory)
     {
-        $batchId = $request->input('batch_id');
-        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
-        if (! $batch) {
-            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
-        }
+        $batch = $this->ensureActiveBatch($inventory, $request->input('batch_id'));
 
         if ($batch) {
             return $this->setKitchenPriorityBatch($request, $batch);
@@ -209,11 +209,7 @@ class ExpiringStockController extends Controller
 
     public function setPromo(Request $request, InventoryItem $inventory)
     {
-        $batchId = $request->input('batch_id');
-        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
-        if (! $batch) {
-            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first();
-        }
+        $batch = $this->ensureActiveBatch($inventory, $request->input('batch_id'));
 
         if ($batch) {
             return $this->setPromoBatch($request, $batch);
@@ -224,19 +220,42 @@ class ExpiringStockController extends Controller
 
     public function resolve(Request $request, InventoryItem $inventory)
     {
-        $batchId = $request->input('batch_id');
-        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
-        if (! $batch) {
-            $batch = $inventory->batches()->latest('id')->first();
-        }
+        $batch = $this->ensureActiveBatch($inventory, $request->input('batch_id'));
 
         if ($batch) {
             return $this->resolveBatch($request, $batch);
         }
 
+        $daysUntil = $inventory->daysUntilExpiry();
+        if (($daysUntil !== null && $daysUntil < 0) || $inventory->isExpired()) {
+            abort(422, 'This item is expired and can only be marked as Waste.');
+        }
+
         $this->clearPromosForInventory($inventory->id);
 
         return response()->json(['message' => 'Resolved']);
+    }
+
+    private function ensureActiveBatch(InventoryItem $inventory, $batchId = null): ?InventoryBatch
+    {
+        $batch = $batchId ? $inventory->batches()->find($batchId) : null;
+        if (! $batch) {
+            $batch = $inventory->batches()->where('stock', '>', 0)->orderBy('expiry_date')->first()
+                ?? $inventory->batches()->latest('id')->first();
+        }
+
+        if (! $batch && ((float) $inventory->stock > 0 || $inventory->expiry_date)) {
+            $batch = $inventory->batches()->create([
+                'batch_no' => $inventory->batch_no ?: InventoryItem::makeBatchNo($inventory->name, $inventory->date_placed),
+                'stock' => (float) $inventory->stock,
+                'initial_stock' => (float) $inventory->stock,
+                'date_placed' => $inventory->date_placed ?? now()->toDateString(),
+                'expiry_date' => $inventory->expiry_date,
+                'status' => InventoryItem::deriveStatus((float) $inventory->stock, (float) $inventory->reorder_level, $inventory->expiry_date),
+            ]);
+        }
+
+        return $batch;
     }
 
     private function upsertBatchDisposition(InventoryBatch $batch, array $attrs): InventoryDisposition

@@ -51,7 +51,7 @@ export default function ConfirmDeliveryScreen() {
     if (!isReadyToComplete || !dbId) return;
     setSaving(true);
     try {
-      const res = await driverApi.updateStatus(dbId, "Delivered", photo);
+      const res = await driverApi.updateStatus(dbId, "Delivered", photo, rating > 0 ? rating : null);
       const data = res.data || {};
       const mins = data.eta_mins ?? order?.eta_mins;
       router.replace({
@@ -160,6 +160,26 @@ export default function ConfirmDeliveryScreen() {
           </TouchableOpacity>
         </View>
 
+        {/*
+         * PROMPT 82 DIAGNOSTIC REPORT — Driver Confirm Delivery ("Photo attached" Caption & Customer Rating):
+         *
+         * 1. How the preview and caption were laid out & why the caption clipped:
+         *    - `styles.photoBox` had a fixed `height: 150`, `justifyContent: "center"`, and
+         *      `overflow: "hidden"` (148pt inner height after 1pt dashed borders).
+         *    - When a photo was attached, `photoUploadedContainer` stacked `photoPreview`
+         *      (`height: 140`) + `gap: 8` + `photoUploadedText` (`fontSize: 13`, ~18pt line height),
+         *      totalling ~166pt of vertical content inside the 148pt `overflow: "hidden"` box.
+         *    - Because the child height exceeded the fixed parent height, the bottom edge of
+         *      `photoBox` clipped the caption ("Photo attached · tap to change"), and this occurred
+         *      on all screen sizes (and even more severely on smaller phone screens or with larger
+         *      font scaling).
+         *
+         * 2. Are the "Customer Rating" stars on this screen saved anywhere or shown to anyone?
+         *    - No. `rating` is stored only in local component state (`const [rating, setRating] = useState(0)`).
+         *      When `confirmAndComplete` calls `driverApi.updateStatus(dbId, "Delivered", photo)`,
+         *      `rating` is not included in the request payload, is not persisted to AsyncStorage or
+         *      the backend database, and is not displayed anywhere in the Driver, Customer, or Web apps.
+         */}
         {/* Proof of Delivery Section */}
         <Text style={styles.sectionTitle}>Proof of delivery</Text>
         <TouchableOpacity
@@ -173,7 +193,13 @@ export default function ConfirmDeliveryScreen() {
           {photo ? (
             <View style={styles.photoUploadedContainer}>
               <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-              <Text style={styles.photoUploadedText}>Photo attached Â· tap to change</Text>
+              <View style={styles.photoCaptionRow}>
+                <View style={styles.photoCaptionLeft}>
+                  <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+                  <Text style={styles.photoUploadedText}>Photo attached</Text>
+                </View>
+                <Text style={styles.photoTapToChangeText}>Tap to change</Text>
+              </View>
             </View>
           ) : (
             <View style={styles.photoPlaceholder}>
@@ -194,7 +220,7 @@ export default function ConfirmDeliveryScreen() {
               <TouchableOpacity
                 key={starValue}
                 activeOpacity={0.7}
-                onPress={() => setRating(starValue)}
+                onPress={() => setRating(rating === starValue ? 0 : starValue)}
                 style={styles.starTouch}
               >
                 <Ionicons
@@ -326,15 +352,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: 12,
   },
   sectionTitle: {
     color: "#121212",
     fontFamily: FONT,
     fontSize: 16,
     fontWeight: "700",
-    marginBottom: 10,
-    marginTop: 6,
+    marginBottom: 8,
+    marginTop: 4,
   },
   paymentCard: {
     alignItems: "center",
@@ -342,7 +368,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -396,12 +422,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 150,
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 14,
     overflow: "hidden",
   },
   photoBoxUploaded: {
+    alignItems: "stretch",
     backgroundColor: "#E8F5E9",
     borderColor: "#22C55E",
+    height: "auto",
+    justifyContent: "flex-start",
+    overflow: "visible",
+    padding: 10,
   },
   photoPlaceholder: {
     alignItems: "center",
@@ -414,21 +445,41 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   photoUploadedContainer: {
-    alignItems: "center",
-    gap: 8,
+    alignItems: "stretch",
     width: "100%",
   },
   photoPreview: {
     borderRadius: 10,
-    height: 140,
+    height: 185,
     resizeMode: "cover",
     width: "100%",
   },
+  photoCaptionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "space-between",
+    paddingBottom: 2,
+    paddingHorizontal: 4,
+    paddingTop: 10,
+  },
+  photoCaptionLeft: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
   photoUploadedText: {
-    color: "#22C55E",
+    color: "#14532D",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  photoTapToChangeText: {
+    color: "#15803D",
     fontFamily: FONT,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   ratingRow: {
     flexDirection: "row",

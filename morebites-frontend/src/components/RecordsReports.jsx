@@ -513,12 +513,13 @@ export default function RecordsReports({ user: propUser }) {
      * were removed from the table columns, Customer Details modal, and search filter.
      */
     if (formatType === 'Customer Records' || formatType === 'Customer Summary Report') {
-      const headers = ['Customer Name', 'Contact Number', 'Total Orders', 'Total Spent', 'Status']
+      const headers = ['Customer Name', 'Contact Number', 'Total Orders', 'Total Spent', 'Loyalty Points', 'Status']
       const rows = sourceCustomer.map((r) => [
         r.name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Customer',
         r.phone || '--',
         String(r.total_orders ?? r.totalOrders ?? r.orders_count ?? r.orders ?? 0),
         peso(r.total_spent ?? r.totalSpent ?? r.spent ?? 0),
+        r.points ?? `${r.loyalty_points ?? 0} pts`,
         r.status || r.freq || 'Active',
       ])
       return { title: `Customer Records (${rangeLabel})`, headers, rows }
@@ -1249,7 +1250,7 @@ export default function RecordsReports({ user: propUser }) {
                         : `${r.orders || r.orders_count || 0} orders`
                       const pointsDisplay = String(r.points || '').includes('pts')
                         ? r.points
-                        : `${r.points ?? Math.round(Number(r.spent || 0) / 2)} pts`
+                        : `${r.points ?? 0} pts`
 
                       return (
                         <tr key={r.id || r.name}>

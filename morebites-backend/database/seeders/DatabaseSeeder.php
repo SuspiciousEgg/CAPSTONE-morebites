@@ -284,6 +284,7 @@ class DatabaseSeeder extends Seeder
         ]);
 
         Notification::createOrderNotification($order);
+        app(\App\Services\LoyaltyService::class)->creditForOrder($order);
 
         $deliveredNotif = Notification::query()->create([
             'user_id' => $customerUser->id,

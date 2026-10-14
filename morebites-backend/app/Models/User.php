@@ -121,11 +121,13 @@ class User extends Authenticatable
             return self::AVAILABLE_PAGES;
         }
 
+        $available = array_values(array_filter(self::AVAILABLE_PAGES, fn ($p) => !in_array($p, ['Account', 'Settings'], true)));
+
         if (is_array($this->allowed_pages) && count($this->allowed_pages) > 0) {
-            // Case-preserving match against AVAILABLE_PAGES
+            // Case-preserving match against available pages (Account and Settings excluded for non-super_admin)
             $allowedLower = array_map('strtolower', $this->allowed_pages);
             $filtered = [];
-            foreach (self::AVAILABLE_PAGES as $page) {
+            foreach ($available as $page) {
                 if (in_array(strtolower($page), $allowedLower, true)) {
                     $filtered[] = $page;
                 }
@@ -134,7 +136,7 @@ class User extends Authenticatable
         }
 
         return match ($this->role) {
-            'admin' => self::AVAILABLE_PAGES,
+            'admin' => $available,
             'cashier' => ['Dashboard', 'Orders', 'Menu', 'Inventory', 'Dispatch', 'Reports', 'Driver'],
             default => ['Dashboard'],
         };
@@ -146,15 +148,23 @@ class User extends Authenticatable
             return true;
         }
 
+        if (in_array(strtolower($page), ['account', 'settings'], true)) {
+            return false;
+        }
+
         $resolvedLower = array_map('strtolower', $this->resolvedAllowedPages());
         return in_array(strtolower($page), $resolvedLower, true);
     }
 
     public function syncAllowedPages(array $pages): void
     {
+        $allowedAvailable = $this->role === 'super_admin'
+            ? self::AVAILABLE_PAGES
+            : array_values(array_filter(self::AVAILABLE_PAGES, fn ($p) => !in_array($p, ['Account', 'Settings'], true)));
+
         $pagesLower = array_map('strtolower', $pages);
         $normalized = [];
-        foreach (self::AVAILABLE_PAGES as $page) {
+        foreach ($allowedAvailable as $page) {
             if (in_array(strtolower($page), $pagesLower, true)) {
                 $normalized[] = $page;
             }
