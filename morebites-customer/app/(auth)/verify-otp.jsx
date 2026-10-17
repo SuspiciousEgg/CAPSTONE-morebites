@@ -17,7 +17,15 @@ const DEFAULT_COOLDOWN_SECONDS = 20;
 
 export default function VerifyOtpScreen() {
   const params = useLocalSearchParams();
-  const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
+  const rawIdentifier = params.identifier ?? params.phone ?? params.email;
+  const identifier = Array.isArray(rawIdentifier) ? rawIdentifier[0] : rawIdentifier;
+  const rawEmail = params.email;
+  const email = Array.isArray(rawEmail) ? rawEmail[0] : rawEmail;
+  const rawChannel = params.channel;
+  const channel = Array.isArray(rawChannel) ? rawChannel[0] : rawChannel;
+
+  const isEmail = channel === "email" || (identifier && identifier.includes("@")) || Boolean(email);
+  const targetLabel = email || identifier || "";
   const initialCooldown = Math.max(
     0,
     Number(Array.isArray(params.cooldown) ? params.cooldown[0] : params.cooldown) ||
@@ -35,6 +43,13 @@ export default function VerifyOtpScreen() {
   const refs = useRef([]);
 
   useEffect(() => {
+    const focusTimeout = setTimeout(() => {
+      refs.current[0]?.focus();
+    }, 250);
+    return () => clearTimeout(focusTimeout);
+  }, []);
+
+  useEffect(() => {
     if (!timer || timer <= 0) return undefined;
     const interval = setInterval(() => {
       setTimer((current) => Math.max(0, current - 1));
@@ -43,7 +58,46 @@ export default function VerifyOtpScreen() {
   }, [timer]);
 
   const updateCode = (value, index) => {
-    const digit = value.replace(/\D/g, "").slice(-1);
+    const clean = value.replace(/\D/g, "");
+
+    // Google Android SMS OTP autofill / full 6-digit paste
+    if (clean.length >= 6) {
+      const digits = clean.slice(0, 6).split("");
+      setCode(digits);
+      setError("");
+      setBannerError("");
+      refs.current[5]?.focus();
+      return;
+    }
+
+    // Single-digit replacement when user types over an already-filled box
+    if (clean.length === 2 && code[index]) {
+      const newDigit = clean.slice(-1);
+      const next = [...code];
+      next[index] = newDigit;
+      setCode(next);
+      setError("");
+      setBannerError("");
+      if (index < 5) refs.current[index + 1]?.focus();
+      return;
+    }
+
+    // Multi-digit partial paste
+    if (clean.length > 1) {
+      const digits = clean.split("");
+      const next = [...code];
+      digits.forEach((digit, i) => {
+        if (index + i < 6) next[index + i] = digit;
+      });
+      setCode(next);
+      setError("");
+      setBannerError("");
+      const nextIndex = Math.min(index + digits.length - 1, 5);
+      refs.current[nextIndex]?.focus();
+      return;
+    }
+
+    const digit = clean.slice(-1);
     const next = [...code];
     next[index] = digit;
     setCode(next);
@@ -60,8 +114,8 @@ export default function VerifyOtpScreen() {
 
   const resend = async () => {
     if (resending || timer > 0) return;
-    if (!phone) {
-      setError("Phone number is missing. Please go back and enter your phone number.");
+    if (!identifier) {
+      setError("Account information is missing. Please go back and try again.");
       return;
     }
 
@@ -70,7 +124,7 @@ export default function VerifyOtpScreen() {
     setBannerError("");
 
     try {
-      const res = await customerApi.requestPasswordResetOtp(String(phone));
+      const res = await customerApi.requestPasswordResetOtp(String(identifier));
       setTimer(Number(res?.cooldown_seconds) || DEFAULT_COOLDOWN_SECONDS);
       setCode(Array(6).fill(""));
       setResent(true);
@@ -98,8 +152,8 @@ export default function VerifyOtpScreen() {
       setError("Please enter the complete 6-digit code.");
       return;
     }
-    if (!phone) {
-      setError("Phone number is missing. Please go back and enter your phone number.");
+    if (!identifier) {
+      setError("Account information is missing. Please go back and try again.");
       return;
     }
     if (verifying) return;
@@ -109,12 +163,13 @@ export default function VerifyOtpScreen() {
     setBannerError("");
 
     try {
-      const res = await customerApi.verifyPasswordResetOtp(String(phone), entered);
+      const res = await customerApi.verifyPasswordResetOtp(String(identifier), entered);
       const resetToken = res?.reset_token || "";
       router.push({
         pathname: "/(auth)/reset-password",
         params: {
-          phone: String(phone),
+          phone: String(identifier),
+          identifier: String(identifier),
           resetToken: String(resetToken),
         },
       });
@@ -133,9 +188,22 @@ export default function VerifyOtpScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Image source={require("../../assets/images/telephone.png")} style={styles.icon} />
-        <Text style={styles.title}>Verify your number</Text>
-        <Text style={styles.subtitle}>Enter the 6-digit code sent to your phone number</Text>
+        {isEmail ? (
+          <View style={[styles.icon, { justifyContent: "center", alignItems: "center" }]}>
+            <Ionicons name="mail-open-outline" size={72} color="#F97000" />
+          </View>
+        ) : (
+          <Image
+            source={require("../../assets/images/telephone.png")}
+            style={styles.icon}
+          />
+        )}
+        <Text style={styles.title}>{isEmail ? "Verify your email" : "Verify your number"}</Text>
+        <Text style={styles.subtitle}>
+          {isEmail
+            ? `Enter the 6-digit verification code sent to ${targetLabel || "your email"}`
+            : "Enter the 6-digit code sent to your phone number"}
+        </Text>
         <View style={styles.divider} />
 
         {bannerError ? (
@@ -159,8 +227,12 @@ export default function VerifyOtpScreen() {
               }}
               style={[styles.box, focusedIndex === index && styles.focusedBox]}
               value={value}
-              maxLength={1}
+              maxLength={6}
               keyboardType="number-pad"
+              autoComplete="sms-otp"
+              textContentType="oneTimeCode"
+              importantForAutofill="yes"
+              selectTextOnFocus
               textAlign="center"
               onChangeText={(text) => updateCode(text, index)}
               onKeyPress={(event) => onKeyPress(event, index)}

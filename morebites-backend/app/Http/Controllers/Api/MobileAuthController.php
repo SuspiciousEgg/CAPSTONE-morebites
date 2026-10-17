@@ -134,6 +134,17 @@ class MobileAuthController extends Controller
         $user = $request->user();
 
         if ($user->hasRoleAccess('driver') || $user->role === 'driver') {
+            $isBlacklisted = $user->archived_at !== null
+                || in_array($user->status, ['Blacklisted', 'Blocklisted'], true);
+
+            if ($isBlacklisted) {
+                abort(403, 'Your account has been blocklisted. Please contact the shop.');
+            }
+
+            if ($user->status !== 'Active') {
+                abort(403, 'Your account is suspended. Please contact the shop.');
+            }
+
             return response()->json([
                 'role' => 'driver',
                 'user' => $this->driverPayload($user),

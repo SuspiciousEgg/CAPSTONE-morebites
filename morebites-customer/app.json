@@ -35,7 +35,9 @@
         {
           "locationWhenInUsePermission": "Allow MoreBites to use your location for delivery address pinning and live delivery tracking."
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
@@ -24,6 +24,7 @@ const FONT_MEDIUM = "Plus Jakarta Sans";
 const FONT_BOLD = "Plus Jakarta Sans";
 
 export default function LoginScreen() {
+  const params = useLocalSearchParams();
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -33,6 +34,12 @@ export default function LoginScreen() {
   const [phoneError, setPhoneError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (params?.error) {
+      setLoginError(String(params.error));
+    }
+  }, [params?.error]);
 
   const signIn = async () => {
     const cleanPhone = phoneValue.replace(/\s/g, "");

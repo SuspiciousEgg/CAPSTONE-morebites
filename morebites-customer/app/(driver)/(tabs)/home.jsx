@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import Feather from "@expo/vector-icons/Feather";
-import { authStorage, driverApi } from "../../../src/api/client";
+import { authStorage, driverApi, onSessionTerminated } from "../../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const STATUS_OPTIONS = ["All", "Assigned", "Picked Up", "Out for Delivery"];
@@ -176,18 +176,28 @@ export default function HomeScreen() {
 
       const interval = setInterval(async () => {
         if (!active) return;
-        syncNotifications();
         try {
+          await syncNotifications();
+          if (!active) return;
           const res = await driverApi.orders("All");
           if (active && res?.data) setOrders(res.data);
-        } catch {
-          // offline / ignore
+        } catch (err) {
+          if (err?.status === 403 || err?.status === 401) {
+            active = false;
+            clearInterval(interval);
+          }
         }
       }, 3000);
+
+      const unsub = onSessionTerminated(() => {
+        active = false;
+        clearInterval(interval);
+      });
 
       return () => {
         active = false;
         clearInterval(interval);
+        unsub();
       };
     }, [syncNotifications]),
   );

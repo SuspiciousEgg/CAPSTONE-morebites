@@ -86,6 +86,7 @@ class MultiBatchFefoInventoryTest extends TestCase
 
     public function test_fefo_deducts_earliest_expiry_first_and_splits_across_batches(): void
     {
+        Carbon::setTestNow('2026-10-10');
         $service = app(InventoryDeductionService::class);
 
         $item = InventoryItem::query()->create([

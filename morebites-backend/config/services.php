@@ -48,8 +48,11 @@ return [
     'sms' => [
         'driver' => env('SMS_DRIVER', 'log'),
         'api_key' => env('SMS_API_KEY'),
+        'user' => env('SMS_USER'),
+        'password' => env('SMS_PASSWORD'),
         'sender_id' => env('SMS_SENDER_ID', 'MoreBites'),
         'endpoint' => env('SMS_ENDPOINT'),
+        'app_hash' => env('ANDROID_SMS_APP_HASH', env('SMS_APP_HASH')),
     ],
 
 ];

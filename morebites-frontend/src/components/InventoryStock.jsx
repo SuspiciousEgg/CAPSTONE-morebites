@@ -91,6 +91,24 @@ function statusClass(s) {
   return 'ok'
 }
 
+function calculateDaysLeft(expiryDate) {
+  if (!expiryDate || expiryDate === '—') return null
+  const exp = new Date(expiryDate)
+  if (Number.isNaN(exp.getTime())) return null
+  const now = new Date()
+  const expStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime()
+  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return Math.round((expStart - nowStart) / (1000 * 60 * 60 * 24))
+}
+
+function getItemDaysLeft(itemOrBatch) {
+  if (!itemOrBatch) return null
+  const rawDate = itemOrBatch.expiry_date_raw || itemOrBatch.expiry_date
+  const computed = calculateDaysLeft(rawDate)
+  if (computed !== null) return computed
+  return itemOrBatch.days_left ?? null
+}
+
 function daysLeftClass(days) {
   if (days == null) return ''
   if (days <= 0) return 'danger'
@@ -1147,19 +1165,25 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                         </div>
                         {item.batches && item.batches.length > 0 ? (
                           <div className="inv-batches-pill-list">
-                            {item.batches.map((b) => (
-                              <div key={b.id} className="inv-batch-pill-item" title={`Date placed: ${b.date_placed || '—'}`}>
-                                <span className="inv-batch-pill-badge">{b.batch_no}</span>
-                                <span className="inv-batch-pill-qty">{b.stock} {item.unit}</span>
-                                {b.expiry_date ? (
-                                  <span className={`inv-batch-pill-exp ${daysLeftClass(b.days_left)}`}>
-                                    exp {b.expiry_date}
-                                  </span>
-                                ) : (
-                                  <span className="inv-batch-pill-nonp">Non-perishable</span>
-                                )}
-                              </div>
-                            ))}
+                            {item.batches.map((b) => {
+                              const bDays = getItemDaysLeft(b)
+                              return (
+                                <div key={b.id} className="inv-batch-pill-item" title={`Date placed: ${b.date_placed || '—'}`}>
+                                  <span className="inv-batch-pill-badge">{b.batch_no}</span>
+                                  <span className="inv-batch-pill-qty">{b.stock} {item.unit}</span>
+                                  {b.expiry_date ? (
+                                    <span
+                                      className={`inv-batch-pill-exp ${daysLeftClass(bDays)}`}
+                                      title={bDays != null ? `${formatDaysLeft(bDays)} left` : undefined}
+                                    >
+                                      exp {b.expiry_date}
+                                    </span>
+                                  ) : (
+                                    <span className="inv-batch-pill-nonp">Non-perishable</span>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
                         ) : null}
                       </td>
@@ -1171,8 +1195,8 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       <td className="inv-date-cell">{item.date_placed || '—'}</td>
                       <td className="inv-date-cell">{item.expiry_date || '—'}</td>
                       <td>
-                        <span className={`inv-days-pill ${daysLeftClass(item.days_left)}`}>
-                          {formatDaysLeft(item.days_left)}
+                        <span className={`inv-days-pill ${daysLeftClass(getItemDaysLeft(item))}`}>
+                          {formatDaysLeft(getItemDaysLeft(item))}
                         </span>
                       </td>
                       <td>

@@ -22,6 +22,15 @@ class TrackingController extends Controller
 
         abort_unless($allowed, 403);
 
+        if ((int) $order->driver_id === (int) $user->id) {
+            if ($user->archived_at !== null || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)) {
+                abort(403, 'Your account has been blocklisted. Please contact the shop.');
+            }
+            if ($user->status !== 'Active') {
+                abort(403, 'Your account is suspended. Please contact the shop.');
+            }
+        }
+
         return response()->json([
             'data' => $tracking->trackingPayload($order),
         ]);
@@ -42,6 +51,13 @@ class TrackingController extends Controller
         $user = $request->user();
         abort_unless($user, 401);
         abort_unless((int) $order->driver_id === (int) $user->id, 403);
+
+        if ($user->archived_at !== null || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)) {
+            abort(403, 'Your account has been blocklisted. Please contact the shop.');
+        }
+        if ($user->status !== 'Active') {
+            abort(403, 'Your account is suspended. Please contact the shop.');
+        }
 
         $data = $request->validate([
             'latitude' => ['required', 'numeric', 'between:-90,90'],
@@ -90,6 +106,15 @@ class TrackingController extends Controller
             || ($user->role === 'customer' && (int) ($order->customer?->user_id) === (int) $user->id);
 
         abort_unless($allowed, 403);
+
+        if ((int) $order->driver_id === (int) $user->id) {
+            if ($user->archived_at !== null || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)) {
+                abort(403, 'Your account has been blocklisted. Please contact the shop.');
+            }
+            if ($user->status !== 'Active') {
+                abort(403, 'Your account is suspended. Please contact the shop.');
+            }
+        }
 
         $point = $tracking->riderPoint($order) ?? $tracking->storePoint();
 

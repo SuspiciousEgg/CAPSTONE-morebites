@@ -47,40 +47,44 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/customer/addresses/{address}/default', [CustomerAppController::class, 'setDefaultAddress']);
     Route::delete('/customer/addresses/{address}', [CustomerAppController::class, 'destroyAddress']);
     Route::get('/customer/orders', [CustomerAppController::class, 'orders']);
+    Route::get('/customer/orders/by-key/{key}', [CustomerAppController::class, 'showByKey']);
     Route::get('/customer/orders/{order}', [CustomerAppController::class, 'showOrder']);
     Route::post('/customer/orders', [CustomerAppController::class, 'placeOrder']);
 
-    Route::get('/driver/me', [DriverAppController::class, 'me']);
-    Route::patch('/driver/profile', [DriverAppController::class, 'updateProfile']);
-    Route::post('/driver/change-password', [DriverAppController::class, 'changePassword']);
-    Route::patch('/driver/location', [DriverAppController::class, 'updateLocation']);
-    Route::get('/driver/orders', [DriverAppController::class, 'orders']);
-    Route::get('/driver/orders/{order}', [DriverAppController::class, 'showOrder']);
-    Route::get('/driver/orders/{order}/tracking', [TrackingController::class, 'show']);
-    Route::patch('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
-    Route::post('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
-    Route::post('/driver/orders/{order}/report', [DriverAppController::class, 'reportIssue']);
+    Route::middleware('driver.active')->group(function () {
+        Route::get('/driver/me', [DriverAppController::class, 'me']);
+        Route::patch('/driver/profile', [DriverAppController::class, 'updateProfile']);
+        Route::post('/driver/change-password', [DriverAppController::class, 'changePassword']);
+        Route::patch('/driver/location', [DriverAppController::class, 'updateLocation']);
+        Route::get('/driver/orders', [DriverAppController::class, 'orders']);
+        Route::get('/driver/orders/{order}', [DriverAppController::class, 'showOrder']);
+        Route::get('/driver/orders/{order}/tracking', [TrackingController::class, 'show']);
+        Route::patch('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
+        Route::post('/driver/orders/{order}/status', [DriverAppController::class, 'updateOrderStatus']);
+        Route::post('/driver/orders/{order}/report', [DriverAppController::class, 'reportIssue']);
 
-    Route::patch('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
-    Route::post('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
-    Route::get('/deliveries/{order}/location', [TrackingController::class, 'deliveryLocation']);
+        Route::patch('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+        Route::post('/deliveries/{order}/location', [TrackingController::class, 'updateDeliveryLocation']);
+        Route::get('/deliveries/{order}/location', [TrackingController::class, 'deliveryLocation']);
+
+        Route::get('/mobile/me', [MobileAuthController::class, 'me']);
+
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+    });
 
     Route::get('/customer/orders/{order}/tracking', [TrackingController::class, 'show']);
     Route::post('/customer/orders/{order}/rate', [CustomerAppController::class, 'rateOrder']);
 
     Route::get('/me', [AuthController::class, 'me']);
-    Route::get('/mobile/me', [MobileAuthController::class, 'me']);
     Route::get('/loyalty/rates', [LoyaltySettingController::class, 'rates']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::middleware('page.access:Dashboard')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
     });
-
-    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
-    Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
-    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
 
     Route::middleware('page.access:Orders')->group(function () {
         Route::get('/orders/lookup-loyalty', [OrderController::class, 'lookupLoyalty']);

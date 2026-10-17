@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Services\TrackingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DispatchController extends Controller
 {
@@ -124,32 +125,48 @@ class DispatchController extends Controller
         // Extract name after "Rider - N "
         $name = preg_replace('/^Rider\s*-\s*\d+\s+/', '', $data['rider_name']);
 
-        $driver = User::query()
-            ->where('role', 'driver')
-            ->whereNull('archived_at')
-            ->where(function ($q) use ($name, $data) {
-                $q->where('name', $name)->orWhere('name', $data['rider_name']);
-            })
-            ->first();
+        $driver = null;
 
-        if (! $driver) {
-            $driver = User::query()
-                ->where('role', 'driver')
-                ->whereNull('archived_at')
-                ->where('status', 'Active')
-                ->first();
+        try {
+            DB::transaction(function () use ($order, $name, $data, &$driver) {
+                // Find candidate driver and lock row for update inside transaction
+                $driver = User::query()
+                    ->where('role', 'driver')
+                    ->where(function ($q) use ($name, $data) {
+                        $q->where('name', $name)->orWhere('name', $data['rider_name']);
+                    })
+                    ->lockForUpdate()
+                    ->first();
+
+                // Re-check driver status inside the same transaction under row lock
+                if ($driver) {
+                    if ($driver->status !== 'Active' || $driver->archived_at !== null) {
+                        abort(422, 'The selected rider is suspended or inactive and cannot be assigned.');
+                    }
+                } else {
+                    // Fallback to an available active driver, also locking row
+                    $driver = User::query()
+                        ->where('role', 'driver')
+                        ->whereNull('archived_at')
+                        ->where('status', 'Active')
+                        ->lockForUpdate()
+                        ->first();
+                }
+
+                if (! $driver || $driver->status !== 'Active' || $driver->archived_at !== null) {
+                    abort(422, 'No available rider');
+                }
+
+                $order->update([
+                    'driver_id' => $driver->id,
+                    'status' => 'Assigned',
+                    'assigned_at' => now(),
+                    'delivery_distance_km' => $order->delivery_distance_km ?: 2.5,
+                ]);
+            });
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->getStatusCode());
         }
-
-        if (! $driver) {
-            return response()->json(['message' => 'No available rider'], 422);
-        }
-
-        $order->update([
-            'driver_id' => $driver->id,
-            'status' => 'Assigned',
-            'assigned_at' => now(),
-            'delivery_distance_km' => $order->delivery_distance_km ?: 2.5,
-        ]);
 
         $freshOrder = $order->fresh()->load('driver');
         $tracking = app(TrackingService::class);

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,11 @@ import { useCart } from "../../src/context/CartContext";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
+
+function generateIdempotencyKey() {
+  const rand = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+  return `chk_${Date.now()}_${rand}`;
+}
 
 // Shared labeled input with the same focus/error styling used across the app
 function FormField({ label, error, focused, onFocus, onBlur, ...inputProps }) {
@@ -82,6 +87,13 @@ export default function CheckoutScreen() {
   const [focusedField, setFocusedField] = useState("");
   const [showOrderSheet, setShowOrderSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingOrder, setCheckingOrder] = useState(false);
+  const submittingRef = useRef(false);
+  const idempotencyKeyRef = useRef(generateIdempotencyKey());
+
+  useEffect(() => {
+    idempotencyKeyRef.current = generateIdempotencyKey();
+  }, [cartItems]);
 
   // Helper to update field value and immediately clear its validation error if present
   const updateField = (setter, fieldName, isAddress = false) => (value) => {
@@ -318,15 +330,22 @@ export default function CheckoutScreen() {
       );
       return;
     }
-    if (submitting) return;
+    if (submittingRef.current || submitting || checkingOrder) return;
+
+    submittingRef.current = true;
+    setSubmitting(true);
 
     const deliveryAddress = [street.trim(), barangay.trim(), city.trim(), landmark.trim()]
       .filter(Boolean)
       .join(", ");
 
-    setSubmitting(true);
+    const currentKey = idempotencyKeyRef.current;
+    let placed = null;
+    let recoveredViaLookup = false;
+
     try {
       const res = await customerApi.placeOrder({
+        idempotency_key: currentKey,
         full_name: fullName.trim(),
         phone: phone.replace(/\s/g, ""),
         delivery_address: deliveryAddress,
@@ -344,9 +363,50 @@ export default function CheckoutScreen() {
         })),
       });
 
-      const placed = res.data;
+      placed = res?.data;
+    } catch (err) {
+      // 422: Validation error from backend (request refused, nothing created)
+      if (err?.status === 422) {
+        Alert.alert("Order failed", err.message || "Your order was not placed. Nothing was charged. Please try again.");
+        loadLoyalty();
+        submittingRef.current = false;
+        setSubmitting(false);
+        return;
+      }
+
+      // If request timed out, connection lost, or server failed:
+      // Show "We couldn’t confirm your order. Checking..." and make ONE lookup, not polling, for an order with that key
+      setCheckingOrder(true);
+      try {
+        const lookupRes = await customerApi.orderByKey(currentKey);
+        if (lookupRes?.data) {
+          placed = lookupRes.data;
+          recoveredViaLookup = true;
+        }
+      } catch (lookupErr) {
+        if (lookupErr?.status === 404) {
+          idempotencyKeyRef.current = generateIdempotencyKey();
+          Alert.alert(
+            "Order Status",
+            "Your order was not placed. Nothing was charged. Please try again."
+          );
+        } else {
+          Alert.alert(
+            "Connection Error",
+            "The server is unreachable. Please check your internet connection and try again."
+          );
+        }
+      } finally {
+        setCheckingOrder(false);
+        submittingRef.current = false;
+        setSubmitting(false);
+        loadLoyalty();
+      }
+    }
+
+    if (placed) {
       const order = {
-        orderId: placed?.id || `#ORD-${Date.now()}`,
+        orderId: placed?.order_code || placed?.id || `#ORD-${Date.now()}`,
         id: placed?.id,
         db_id: placed?.db_id,
         items: cartItems,
@@ -365,19 +425,29 @@ export default function CheckoutScreen() {
       };
 
       clearCart();
-      router.push({
-        pathname: "/(customer)/order-confirmed",
-        params: {
-          order: JSON.stringify(order),
-          orderId: order.orderId,
-          dbId: String(placed?.db_id || ""),
-        },
-      });
-    } catch (err) {
-      Alert.alert("Order failed", err.message || "Could not place order. Please try again.");
-      loadLoyalty();
-    } finally {
+      submittingRef.current = false;
       setSubmitting(false);
+      setCheckingOrder(false);
+
+      if (recoveredViaLookup) {
+        router.replace({
+          pathname: "/(customer)/order-tracking",
+          params: {
+            order: JSON.stringify(order),
+            orderId: order.orderId,
+            dbId: String(placed?.db_id || placed?.id || ""),
+          },
+        });
+      } else {
+        router.push({
+          pathname: "/(customer)/order-confirmed",
+          params: {
+            order: JSON.stringify(order),
+            orderId: order.orderId,
+            dbId: String(placed?.db_id || placed?.id || ""),
+          },
+        });
+      }
     }
   };
 
@@ -714,15 +784,27 @@ export default function CheckoutScreen() {
           )}
         </View>
 
+        {checkingOrder ? (
+          <View style={styles.checkingBanner}>
+            <ActivityIndicator size="small" color="#C2410C" style={{ marginRight: 8 }} />
+            <Text style={styles.checkingBannerText}>We couldn’t confirm your order. Checking...</Text>
+          </View>
+        ) : null}
+
         <Pressable
           style={[
             styles.confirmButton,
-            (submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) && { opacity: 0.6 }
+            (submitting || checkingOrder || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)) && { opacity: 0.6 }
           ]}
           onPress={confirmOrder}
-          disabled={submitting || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)}
+          disabled={submitting || checkingOrder || feeQuote?.deliverable === false || (feeQuote?.distanceKm != null && feeQuote.distanceKm > 10)}
         >
-          {submitting ? (
+          {checkingOrder ? (
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: 8 }} />
+              <Text style={styles.confirmText}>Checking...</Text>
+            </View>
+          ) : submitting ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.confirmText}>Confirm Order →</Text>
@@ -1257,6 +1339,24 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 18,
     fontWeight: "800",
+  },
+  checkingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF7ED",
+    borderColor: "#FDBA74",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  checkingBannerText: {
+    fontFamily: FONT,
+    fontSize: 13,
+    color: "#C2410C",
+    fontWeight: "600",
+    flex: 1,
   },
   confirmButton: {
     height: 54,

@@ -30,6 +30,7 @@ function FieldError({ message }) {
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [visible, setVisible] = useState(false);
@@ -51,6 +52,9 @@ export default function RegisterScreen() {
     if (!fullName.trim()) next.fullName = "Full name is required";
     if (!phone.trim()) next.phone = "Phone number is required";
     else if (!PHONE_PATTERN.test(phone.replace(/\s/g, ""))) next.phone = "Enter a valid 11-digit Philippine mobile number starting with 09";
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      next.email = "Enter a valid email address (e.g. name@gmail.com)";
+    }
     if (!password) next.password = "Password is required";
     else if (password.length < 6) next.password = "Password must be at least 6 characters";
     if (!confirmPassword) next.confirmPassword = "Please confirm your password";
@@ -71,6 +75,7 @@ export default function RegisterScreen() {
       await customerApi.register({
         full_name: fullName.trim(),
         phone: cleanPhone,
+        email: email.trim() ? email.trim().toLowerCase() : undefined,
         password,
         password_confirmation: confirmPassword,
       });
@@ -176,6 +181,23 @@ export default function RegisterScreen() {
           />
         </View>
         <FieldError message={errors.phone} />
+
+        <Text style={styles.label}>EMAIL ADDRESS (FOR OTP & RECOVERY)</Text>
+        <View style={inputStyle("email")}>
+          <TextInput
+            style={styles.input}
+            placeholder="yourname@gmail.com"
+            placeholderTextColor="#9CA3AF"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={email}
+            onChangeText={setEmail}
+            onFocus={() => setFocusedField("email")}
+            onBlur={() => setFocusedField("")}
+          />
+        </View>
+        <FieldError message={errors.email} />
 
         <Text style={styles.label}>PASSWORD</Text>
         <View style={inputStyle("password")}>

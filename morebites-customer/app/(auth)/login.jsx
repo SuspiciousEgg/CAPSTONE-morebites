@@ -45,7 +45,10 @@ export default function LoginScreen() {
     if (params?.registered === "1") {
       setSuccessBanner("Account created successfully. Please log in.");
     }
-  }, [params?.phone, params?.registered]);
+    if (params?.error) {
+      setLoginError(String(params.error));
+    }
+  }, [params?.phone, params?.registered, params?.error]);
 
   const signIn = async () => {
     const cleanPhone = phoneValue.replace(/\s/g, "");

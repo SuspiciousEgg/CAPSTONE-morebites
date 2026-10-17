@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
         $middleware->alias([
+            'driver.active' => \App\Http\Middleware\EnsureActiveDriver::class,
             'not.cashier' => \App\Http\Middleware\EnsureNotCashier::class,
             'page.access' => \App\Http\Middleware\EnsurePageAccess::class,
         ]);

@@ -133,27 +133,31 @@ class InventoryItem extends Model
 
     public function daysLeft(): ?int
     {
-        if (! $this->expiry_date || ! $this->date_placed) {
+        $expiry = $this->expiry_date;
+        if (! $expiry && $this->relationLoaded('batches')) {
+            $expiry = $this->batches
+                ->where('stock', '>', 0)
+                ->whereNotNull('expiry_date')
+                ->sortBy('expiry_date')
+                ->first()?->expiry_date;
+        }
+
+        if (! $expiry) {
             return null;
         }
 
+        $expiryCarbon = $expiry instanceof Carbon ? $expiry : Carbon::parse($expiry);
+
         return (int) floor(
-            ($this->expiry_date->copy()->startOfDay()->getTimestamp()
-                - $this->date_placed->copy()->startOfDay()->getTimestamp()) / 86400
+            ($expiryCarbon->copy()->startOfDay()->getTimestamp()
+                - now()->startOfDay()->getTimestamp()) / 86400
         );
     }
 
     /** Days until expiry from today — used for status alerts. */
     public function daysUntilExpiry(): ?int
     {
-        if (! $this->expiry_date) {
-            return null;
-        }
-
-        return (int) floor(
-            ($this->expiry_date->copy()->startOfDay()->getTimestamp()
-                - now()->startOfDay()->getTimestamp()) / 86400
-        );
+        return $this->daysLeft();
     }
 
     public function isExpired(): bool
