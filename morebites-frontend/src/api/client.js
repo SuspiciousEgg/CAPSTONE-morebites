@@ -69,7 +69,10 @@ export const authApi = {
 }
 
 export const dashboardApi = {
-  get: (period = 'Daily') => api.get('/dashboard', { params: { period } }),
+  get: (params = 'Daily') => {
+    const queryParams = typeof params === 'string' ? { period: params } : (params || { period: 'Daily' })
+    return api.get('/dashboard', { params: queryParams })
+  },
 }
 
 export const ordersApi = {
