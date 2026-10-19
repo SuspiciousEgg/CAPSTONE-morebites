@@ -49,26 +49,21 @@ class InventoryBatch extends Model
 
     public function daysLeft(): ?int
     {
-        if (! $this->expiry_date || ! $this->date_placed) {
+        if (! $this->expiry_date) {
             return null;
         }
 
+        $expiry = $this->expiry_date instanceof Carbon ? $this->expiry_date : Carbon::parse($this->expiry_date);
+
         return (int) floor(
-            ($this->expiry_date->copy()->startOfDay()->getTimestamp()
-                - $this->date_placed->copy()->startOfDay()->getTimestamp()) / 86400
+            ($expiry->copy()->startOfDay()->getTimestamp()
+                - now()->startOfDay()->getTimestamp()) / 86400
         );
     }
 
     public function daysUntilExpiry(): ?int
     {
-        if (! $this->expiry_date) {
-            return null;
-        }
-
-        return (int) floor(
-            ($this->expiry_date->copy()->startOfDay()->getTimestamp()
-                - now()->startOfDay()->getTimestamp()) / 86400
-        );
+        return $this->daysLeft();
     }
 
     public function isExpired(): bool

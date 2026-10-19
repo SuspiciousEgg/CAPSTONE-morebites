@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { driverApi } from "../src/api/client";
+import { driverApi, onSessionTerminated } from "../src/api/client";
 import DeliveryMap from "../src/components/DeliveryMap";
 import { formatPeso, statusStep, useDriverOrder } from "../src/hooks/useDriverOrder";
 
@@ -68,10 +68,21 @@ export default function OutForDeliveryScreen() {
   }, [dbId]);
 
   useEffect(() => {
+    let cancelled = false;
     loadTracking();
     if (!dbId) return undefined;
-    const timer = setInterval(loadTracking, 5000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      if (!cancelled) loadTracking();
+    }, 5000);
+    const unsub = onSessionTerminated(() => {
+      cancelled = true;
+      clearInterval(timer);
+    });
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      unsub();
+    };
   }, [dbId, loadTracking]);
 
   const isCompletedRef = useRef(false);
@@ -93,6 +104,22 @@ export default function OutForDeliveryScreen() {
     let locationSubscription = null;
     let cancelled = false;
 
+    const stopTracking = () => {
+      cancelled = true;
+      if (locationSubscription?.remove) {
+        locationSubscription.remove();
+        locationSubscription = null;
+      }
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    const unsub = onSessionTerminated(() => {
+      stopTracking();
+    });
+
     const sendCoords = (coords) => {
       if (cancelled || isCompletedRef.current || !coords) return;
       const now = Date.now();
@@ -106,9 +133,17 @@ export default function OutForDeliveryScreen() {
       setLiveRider(next);
 
       if (dbId) {
-        driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch(() => {});
+        driverApi.updateDeliveryLocation(dbId, next.latitude, next.longitude).catch((err) => {
+          if (err?.status === 403 || err?.status === 401) {
+            stopTracking();
+          }
+        });
       }
-      driverApi.updateLocation(next.latitude, next.longitude).catch(() => {});
+      driverApi.updateLocation(next.latitude, next.longitude).catch((err) => {
+        if (err?.status === 403 || err?.status === 401) {
+          stopTracking();
+        }
+      });
     };
 
     const captureSingleFix = async () => {
@@ -158,11 +193,8 @@ export default function OutForDeliveryScreen() {
     })();
 
     return () => {
-      cancelled = true;
-      if (locationSubscription?.remove) {
-        locationSubscription.remove();
-      }
-      if (timer) clearInterval(timer);
+      stopTracking();
+      unsub();
     };
   }, [dbId, isDelivered]);
 

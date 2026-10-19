@@ -479,14 +479,23 @@ class InventoryController extends Controller
             return;
         }
 
+        $openBatches = $item->batches()->where('stock', '>', 0)->get();
+        if ($openBatches->isNotEmpty()) {
+            $earliestExpiry = $openBatches->whereNotNull('expiry_date')->sortBy('expiry_date')->first()?->expiry_date;
+            if ($earliestExpiry && (! $item->expiry_date || $item->expiry_date->toDateString() !== $earliestExpiry->toDateString())) {
+                $item->expiry_date = $earliestExpiry;
+            }
+        }
+
         $next = InventoryItem::deriveStatus(
             (float) $item->stock,
             (float) $item->reorder_level,
             $item->expiry_date
         );
 
-        if ($item->status !== $next) {
-            $item->update(['status' => $next]);
+        if ($item->status !== $next || $item->isDirty('expiry_date')) {
+            $item->status = $next;
+            $item->save();
         }
     }
 

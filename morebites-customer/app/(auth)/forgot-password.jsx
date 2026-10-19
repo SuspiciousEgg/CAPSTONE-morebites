@@ -48,40 +48,63 @@ import { customerApi } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PHONE_PATTERN = /^09\d{9}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ForgotPasswordScreen() {
   const params = useLocalSearchParams();
-  const [phone, setPhone] = useState(params?.phone ? String(params.phone) : "");
+  const initialValue = params?.identifier ?? params?.email ?? params?.phone ?? "";
+  const [identifier, setIdentifier] = useState(String(initialValue));
   const [focused, setFocused] = useState(false);
   const [error, setError] = useState("");
   const [bannerError, setBannerError] = useState("");
   const [sending, setSending] = useState(false);
 
   const sendCode = async () => {
-    const clean = phone.replace(/\s/g, "");
-    const message = !clean
-      ? "Phone number is required"
-      : !PHONE_PATTERN.test(clean)
-        ? "Enter a valid 11-digit Philippine mobile number starting with 09"
-        : "";
+    const clean = identifier.trim();
+    if (!clean) {
+      setError("Please enter your registered email address or phone number.");
+      return;
+    }
 
-    setError(message);
+    const isEmail = clean.includes("@");
+    if (isEmail) {
+      if (!EMAIL_PATTERN.test(clean)) {
+        setError("Please enter a valid email address (e.g. name@gmail.com).");
+        return;
+      }
+    } else {
+      const cleanPhone = clean.replace(/[\s-]/g, "");
+      if (!PHONE_PATTERN.test(cleanPhone)) {
+        setError("Enter a valid 11-digit mobile number starting with 09 or your email address.");
+        return;
+      }
+    }
+
+    setError("");
     setBannerError("");
-    if (message || sending) {
+    if (sending) {
       return;
     }
 
     setSending(true);
     try {
-      const res = await customerApi.requestPasswordResetOtp(clean);
+      const cleanTarget = isEmail ? clean.toLowerCase() : clean.replace(/[\s-]/g, "");
+      const res = await customerApi.requestPasswordResetOtp(cleanTarget);
       const cooldown = Number(res?.cooldown_seconds) || 20;
+
       router.push({
         pathname: "/(auth)/verify-otp",
-        params: { phone: clean, cooldown: String(cooldown) },
+        params: {
+          identifier: cleanTarget,
+          phone: res?.phone || cleanTarget,
+          email: res?.email || (isEmail ? cleanTarget : ""),
+          channel: res?.delivery_channel || (isEmail ? "email" : "sms"),
+          cooldown: String(cooldown),
+        },
       });
     } catch (err) {
       const msg = err?.message || "Could not send verification code. Please try again.";
-      if (err?.status === 422 && /phone/i.test(msg)) {
+      if (err?.status === 422) {
         setError(msg);
       } else {
         setBannerError(msg);
@@ -99,7 +122,7 @@ export default function ForgotPasswordScreen() {
           style={styles.icon}
         />
         <Text style={styles.title}>Forget password</Text>
-        <Text style={styles.subtitle}>Enter your phone number to receive an OTP</Text>
+        <Text style={styles.subtitle}>Enter your email or phone number to receive an OTP</Text>
         <View style={styles.divider} />
 
         {bannerError ? (
@@ -114,17 +137,18 @@ export default function ForgotPasswordScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.label}>PHONE NUMBER</Text>
+        <Text style={styles.label}>EMAIL ADDRESS OR PHONE NUMBER</Text>
         <View style={[styles.inputWrap, focused && styles.focusedInput, error && styles.errorInput]}>
           <TextInput
             style={styles.input}
-            placeholder="09XX XXX XXXX"
+            placeholder="e.g. name@gmail.com or 09XX XXX XXXX"
             placeholderTextColor="#9CA3AF"
-            keyboardType="phone-pad"
-            maxLength={11}
-            value={phone}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={identifier}
             onChangeText={(val) => {
-              setPhone(val.replace(/\D/g, "").slice(0, 11));
+              setIdentifier(val);
               if (error) setError("");
               if (bannerError) setBannerError("");
             }}

@@ -1,9 +1,40 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import { router } from "expo-router";
 
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "current_user";
+
+let isTerminatingSession = false;
+const sessionTerminatedListeners = new Set();
+
+export function onSessionTerminated(fn) {
+  sessionTerminatedListeners.add(fn);
+  return () => sessionTerminatedListeners.delete(fn);
+}
+
+export async function handleSuspendedAccount(message) {
+  if (isTerminatingSession) return;
+  isTerminatingSession = true;
+
+  try {
+    await authStorage.clear();
+    sessionTerminatedListeners.forEach((fn) => {
+      try { fn(message); } catch {}
+    });
+    router.replace({
+      pathname: "/(auth)/login",
+      params: { error: message || "Your account is suspended. Please contact the shop." },
+    });
+  } catch (err) {
+    console.error("Failed to handle suspended account:", err);
+  } finally {
+    setTimeout(() => {
+      isTerminatingSession = false;
+    }, 2000);
+  }
+}
 
 // Inside the Android emulator, 127.0.0.1 is the emulator itself; 10.0.2.2 is the host PC.
 const ANDROID_EMULATOR_HOST = "10.0.2.2";
@@ -92,6 +123,11 @@ function sendFormDataWithXHR(path, { method = "POST", body, token, auth = true }
           const error = new Error(message);
           error.status = xhr.status;
           error.data = data;
+
+          if (auth && (xhr.status === 403 || xhr.status === 401)) {
+            handleSuspendedAccount(message);
+          }
+
           reject(error);
         }
       };
@@ -178,6 +214,11 @@ async function request(path, { method = "GET", body, token, auth = true } = {}) 
     const error = new Error(message);
     error.status = response.status;
     error.data = data;
+
+    if (auth && (response.status === 403 || response.status === 401)) {
+      handleSuspendedAccount(message);
+    }
+
     throw error;
   }
 

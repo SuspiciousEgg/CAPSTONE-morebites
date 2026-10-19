@@ -359,6 +359,7 @@ class AccountController extends Controller
             'status' => $user->hasRoleAccess('driver') ? 'Blacklisted' : 'Inactive',
             'archived_at' => now(),
         ]);
+        $user->tokens()->delete();
 
         ActivityLog::query()->create([
             'actor' => 'Owner',

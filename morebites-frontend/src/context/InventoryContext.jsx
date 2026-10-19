@@ -8,13 +8,16 @@ function computeStatus(stock, reorderPoint, expiryDate) {
   let daysLeft = null
 
   if (expiryDate) {
-    const now = new Date()
-    const end = new Date(`${expiryDate}T00:00:00`)
-    const diff = end.getTime() - now.getTime()
-    daysLeft = Math.floor(diff / (1000 * 60 * 60 * 24))
-    if (daysLeft < 0) return { status: 'Expired', daysLeft }
-    if (daysLeft === 0) return { status: 'Expires Today', daysLeft }
-    if (daysLeft <= 7) return { status: 'Expiring Soon', daysLeft }
+    const exp = new Date(`${expiryDate}T00:00:00`)
+    if (!Number.isNaN(exp.getTime())) {
+      const now = new Date()
+      const expStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime()
+      const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      daysLeft = Math.round((expStart - nowStart) / (1000 * 60 * 60 * 24))
+      if (daysLeft < 0) return { status: 'Expired', daysLeft }
+      if (daysLeft === 0) return { status: 'Expires Today', daysLeft }
+      if (daysLeft <= 7) return { status: 'Expiring Soon', daysLeft }
+    }
   }
 
   if (qty <= 0) return { status: 'Out of Stock', daysLeft }

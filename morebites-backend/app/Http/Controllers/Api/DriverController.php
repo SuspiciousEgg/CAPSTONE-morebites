@@ -66,6 +66,7 @@ class DriverController extends Controller
         }
 
         $user->update(['status' => 'Inactive']);
+        $user->tokens()->delete();
 
         return response()->json(['data' => $this->transform($user->fresh()->load('reviews'))]);
     }
@@ -117,6 +118,7 @@ class DriverController extends Controller
             'status' => 'Inactive',
             'archived_at' => now(),
         ]);
+        $user->tokens()->delete();
 
         ActivityLog::query()->create([
             'actor' => $request->user()?->name ?: 'Admin',

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordResetOtpMail;
 use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\CustomerAddress;
@@ -25,6 +26,8 @@ use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -197,14 +200,60 @@ class CustomerAppController extends Controller
      */
     public function requestPasswordResetOtp(Request $request, SmsOtpService $smsService)
     {
-        $data = $request->validate([
-            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
-        ], [
-            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
-        ]);
+        $raw = trim((string) ($request->input('identifier') ?? $request->input('phone') ?? $request->input('email') ?? ''));
 
-        $phone = $this->normalizePhone($data['phone']);
-        $existing = PasswordResetOtp::query()->where('phone', $phone)->first();
+        if ($raw === '') {
+            throw ValidationException::withMessages([
+                'phone' => ['Please enter your registered email address or phone number.'],
+            ]);
+        }
+
+        $isEmail = filter_var($raw, FILTER_VALIDATE_EMAIL) !== false;
+        $targetEmail = null;
+        $effectiveEmail = null;
+
+        if ($isEmail) {
+            $targetEmail = strtolower($raw);
+            $user = User::query()
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->where('email', $targetEmail)
+                ->first();
+
+            $phone = $user?->phone ?? ('09'.substr(preg_replace('/\D/', '', md5($targetEmail)), 0, 9));
+        } else {
+            $cleaned = str_replace([' ', '-'], '', $raw);
+            if (! preg_match('/^09\d{9}$/', $cleaned)) {
+                throw ValidationException::withMessages([
+                    'phone' => ['Enter a valid 11-digit Philippine mobile number starting with 09 or a valid email address.'],
+                ]);
+            }
+
+            $phone = $this->normalizePhone($cleaned);
+            $user = User::query()
+                ->where('role', 'customer')
+                ->whereNull('archived_at')
+                ->where(function ($query) use ($phone, $cleaned) {
+                    $query->where('phone', $cleaned)
+                        ->orWhere('phone', $phone)
+                        ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$phone]);
+                })
+                ->first();
+
+            if ($user && ! empty($user->email) && ! str_ends_with($user->email, '@customer.morebites.local')) {
+                $targetEmail = $user->email;
+            }
+        }
+
+        // Check cooldown
+        $existing = PasswordResetOtp::query()
+            ->where(function ($q) use ($phone, $targetEmail) {
+                $q->where('phone', $phone);
+                if ($targetEmail) {
+                    $q->orWhere('email', $targetEmail);
+                }
+            })
+            ->first();
 
         if ($existing && $existing->last_sent_at) {
             $elapsed = (int) $existing->last_sent_at->diffInSeconds(now());
@@ -218,22 +267,14 @@ class CustomerAppController extends Controller
             }
         }
 
-        $user = User::query()
-            ->where('role', 'customer')
-            ->whereNull('archived_at')
-            ->where(function ($query) use ($phone, $data) {
-                $query->where('phone', $data['phone'])
-                    ->orWhere('phone', $phone)
-                    ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$phone]);
-            })
-            ->first();
-
         if ($user && $user->status === 'Active') {
             $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $effectiveEmail = $targetEmail ?? ((! empty($user->email) && ! str_ends_with($user->email, '@customer.morebites.local')) ? $user->email : null);
 
             PasswordResetOtp::query()->updateOrCreate(
                 ['phone' => $phone],
                 [
+                    'email' => $effectiveEmail,
                     'user_id' => $user->id,
                     'otp_hash' => Hash::make($code),
                     'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
@@ -245,11 +286,25 @@ class CustomerAppController extends Controller
                 ]
             );
 
+            // 1. Send via Email if customer has an email address
+            if (! empty($effectiveEmail)) {
+                try {
+                    Mail::to($effectiveEmail)->send(
+                        new PasswordResetOtpMail($code, $user->name, PasswordResetOtp::OTP_EXPIRY_MINUTES)
+                    );
+                    Log::info("[MoreBites OTP] Password reset email sent to {$effectiveEmail}: {$code}");
+                } catch (\Throwable $e) {
+                    Log::error("Failed to send OTP email to {$effectiveEmail}: {$e->getMessage()}");
+                }
+            }
+
+            // 2. Dispatch via SMS service (SMS gateway or local log)
             $smsService->sendOtp($phone, $code);
         } else {
             PasswordResetOtp::query()->updateOrCreate(
                 ['phone' => $phone],
                 [
+                    'email' => $targetEmail,
                     'user_id' => null,
                     'otp_hash' => null,
                     'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
@@ -262,8 +317,16 @@ class CustomerAppController extends Controller
             );
         }
 
+        $message = 'If this phone number is registered, a 6-digit verification code has been sent.';
+        if ($isEmail) {
+            $message = 'If this email address is registered, a 6-digit verification code has been sent.';
+        }
+
         return response()->json([
-            'message' => 'If this phone number is registered, a 6-digit verification code has been sent.',
+            'message' => $message,
+            'phone' => $phone,
+            'email' => $effectiveEmail ?? $targetEmail,
+            'delivery_channel' => ! empty($effectiveEmail) ? 'email' : 'sms',
             'cooldown_seconds' => PasswordResetOtp::RESEND_COOLDOWN_SECONDS,
             'expires_in_seconds' => PasswordResetOtp::OTP_EXPIRY_MINUTES * 60,
         ]);
@@ -271,16 +334,28 @@ class CustomerAppController extends Controller
 
     public function verifyPasswordResetOtp(Request $request)
     {
-        $data = $request->validate([
-            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
-            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
-        ], [
-            'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
-            'code.regex' => 'Please enter a valid 6-digit verification code.',
-        ]);
+        $input = trim((string) ($request->input('identifier') ?? $request->input('phone') ?? $request->input('email') ?? ''));
+        $code = trim((string) $request->input('code', ''));
 
-        $phone = $this->normalizePhone($data['phone']);
-        $record = PasswordResetOtp::query()->where('phone', $phone)->first();
+        if ($input === '' || ! preg_match('/^\d{6}$/', $code)) {
+            throw ValidationException::withMessages([
+                'code' => ['Please enter a valid 6-digit verification code.'],
+            ]);
+        }
+
+        $isEmail = filter_var($input, FILTER_VALIDATE_EMAIL) !== false;
+        if ($isEmail) {
+            $targetEmail = strtolower($input);
+            $record = PasswordResetOtp::query()
+                ->where('email', $targetEmail)
+                ->orWhereHas('user', function ($q) use ($targetEmail) {
+                    $q->where('email', $targetEmail);
+                })
+                ->first();
+        } else {
+            $phone = $this->normalizePhone(str_replace([' ', '-'], '', $input));
+            $record = PasswordResetOtp::query()->where('phone', $phone)->first();
+        }
 
         if (! $record || ! $record->otp_hash || $record->consumed_at !== null) {
             if ($record) {
@@ -321,7 +396,7 @@ class CustomerAppController extends Controller
             ]);
         }
 
-        if (! Hash::check($data['code'], $record->otp_hash)) {
+        if (! Hash::check($code, $record->otp_hash)) {
             $nextAttempts = $record->attempts + 1;
 
             if ($nextAttempts >= PasswordResetOtp::MAX_ATTEMPTS) {
@@ -838,6 +913,26 @@ class CustomerAppController extends Controller
         ]);
     }
 
+    public function showByKey(Request $request, string $key)
+    {
+        $user = $this->customerUser($request);
+        $customer = $this->ensureCustomerRecord($user);
+
+        $order = Order::query()
+            ->where('customer_id', $customer->id)
+            ->where('idempotency_key', $key)
+            ->with(['items', 'driver'])
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        return response()->json([
+            'data' => $this->orderPayload($order),
+        ]);
+    }
+
     public function rateOrder(Request $request, Order $order)
     {
         $user = $this->customerUser($request);
@@ -894,6 +989,7 @@ class CustomerAppController extends Controller
         $customer = $this->ensureCustomerRecord($user);
 
         $data = $request->validate([
+            'idempotency_key' => ['nullable', 'string', 'max:255'],
             'full_name' => ['required', 'string'],
             'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'delivery_address' => ['required', 'string'],
@@ -922,11 +1018,25 @@ class CustomerAppController extends Controller
             'delivery_address' => $data['delivery_address'],
         ]);
 
-        $service = app(InventoryDeductionService::class);
-        $service->validateCartAvailability($data['items']);
-
         $order = DB::transaction(function () use ($data, $customer) {
             $lockedCustomer = Customer::query()->where('id', $customer->id)->lockForUpdate()->first();
+
+            $idempotencyKey = $data['idempotency_key'] ?? null;
+            if (! empty($idempotencyKey)) {
+                $existingOrder = Order::query()
+                    ->where('customer_id', $lockedCustomer->id)
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingOrder) {
+                    return $existingOrder->load(['items', 'driver']);
+                }
+            }
+
+            $service = app(InventoryDeductionService::class);
+            $service->validateCartAvailability($data['items']);
+
             app(\App\Services\LoyaltyService::class)->lazyCheckExpiry($lockedCustomer);
             $lockedCustomer->refresh();
 
@@ -990,6 +1100,7 @@ class CustomerAppController extends Controller
 
             $order = Order::query()->create([
                 'order_code' => $orderCode,
+                'idempotency_key' => $idempotencyKey,
                 'customer_id' => $lockedCustomer->id,
                 'customer_name' => $data['full_name'],
                 'order_type' => 'Online Order',

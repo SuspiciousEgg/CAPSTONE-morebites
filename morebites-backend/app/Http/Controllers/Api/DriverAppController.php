@@ -318,15 +318,14 @@ class DriverAppController extends Controller
         abort_unless($user && ($user->hasRoleAccess('driver') || $user->role === 'driver'), 403);
 
         $isBlacklisted = $user->archived_at !== null
-            || in_array($user->status, ['Blacklisted', 'Blocklisted'], true)
-            || \App\Models\DriverBlacklist::query()->where('driver_id', $user->id)->exists();
+            || in_array($user->status, ['Blacklisted', 'Blocklisted'], true);
 
         if ($isBlacklisted) {
-            abort(403, 'Your account has been blocklisted.');
+            abort(403, 'Your account has been blocklisted. Please contact the shop.');
         }
 
         if ($user->status !== 'Active') {
-            abort(403, 'Your account is inactive.');
+            abort(403, 'Your account is suspended. Please contact the shop.');
         }
 
         return $user;
