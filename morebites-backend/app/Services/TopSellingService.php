@@ -114,8 +114,9 @@ class TopSellingService
 
         $priorUnitsMap = $priorSalesRows->pluck('units_sold', 'id')->all();
 
-        // If any products have recorded sales within the window, return them ranked by units sold
-        if ($salesRows->count() >= 1) {
+        // If at least 3 distinct products have recorded sales within the window (or >= 1 when explicit range requested in Reports)
+        $minRequired = $hasExplicitRange ? 1 : 3;
+        if ($salesRows->count() >= $minRequired) {
             $unitsMap = $salesRows->pluck('units_sold', 'id')->all();
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
 
