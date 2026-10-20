@@ -901,6 +901,54 @@ export default function RecordsReports({ user: propUser }) {
     })
   }, [exportsList, historySearch, historyFormat, historyDate])
 
+  const dynamicStats = useMemo(() => {
+    if (!startDate && !endDate && (!salesStatus || salesStatus === 'Completed')) {
+      const delivCount = Number(reportStats.completed_deliveries) || 0
+      const avgMins = delivCount > 0 ? Number(reportStats.avg_delivery_time) || 0 : 0
+      return {
+        salesLabel: 'Total Sales Today',
+        salesValue: reportStats.total_sales_today ?? 0,
+        deliveriesLabel: 'Completed Deliveries Today',
+        deliveriesValue: delivCount,
+        avgTimeLabel: 'Avg. Delivery Time (Today)',
+        avgTimeValue: avgMins,
+        ordersLabel: 'Total Orders Today',
+        ordersValue: reportStats.total_orders ?? 0,
+      }
+    }
+
+    const completedSales = filteredSales.filter(
+      (r) => (r.status || '').toLowerCase() === 'completed'
+    )
+    const totalSalesAmount = completedSales.reduce(
+      (acc, r) => acc + (Number(r.amount) || 0),
+      0
+    )
+    const completedDelivs = filteredDeliveries.filter(
+      (r) => (r.status || '').toLowerCase() === 'completed'
+    )
+    const delivMinutes = completedDelivs
+      .map((r) => {
+        const match = String(r.time || '').match(/(\d+(?:\.\d+)?)/)
+        return match ? parseFloat(match[1]) : null
+      })
+      .filter((m) => m !== null && m > 0)
+    const avgMins = delivMinutes.length > 0
+      ? Math.round(delivMinutes.reduce((a, b) => a + b, 0) / delivMinutes.length)
+      : 0
+
+    return {
+      salesLabel: 'Total Sales (Filtered)',
+      salesValue: totalSalesAmount,
+      deliveriesLabel: 'Completed Deliveries (Filtered)',
+      deliveriesValue: completedDelivs.length,
+      avgTimeLabel: 'Avg. Delivery Time (Filtered)',
+      avgTimeValue: avgMins,
+      ordersLabel: 'Total Orders (Filtered)',
+      ordersValue: tab === 'delivery' ? filteredDeliveries.length : filteredSales.length,
+    }
+  }, [startDate, endDate, salesStatus, reportStats, filteredSales, filteredDeliveries, tab])
+
   return (
     <div className="reports-page">
       <header className="reports-header">
@@ -910,25 +958,25 @@ export default function RecordsReports({ user: propUser }) {
       {/* 4 Stat Cards Row */}
       <section className="reports-stats-grid">
         <article className="reports-stat-card">
-          <div className="reports-stat-label">Total Sales Today</div>
-          <div className="reports-stat-value sales">{peso(reportStats.total_sales_today ?? 0)}</div>
+          <div className="reports-stat-label">{dynamicStats.salesLabel}</div>
+          <div className="reports-stat-value sales">{peso(dynamicStats.salesValue)}</div>
         </article>
 
         <article className="reports-stat-card">
-          <div className="reports-stat-label">Completed Deliveries</div>
-          <div className="reports-stat-value">{reportStats.completed_deliveries ?? 0}</div>
+          <div className="reports-stat-label">{dynamicStats.deliveriesLabel}</div>
+          <div className="reports-stat-value">{dynamicStats.deliveriesValue}</div>
         </article>
 
         <article className="reports-stat-card">
-          <div className="reports-stat-label">Avg. Delivery Time</div>
+          <div className="reports-stat-label">{dynamicStats.avgTimeLabel}</div>
           <div className="reports-stat-value">
-            {reportStats.avg_delivery_time ? `${reportStats.avg_delivery_time} mins` : '-- mins'}
+            {dynamicStats.avgTimeValue > 0 ? `${dynamicStats.avgTimeValue} mins` : '-- mins'}
           </div>
         </article>
 
         <article className="reports-stat-card">
-          <div className="reports-stat-label">Total Orders</div>
-          <div className="reports-stat-value">{reportStats.total_orders ?? 0}</div>
+          <div className="reports-stat-label">{dynamicStats.ordersLabel}</div>
+          <div className="reports-stat-value">{dynamicStats.ordersValue}</div>
         </article>
       </section>
 
@@ -1154,7 +1202,7 @@ export default function RecordsReports({ user: propUser }) {
                       <tr key={r.id}>
                         <td>{r.datetime}</td>
                         <td className="reports-order-id">{displayId}</td>
-                        <td>{r.items_sold || r.items_summary || '1x Pizza Special'}</td>
+                        <td>{r.items_sold || r.items_summary || '—'}</td>
                         <td>{r.type}</td>
                         <td className="reports-total-amount">{peso(r.amount)}</td>
                         <td>

@@ -40,6 +40,7 @@ class ReportsDataTest extends TestCase
             'customer_code' => 'C-0001',
             'full_name' => 'Frequent Customer',
             'phone' => '+639171111111',
+            'loyalty_points' => 750,
         ]);
 
         for ($i = 1; $i <= 15; $i++) {
@@ -59,6 +60,7 @@ class ReportsDataTest extends TestCase
             'customer_code' => 'C-0002',
             'full_name' => 'Regular Customer',
             'phone' => '+639172222222',
+            'loyalty_points' => 450,
         ]);
 
         for ($i = 1; $i <= 6; $i++) {
@@ -88,6 +90,7 @@ class ReportsDataTest extends TestCase
             'customer_code' => 'C-0003',
             'full_name' => 'New Customer',
             'phone' => '+639173333333',
+            'loyalty_points' => 80,
         ]);
 
         for ($i = 1; $i <= 2; $i++) {
@@ -291,7 +294,7 @@ class ReportsDataTest extends TestCase
         $this->assertEquals('↑ 100%', $items->get('Pizza A')['change']);
         $this->assertEquals('↓ 50%', $items->get('Burger B')['change']);
         // Item C has no prior-period sales: must return '—'
-        $this->assertEquals('—', $items->get('Drink C')['change']);
+        $this->assertEquals('No prior data', $items->get('Drink C')['change']);
     }
 
     public function test_log_export_records_user_role_and_file_details(): void
