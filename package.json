@@ -1,0 +1,13 @@
+{
+  "name": "capstone-morebites",
+  "private": true,
+  "scripts": {
+    "tunnel:backend": "ngrok http 8000",
+    "tunnel:drivers": "npm --prefix morebites-drivers run tunnel",
+    "tunnel:customer": "npm --prefix morebites-customer run tunnel",
+    "start:backend": "cd morebites-backend && php artisan serve --host=0.0.0.0 --port=8000",
+    "start:frontend": "npm --prefix morebites-frontend run dev",
+    "start:drivers": "npm --prefix morebites-drivers run start",
+    "start:customer": "npm --prefix morebites-customer run start"
+  }
+}

@@ -603,23 +603,18 @@ export default function ReceiptScreen() {
               valueStyle={styles.paidMethodValue}
             />
             <DetailRow label="Rider Name" value={riderName} />
-            <DetailRow label="Delivery Address" value={address} last />
-
-            <View style={styles.loyaltyBanner}>
-              <View style={styles.loyaltyIconWrap}>
-                <Ionicons name="sparkles" size={16} color={PRIMARY} />
-              </View>
-              <Text style={styles.loyaltyText}>Points Earned: {pointsEarned} pts</Text>
-            </View>
+            <DetailRow label="Delivery Address" value={address} />
+            <DetailRow
+              label="Points Earned"
+              value={`${pointsEarned} pts`}
+              last={!(pointsUsed > 0)}
+            />
             {pointsUsed > 0 ? (
-              <View style={[styles.loyaltyBanner, { marginTop: 8, backgroundColor: "#FFF7ED" }]}>
-                <View style={[styles.loyaltyIconWrap, { backgroundColor: "#FFEDD5" }]}>
-                  <Ionicons name="ribbon-outline" size={16} color={PRIMARY} />
-                </View>
-                <Text style={[styles.loyaltyText, { color: "#C2410C" }]}>
-                  Points Used: {pointsUsed} pts (-₱{Number(pointsDiscount).toFixed(2)})
-                </Text>
-              </View>
+              <DetailRow
+                label="Points Used"
+                value={`${pointsUsed} pts (-₱${Number(pointsDiscount).toFixed(2)})`}
+                last
+              />
             ) : null}
           </View>
 

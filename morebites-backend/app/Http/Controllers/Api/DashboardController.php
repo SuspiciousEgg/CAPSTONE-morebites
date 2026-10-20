@@ -15,33 +15,46 @@ use Illuminate\Support\Facades\DB;
 class DashboardController extends Controller
 {
     /**
-     * PROMPT 37 DIAGNOSTIC REPORT:
-     * 1. Query & Endpoint:
-     *    - The Live Orders Queue table calls GET /api/dashboard (dashboardApi.get()).
-     *    - Previously, it executed: Order::query()->whereDate('created_at', today())->latest()->take(5)->get().
-     * 2. WHERE clause date filter:
-     *    - whereDate('created_at', today()) used Laravel's default server timezone (UTC).
-     *    - In Philippine timezone (Asia/Manila, UTC+8), today spans from 00:00:00 to 23:59:59 PHT
-     *      (16:00:00 UTC yesterday to 15:59:59 UTC today).
-     *    - Filtering with whereDate('created_at', today()) in UTC dropped morning orders placed between
-     *      12:00 AM and 7:59 AM PHT while capturing orders from the following morning UTC window.
-     * 3. Customer name join:
-     *    - It directly accessed $o->customer_name without joining or resolving the registered customer
-     *      profile ($o->customer->full_name).
-     * 4. ORDER BY / LIMIT:
-     *    - The query used latest()->take(5). Because the seeded test order #ORD-PRIOR-1 had created_at
-     *      stamped with today's date, it was surfaced at the top of the queue.
-     * 5. Total Sales Stat Card:
-     *    - Previously, it summed all orders via Order::whereDate('created_at', today())->sum('total')
-     *      without filtering for status = 'Completed'. It included test order #ORD-PRIOR-1 (₱2,000.00).
-     * 6. Seeded Test Data (Date vs Format):
-     *    - #ORD-PRIOR-1 actually has today's created_at (2026-09-23 09:42:50 UTC) because created_at
-     *      was omitted from Order::$fillable, causing Eloquent to default to Carbon::now() upon creation.
-     *    - It also has a non-standard code format (#ORD-PRIOR-1) rather than the standard #ORD-XXXXX format.
-     *    - Real order #ORD-00033 has created_at = 2026-09-21 18:13:03 UTC (2026-09-22 02:13:03 PHT),
-     *      which falls outside today's date range.
-     * 7. Preserved Donut Chart:
-     *    - The left-side donut chart Order Breakdown widget ($orderStatus) query is preserved exactly as-is.
+     * PROMPT 37 & SALES OVERVIEW SYNC DIAGNOSTIC REPORT:
+     * 1. Endpoint & Data Source Comparison:
+     *    - Every Dashboard panel (Total Sales stat card, New Orders stat card, Active Driver stat card,
+     *      Low Stock Alert stat card, Sales Overview chart, Activity Log, Order Breakdown donut chart,
+     *      and Live Orders Queue) reads from the single `GET /api/dashboard` endpoint (`DashboardController::index`).
+     *    - However, inside `DashboardController::index`, the Sales Overview chart (`$completedSalesOrders`) had its
+     *      own separate query and hour-bucketing logic that diverged from the Total Sales stat card (`$totalSales`):
+     *      a) Status Mismatch (`Completed` vs `['Completed', 'Delivered']`):
+     *         `$totalSales` and `$completedSalesOrders` filtered strictly by `->where('status', 'Completed')`,
+     *         whereas `ReportController` and `OrderController::updateStatus` treat both `'Completed'` and `'Delivered'`
+     *         as completed revenue statuses.
+     *      b) Timestamp Column Mismatch (`created_at` vs completion timestamp `delivered_at ?? updated_at`):
+     *         Orders placed on a previous day (or earlier in the day) and marked `'Completed'`/`'Delivered'` today
+     *         have `delivered_at` / `updated_at` in today's `Asia/Manila` window, or orders placed today have
+     *         `created_at` in today's `Asia/Manila` window.
+     *      c) Hour Window Clipping (`From 8:00 AM` / `To 8:00 PM` + off-by-one `$endHour - 1`):
+     *         While `$totalSales`, `$totalOrders`, `$orderStatus`, and `$recentOrders` queried the full 24-hour
+     *         Philippine day (`00:00:00` to `23:59:59 Asia/Manila`), the Daily Sales Overview chart generated slots
+     *         only for `$defaultStart = 8` through `$effectiveEnd = $endHour - 1` (`8 AM` to `7 PM`) and discarded any
+     *         sales occurring at `8 PM` (`$endHour`), late night (`9 PM`–`11 PM`), or early morning (`12 AM`–`7 AM`).
+     *         Even worse, when an order was completed at `8:15 PM` or `10:00 PM` PHT, the `Total Sales` stat card showed
+     *          the sale (e.g. `₱450.00`), while every slot in `d.sales` (`8 AM`–`7 PM`) remained `0`, causing the frontend
+     *         `hasSales` check (`displaySalesData.some(item => Number(item.v) > 0)`) to evaluate to `false` and cover the
+     *         chart with the EmptyState overlay ("No sales yet today") even though Total Sales was non-zero!
+     *      d) Fixed `[0, 30000]` YAxis Scale Hiding Real Sales Bars:
+     *         In `SuperAdminDashboard.jsx`, the chart hardcoded `domain={[0, 30000]}` with ticks `[0, 6000, ..., 30000]`.
+     *         For typical food orders of `₱100`–`₱450`, a bar height of `150 / 30000` is `0.5%` of 220px (~1 pixel tall),
+     *         making real sales bars visually invisible on the chart.
+     * 2. Empty-State Pattern Check:
+     *    - The Sales Overview chart uses the clean `<EmptyState icon="chart" ... />` overlay (`.sa-chart-empty-overlay`)
+     *      with no dashed border (`border: none`). This `<EmptyState />` icon-and-text pattern is preserved for when
+     *      there are genuinely zero sales today.
+     * 3. Fix Implemented:
+     *    - Unified `$todayCompletedOrdersQuery` so both the `Total Sales` stat card and the `Daily` Sales Overview chart
+     *      derive from the exact same today-scoped (`Asia/Manila`) completed orders (`whereIn('status', ['Completed', 'Delivered'])`).
+     *    - Included inclusive `startHour` to `endHour` slots (`$h <= $endHour`, so `To 8:00 PM` includes the `8 PM` slot)
+     *      and automatically expanded the Daily slot range to include the Manila hour of any completed order today that
+     *      falls outside the default `From`/`To` dropdown bounds so today's chart bars always sum to `Total Sales`.
+     *    - Updated the frontend `YAxis` domain and tick formatter to scale dynamically to the actual sales amounts when
+     *      sales are present while keeping the clean `₱0`–`₱30K` backdrop when sales are zero.
      */
     public function index(Request $request)
     {
@@ -53,20 +66,21 @@ class DashboardController extends Controller
         $todayStartUtc = $manilaNow->copy()->startOfDay()->setTimezone('UTC');
         $todayEndUtc = $manilaNow->copy()->endOfDay()->setTimezone('UTC');
 
-        // Total sales strictly sums Completed orders created within today's Manila date range
-        $totalSales = (float) Order::query()
-            ->realOrderCodes()
-            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
-            ->where('status', 'Completed')
-            ->sum('total');
-
         $todayOrders = Order::query()
             ->realOrderCodes()
             ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
 
+        $todayCompletedOrders = (clone $todayOrders)
+            ->whereIn('status', ['Completed', 'Delivered'])
+            ->orderBy('created_at')
+            ->get(['id', 'order_code', 'total', 'status', 'created_at', 'delivered_at', 'updated_at']);
+
+        // Total sales strictly sums today's Completed/Delivered orders from the shared today query
+        $totalSales = (float) $todayCompletedOrders->sum('total');
+
         $totalOrders = (clone $todayOrders)->count();
         $activeOrders = (clone $todayOrders)->whereIn('status', [
-            'Pending', 'Preparing', 'Ready', 'Out for Delivery',
+            'Pending', 'Preparing', 'Ready', 'Assigned', 'Picked Up', 'Out for Delivery',
         ])->count();
 
         // Active driver count matching non-archived active drivers case-insensitively and multi-role drivers
@@ -147,9 +161,17 @@ class DashboardController extends Controller
                 $salesEndUtc = $todayEndUtc;
 
                 $defaultStart = $startHour ?? 8;
-                $effectiveEnd = ($endHour !== null && $endHour > $defaultStart) ? ($endHour - 1) : 19;
-                if ($effectiveEnd < $defaultStart) {
-                    $effectiveEnd = $defaultStart;
+                $effectiveEnd = ($endHour !== null && $endHour >= $defaultStart) ? $endHour : 20;
+
+                // Ensure any completed order today (in Asia/Manila) is never clipped outside the Daily chart slots
+                foreach ($todayCompletedOrders as $ord) {
+                    $orderHour = (int) Carbon::parse($ord->created_at)->setTimezone('Asia/Manila')->format('G');
+                    if ($orderHour < $defaultStart) {
+                        $defaultStart = $orderHour;
+                    }
+                    if ($orderHour > $effectiveEnd) {
+                        $effectiveEnd = $orderHour;
+                    }
                 }
 
                 $slots = [];
@@ -159,11 +181,14 @@ class DashboardController extends Controller
                 break;
         }
 
-        $completedSalesOrders = Order::query()
-            ->realOrderCodes()
-            ->whereBetween('created_at', [$salesStartUtc, $salesEndUtc])
-            ->where('status', 'Completed')
-            ->get(['total', 'created_at']);
+        // Reuse the exact same todayCompletedOrders dataset for Daily so Total Sales and Sales Overview always match
+        $completedSalesOrders = $periodName === 'Daily'
+            ? $todayCompletedOrders
+            : Order::query()
+                ->realOrderCodes()
+                ->whereBetween('created_at', [$salesStartUtc, $salesEndUtc])
+                ->whereIn('status', ['Completed', 'Delivered'])
+                ->get(['total', 'created_at']);
 
         $aggregatedSales = [];
         foreach ($completedSalesOrders as $ord) {
@@ -196,18 +221,23 @@ class DashboardController extends Controller
         ]);
 
         // Left-side donut chart Order Breakdown widget: strictly Manila today window
-        $statusCounts = Order::query()
-            ->realOrderCodes()
-            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
+        $statusCounts = (clone $todayOrders)
             ->select('status', DB::raw('COUNT(*) as value'))
             ->groupBy('status')
             ->pluck('value', 'status');
 
+        $completedCount = (int) ($statusCounts['Completed'] ?? 0) + (int) ($statusCounts['Delivered'] ?? 0);
+        $outForDeliveryCount = (int) ($statusCounts['Out for Delivery'] ?? 0)
+            + (int) ($statusCounts['Assigned'] ?? 0)
+            + (int) ($statusCounts['Picked Up'] ?? 0);
+        $preparingCount = (int) ($statusCounts['Preparing'] ?? 0) + (int) ($statusCounts['Ready'] ?? 0);
+
         $orderStatus = collect([
-            'Preparing', 'Pending', 'Completed', 'Cancelled', 'Out for Delivery',
-        ])->map(fn ($name) => [
-            'name' => $name,
-            'value' => (int) ($statusCounts[$name] ?? 0),
+            ['name' => 'Preparing', 'value' => $preparingCount],
+            ['name' => 'Pending', 'value' => (int) ($statusCounts['Pending'] ?? 0)],
+            ['name' => 'Completed', 'value' => $completedCount],
+            ['name' => 'Cancelled', 'value' => (int) ($statusCounts['Cancelled'] ?? 0)],
+            ['name' => 'Out for Delivery', 'value' => $outForDeliveryCount],
         ]);
 
         // Live Orders Queue: strictly today in Asia/Manila, real order format, customer name resolution

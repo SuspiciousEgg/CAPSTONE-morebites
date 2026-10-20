@@ -14,19 +14,19 @@ const STEPS = ["Assigned", "Picked up", "Out for delivery", "Delivered"];
 
 export default function DeliveryCompleteScreen() {
   const params = useLocalSearchParams();
-  const orderId = Array.isArray(params.id) ? params.id[0] : params.id || "â€”";
+  const orderId = Array.isArray(params.id) ? params.id[0] : params.id || "—";
   const customer = Array.isArray(params.customer)
     ? params.customer[0]
     : params.customer || "Customer";
   const distance = Array.isArray(params.distance)
     ? params.distance[0]
-    : params.distance || "â€”";
+    : params.distance || "—";
   const duration = Array.isArray(params.duration)
     ? params.duration[0]
-    : params.duration || "â€”";
+    : params.duration || "—";
   const total = Array.isArray(params.total)
     ? params.total[0]
-    : params.total || "â€”";
+    : params.total || "—";
 
   const backToDashboard = () => {
     router.replace("/(driver)/(tabs)/delivered");
@@ -71,7 +71,7 @@ export default function DeliveryCompleteScreen() {
           </View>
           <Text style={styles.successTitle}>Delivery Complete</Text>
           <Text style={styles.successSubtitle}>
-            Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`} Â· {customer}
+            Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`} · {customer}
           </Text>
         </View>
 

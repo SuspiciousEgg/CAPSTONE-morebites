@@ -32,8 +32,6 @@ function getHistoryMeta(item) {
   switch (item.type) {
     case "earn":
       return {
-        icon: "add-circle",
-        iconColor: "#16A34A",
         title: item.order_code ? `Order ${item.order_code}` : "Points Earned",
         pointsText: `+${Math.abs(item.points)} pts`,
         pointsColor: "#16A34A",
@@ -41,17 +39,13 @@ function getHistoryMeta(item) {
       };
     case "redeem":
       return {
-        icon: "bag-handle",
-        iconColor: "#EA580C",
         title: item.order_code ? `Order ${item.order_code}` : "Points Used",
         pointsText: `-${Math.abs(item.points)} pts`,
-        pointsColor: "#EA580C",
+        pointsColor: PRIMARY,
         subtitle: item.date || item.date_short || "Redeemed",
       };
     case "refund":
       return {
-        icon: "refresh-circle",
-        iconColor: "#2563EB",
         title: item.order_code ? `Order ${item.order_code}` : "Points Refunded",
         pointsText: `+${Math.abs(item.points)} pts`,
         pointsColor: "#2563EB",
@@ -59,8 +53,6 @@ function getHistoryMeta(item) {
       };
     case "expire":
       return {
-        icon: "alert-circle",
-        iconColor: "#DC2626",
         title: "Points Expired",
         pointsText: `-${Math.abs(item.points)} pts`,
         pointsColor: "#DC2626",
@@ -68,8 +60,6 @@ function getHistoryMeta(item) {
       };
     default:
       return {
-        icon: "swap-horizontal",
-        iconColor: "#6B7280",
         title: item.note || "Points Adjustment",
         pointsText: `${item.points >= 0 ? `+${item.points}` : item.points} pts`,
         pointsColor: item.points >= 0 ? "#16A34A" : "#DC2626",
@@ -171,35 +161,28 @@ export default function ProfileScreen() {
 
         <Text style={styles.sectionLabel}>LOYALTY & REWARDS</Text>
         <View style={styles.loyaltyCard}>
-          <View style={styles.loyaltyTopRow}>
-            <View style={styles.loyaltyHeaderLeft}>
-              <View style={styles.loyaltyIconWrap}>
-                <Ionicons name="ribbon-outline" size={20} color={PRIMARY} />
+          <View style={styles.loyaltyMainSection}>
+            <View style={styles.loyaltyTopRow}>
+              <Text style={styles.infoLabel}>LOYALTY POINTS</Text>
+              <View style={styles.pointsWorthBadge}>
+                <Text style={styles.pointsWorthBadgeText}>
+                  Worth {loyalty.points_worth_label || `₱${(loyalty.points_worth || 0).toFixed(2)}`}
+                </Text>
               </View>
-              <Text style={styles.loyaltyHeaderTitle}>Loyalty Points</Text>
             </View>
-            <View style={styles.pointsWorthBadge}>
-              <Text style={styles.pointsWorthBadgeText}>
-                Worth {loyalty.points_worth_label || `₱${(loyalty.points_worth || 0).toFixed(2)}`}
-              </Text>
+
+            <View style={styles.loyaltyBalanceRow}>
+              <Text style={styles.loyaltyPointsValue}>{loyalty.points}</Text>
+              <Text style={styles.loyaltyPointsUnit}> pts</Text>
             </View>
-          </View>
 
-          <View style={styles.loyaltyBalanceRow}>
-            <Text style={styles.loyaltyPointsValue}>{loyalty.points}</Text>
-            <Text style={styles.loyaltyPointsUnit}> pts</Text>
-          </View>
-
-          {loyalty.points > 0 && loyalty.expiry_enabled && loyalty.expiry_date_label ? (
-            <View style={styles.expiryRow}>
-              <Ionicons name="time-outline" size={14} color="#D97706" />
+            {loyalty.points > 0 && loyalty.expiry_enabled && loyalty.expiry_date_label ? (
               <Text style={styles.expiryText}>Points expire on {loyalty.expiry_date_label}</Text>
-            </View>
-          ) : null}
+            ) : null}
+          </View>
 
           {loyalty.explanation ? (
             <View style={styles.explanationWrap}>
-              <Ionicons name="information-circle-outline" size={15} color="#6B7280" style={{ marginTop: 1 }} />
               <Text style={styles.explanationText}>{loyalty.explanation}</Text>
             </View>
           ) : null}
@@ -209,7 +192,6 @@ export default function ProfileScreen() {
         <View style={styles.historyCard}>
           {loyalty.history.length === 0 ? (
             <View style={styles.emptyHistoryWrap}>
-              <Ionicons name="receipt-outline" size={32} color="#D1D5DB" />
               <Text style={styles.emptyHistoryText}>No points yet. Complete an order to start earning.</Text>
             </View>
           ) : (
@@ -218,9 +200,6 @@ export default function ProfileScreen() {
               const isLast = idx === loyalty.history.length - 1;
               return (
                 <View key={entry.id || idx} style={[styles.historyRow, isLast && styles.lastHistoryRow]}>
-                  <View style={[styles.historyIconWrap, { backgroundColor: `${meta.iconColor}15` }]}>
-                    <Ionicons name={meta.icon} size={20} color={meta.iconColor} />
-                  </View>
                   <View style={styles.historyDetails}>
                     <Text style={styles.historyTitle}>{meta.title}</Text>
                     <Text style={styles.historySubtitle}>{meta.subtitle}</Text>
@@ -350,47 +329,25 @@ const styles = StyleSheet.create({
   },
   loyaltyCard: {
     borderWidth: 1,
-    borderColor: "#FED7AA",
-    borderRadius: 14,
-    backgroundColor: "#FFFBF7",
-    padding: 16,
-    shadowColor: "#F97000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  loyaltyMainSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   loyaltyTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  loyaltyHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  loyaltyIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#FFEDD5",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-  loyaltyHeaderTitle: {
-    color: "#7C2D12",
-    fontFamily: FONT,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
   pointsWorthBadge: {
-    backgroundColor: "#EA580C",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 999,
   },
   pointsWorthBadgeText: {
     color: "#FFFFFF",
@@ -401,50 +358,34 @@ const styles = StyleSheet.create({
   loyaltyBalanceRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    marginTop: 12,
+    marginTop: 4,
   },
   loyaltyPointsValue: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 34,
-    fontWeight: "800",
-    lineHeight: 38,
-  },
-  loyaltyPointsUnit: {
-    color: PRIMARY,
-    fontFamily: FONT,
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
   },
-  expiryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    alignSelf: "flex-start",
-    marginTop: 10,
-    gap: 6,
-  },
-  expiryText: {
-    color: "#92400E",
+  loyaltyPointsUnit: {
+    color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
   },
+  expiryText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 4,
+  },
   explanationWrap: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginTop: 12,
-    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     borderTopWidth: 1,
-    borderTopColor: "#FED7AA",
-    gap: 6,
+    borderTopColor: "#F0F0F0",
   },
   explanationText: {
-    flex: 1,
-    color: "#4B5563",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 12,
     lineHeight: 17,
@@ -459,50 +400,41 @@ const styles = StyleSheet.create({
   emptyHistoryWrap: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    gap: 8,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
   },
   emptyHistoryText: {
     color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 13,
-    fontWeight: "500",
+    fontSize: 12,
     textAlign: "center",
     lineHeight: 18,
   },
   historyRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#F0F0F0",
   },
   lastHistoryRow: {
     borderBottomWidth: 0,
-  },
-  historyIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
   },
   historyDetails: {
     flex: 1,
   },
   historyTitle: {
-    color: "#111827",
+    color: "#121212",
     fontFamily: FONT,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
   },
   historySubtitle: {
     color: "#6B7280",
     fontFamily: FONT,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
   },
   historyRight: {

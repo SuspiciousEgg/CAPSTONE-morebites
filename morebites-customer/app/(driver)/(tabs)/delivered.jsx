@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import Feather from "@expo/vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import {
   ActivityIndicator,
