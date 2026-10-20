@@ -158,6 +158,8 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
 
         // Manila today at 2:30 PM (14:30 PHT = 06:30 UTC)
         $manilaToday2pm = Carbon::now('Asia/Manila')->setTime(14, 30, 0)->setTimezone('UTC');
+        // Manila today at 9:15 PM (21:15 PHT = 13:15 UTC) — outside default "To 8:00 PM" filter
+        $manilaToday9pm = Carbon::now('Asia/Manila')->setTime(21, 15, 0)->setTimezone('UTC');
 
         $order = Order::query()->create([
             'order_code' => '#ORD-00101',
@@ -169,10 +171,21 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $order->created_at = $manilaToday2pm;
         $order->save();
 
-        // Daily view
-        $resDaily = $this->getJson('/api/dashboard?period=Daily');
+        $eveningOrder = Order::query()->create([
+            'order_code' => '#ORD-00105',
+            'customer_name' => 'Evening Customer',
+            'order_type' => 'Online Order',
+            'total' => 250.00,
+            'status' => 'Delivered',
+        ]);
+        $eveningOrder->created_at = $manilaToday9pm;
+        $eveningOrder->save();
+
+        // Daily view: chart slots must include both 2 PM and 9 PM and sum to Total Sales (700.00)
+        $resDaily = $this->getJson('/api/dashboard?period=Daily&from_time=From%208:00%20AM&to_time=To%208:00%20PM');
         $resDaily->assertOk();
         $salesDaily = $resDaily->json('data.sales');
+        $totalSalesStat = (float) $resDaily->json('data.stats.total_sales');
 
         $twoPmSlot = collect($salesDaily)->firstWhere('t', '2 PM');
         $this->assertNotNull($twoPmSlot);

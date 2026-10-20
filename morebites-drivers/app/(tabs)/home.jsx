@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import {
   ActivityIndicator,
@@ -13,8 +13,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import Feather from "@expo/vector-icons/Feather";
+
+
 import { authStorage, driverApi, onSessionTerminated } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
@@ -47,6 +47,33 @@ const SORT_OPTIONS = ["Newest", "Distance", "Amount"];
  *    - Synchronized `unreadCount` with the per-user notifications list and added optimistic immediate state
  *      updates + `locallyReadIdsRef` tracking so the badge disappears the exact instant the last unread
  *      notification is read and reappears automatically as soon as a new unread notification arrives.
+ */
+/**
+ * CURRENCY SYMBOL ENCODING DIAGNOSTIC REPORT (Driver App Order Cards):
+ *
+ * 1. Database Layer (Raw Column Value & Encoding/Collation):
+ *    - NOT broken. In the MySQL `orders` table (`utf8mb4` / `utf8mb4_unicode_ci`), order amounts
+ *      are stored as pure numeric `decimal(10, 2)` values in `orders.total` (e.g. `150.00`), with no
+ *      currency symbol stored in the database column.
+ *
+ * 2. API Response Layer (Content-Type & Payload Encoding):
+ *    - NOT broken. `DriverAppController::orderPayload()` returns `'amount' => (float) $o->total` via
+ *      Laravel's `response()->json(...)` (`Content-Type: application/json; charset=UTF-8`), sending a
+ *      raw numeric JSON float (`150`) without any currency symbol.
+ *
+ * 3. Mobile App Rendering / Source Encoding Layer (Comparison vs. Customer App & Web Admin):
+ *    - Customer App (`morebites-customer/app/(customer)/(tabs)/orders.jsx`, line 110) and Web Admin
+ *      (`morebites-frontend`) render the UTF-8 peso sign `₱` (`U+20B1`) directly in JSX or via
+ *      `formatPeso()`, which works properly with the `Plus Jakarta Sans` font.
+ *    - ROOT CAUSE: When `morebites-customer/app/(driver)/(tabs)/home.jsx` was copied/migrated into the
+ *      unified mobile app (`morebites-customer`), its UTF-8 bytes for `₱` (`0xE2 0x82 0xB1`) were
+ *      mis-decoded as Windows-1252 (`â‚±`) and re-saved as literal double-encoded UTF-8 mojibake on
+ *      line 361 (`â‚±{Number(order.amount || 0).toFixed(2)}`).
+ *
+ * 4. Fix Applied:
+ *    - Restored the literal currency symbol in the Driver order card amount from the double-encoded
+ *      mojibake `â‚±` back to the proper UTF-8 Philippine Peso sign `₱` (`U+20B1`), matching the
+ *      Customer app and Web Admin.
  */
 export default function HomeScreen() {
   const [firstName, setFirstName] = useState("Driver");

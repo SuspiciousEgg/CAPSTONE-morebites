@@ -29,7 +29,17 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/ionicons.ttf",
+            "./assets/fonts/feather.ttf",
+            "./assets/fonts/material.ttf",
+            "./assets/fonts/MaterialIcons.ttf"
+          ]
+        }
+      ],
       [
         "expo-location",
         {
@@ -37,7 +47,9 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/auth"
+      "@react-native-firebase/auth",
+      "expo-asset",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

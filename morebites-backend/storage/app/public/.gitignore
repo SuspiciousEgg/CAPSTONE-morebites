@@ -1,2 +1,7 @@
-*
 !.gitignore
+!avatars/
+!avatars/**
+!menu/
+!menu/**
+!proofs/
+!proofs/**

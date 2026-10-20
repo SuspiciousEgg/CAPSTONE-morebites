@@ -1692,8 +1692,8 @@
 .om-loyalty-not-found {
   font-size: 12px;
   color: #6B7280;
-  background: #F3F4F6;
-  border: 1px dashed #D1D5DB;
+  background: #F9FAFB;
+  border: 1px solid #EDEDED;
   border-radius: 8px;
   padding: 8px 12px;
   margin-bottom: 14px;
@@ -1701,7 +1701,7 @@
 
 .om-loyalty-matched-card {
   background: #F0FDF4;
-  border: 1px solid #BBF7D0;
+  border: 1.5px solid #BBF7D0;
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 14px;
@@ -1720,7 +1720,7 @@
   gap: 5px;
   font-size: 13px;
   font-weight: 700;
-  color: #15803D;
+  color: #166534;
 }
 
 .om-loyalty-check-icon {
@@ -1755,8 +1755,9 @@
 .om-loyalty-code {
   font-size: 11px;
   font-weight: 600;
-  color: #4B5563;
-  background: #E5E7EB;
+  color: #6B7280;
+  background: #FFFFFF;
+  border: 1px solid #EDEDED;
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -1769,17 +1770,16 @@
 .om-loyalty-matched-note {
   font-size: 11px;
   color: #6B7280;
-  font-style: italic;
 }
 
 .om-loyalty-member-tag {
   display: inline-block;
   margin-left: 6px;
   font-size: 10px;
-  font-weight: 700;
-  color: #15803D;
-  background: #DCFCE7;
-  padding: 2px 6px;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: #22C55E;
+  padding: 2px 8px;
   border-radius: 999px;
   vertical-align: middle;
 }

@@ -1121,13 +1121,29 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     tickLine={false}
                   />
                   <YAxis
-                    domain={[0, (max) => (max > 30000 ? Math.ceil(max * 1.15) : 30000)]}
-                    ticks={salesPeriod === 'Daily' ? [0, 6000, 12000, 18000, 24000, 30000] : undefined}
+                    domain={[
+                      0,
+                      (max) => {
+                        if (!max || max <= 0) return 30000
+                        if (max <= 500) return Math.ceil((max * 1.2) / 100) * 100
+                        if (max <= 2000) return Math.ceil((max * 1.2) / 250) * 250
+                        if (max <= 10000) return Math.ceil((max * 1.2) / 1000) * 1000
+                        return Math.ceil((max * 1.15) / 5000) * 5000
+                      },
+                    ]}
+                    ticks={!hasSales && salesPeriod === 'Daily' ? [0, 6000, 12000, 18000, 24000, 30000] : undefined}
                     tick={{ fill: '#888888', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     width={52}
-                    tickFormatter={(v) => (v === 0 ? '₱0' : `₱${v / 1000}K`)}
+                    tickFormatter={(v) => {
+                      if (v === 0) return '₱0'
+                      if (v >= 1000) {
+                        const k = v / 1000
+                        return `₱${Number.isInteger(k) ? k : k.toFixed(1)}K`
+                      }
+                      return `₱${Math.round(v)}`
+                    }}
                   />
                   {hasSales && (
                     <Tooltip

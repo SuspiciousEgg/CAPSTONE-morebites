@@ -660,9 +660,6 @@ export default function CheckoutScreen() {
         {loyalty && loyaltyEnabled ? (
           <View style={styles.loyaltyRedeemCard}>
             <View style={styles.loyaltyRedeemTop}>
-              <View style={styles.loyaltyRedeemIconWrap}>
-                <Ionicons name="ribbon-outline" size={20} color={PRIMARY} />
-              </View>
               <View style={styles.loyaltyRedeemInfo}>
                 <Text style={styles.loyaltyRedeemTitle}>MoreBites Loyalty</Text>
                 {canRedeem ? (
@@ -760,7 +757,6 @@ export default function CheckoutScreen() {
                   </View>
                   {usePoints && pointsDiscount >= cartTotal ? (
                     <View style={styles.feesToPayBanner}>
-                      <Ionicons name="sparkles" size={14} color="#D97706" />
                       <Text style={styles.feesToPayText}>
                         Fees to pay: ₱{Number(deliveryFee + serviceFee).toFixed(2)}
                       </Text>
@@ -1536,22 +1532,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#FED7AA",
-    padding: 14,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     marginBottom: 16,
   },
   loyaltyRedeemTop: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  loyaltyRedeemIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFEDD5",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
+    justifyContent: "space-between",
   },
   loyaltyRedeemInfo: {
     flex: 1,
@@ -1559,25 +1548,25 @@ const styles = StyleSheet.create({
   loyaltyRedeemTitle: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
   },
   loyaltyRedeemSubtitle: {
-    color: "#4B5563",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 12,
     marginTop: 2,
   },
   loyaltyRedeemWarning: {
-    color: "#D97706",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 12,
     marginTop: 2,
-    lineHeight: 16,
+    lineHeight: 17,
   },
   toggleWrap: {
     alignItems: "flex-end",
-    marginLeft: 8,
+    marginLeft: 12,
   },
   toggleLabel: {
     color: "#6B7280",
@@ -1589,11 +1578,10 @@ const styles = StyleSheet.create({
   loyaltyAppliedWrap: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F0FDF4",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingTop: 10,
     marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
     gap: 6,
   },
   loyaltyAppliedText: {
@@ -1605,18 +1593,12 @@ const styles = StyleSheet.create({
   feesToPayBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
     marginTop: 6,
-    gap: 6,
-    alignSelf: "flex-start",
   },
   feesToPayText: {
-    color: "#92400E",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
 });

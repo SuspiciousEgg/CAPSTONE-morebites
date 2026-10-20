@@ -480,7 +480,7 @@ export default function CustomerManagement() {
                   </div>
                   <div className="cm-info-card">
                     <span className="cm-info-label">Loyalty Balance</span>
-                    <span className="cm-info-value" style={{ color: '#EA580C', fontWeight: 700 }}>
+                    <span className="cm-info-value">
                       {(selected.loyalty_points ?? 0).toLocaleString()} pts
                     </span>
                   </div>

@@ -48,7 +48,17 @@
           }
         }
       ],
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/ionicons.ttf",
+            "./assets/fonts/feather.ttf",
+            "./assets/fonts/material.ttf",
+            "./assets/fonts/MaterialIcons.ttf"
+          ]
+        }
+      ],
       [
         "expo-location",
         {

@@ -357,14 +357,58 @@ class DriverAppController extends Controller
         ];
     }
 
+    /**
+     * DELIVERY DISTANCE DIAGNOSTIC REPORT (Driver App Order Cards):
+     *
+     * 1. What coordinates were actually being used to calculate the 103.0km / 103.7km distance?
+     *    - Store shared origin coordinate (`TrackingService::storePoint()`):
+     *      `(7.6094, 124.9883)` in Poblacion, Dangcagan, Bukidnon.
+     *    - Customer destination coordinates (`orders.dest_lat`, `orders.dest_lng`):
+     *      Correct and matching their saved Dangcagan addresses! For example:
+     *        * `#ORD-00109` ("Purok 5, Poblacion, Dangcagan"): `(7.6144235, 125.0067635)` -> 2.11 km from store.
+     *        * `#ORD-00107` ("MAIN ENTRANCE LUCKY 9, Poblacion, Dangcagan"): `(7.6146, 124.9896)` -> 0.60 km from store.
+     *        * `#ORD-00111` ("Poblacion, Dangcagan, Bukidnon"): `(7.6159, 124.9923)` -> 0.85 km from store.
+     *    - Why did `orders.delivery_distance_km` become ~103.0km–103.7km?
+     *      The origin was unintentionally substituted! When an order was assigned (`DispatchController::assign()`)
+     *      or polled (`TrackingService::activeDeliveriesPayload()`), `TrackingService::ensureRoute()` called
+     *      `$from ??= $this->riderPoint($order) ?? $this->storePoint()`. Because the driver account (`users.id = 2`)
+     *      had a stale GPS coordinate saved on `users.current_lat = 8.4770629, users.current_lng = 124.6487255`
+     *      (Cagayan de Oro City, ~103 km north of Dangcagan, captured from a dev PC/emulator), `ensureRoute()`
+     *      substituted the rider's stale CDO coordinate as the origin instead of `storePoint()`, and overwrote
+     *      `orders.delivery_distance_km` with the 103+ km CDO-to-Dangcagan distance!
+     *
+     * 2. Did the Driver app reuse the verified Checkout distance calculation?
+     *    - At Checkout (`CustomerAppController::placeOrder` & `DeliveryRateService::quoteForCoordinates`),
+     *      distance is calculated strictly from `storePoint()` to the customer's destination via
+     *      `TrackingService::haversineKm($tracking->storePoint(), $dest)` (enforcing the 10km max radius).
+     *    - However, `TrackingService::ensureRoute()` and `DriverAppController::orderPayload()` did NOT reuse
+     *      that store-to-customer Haversine calculation; `ensureRoute()` overwrote `delivery_distance_km` using
+     *      the rider's unverified `users.current_lat/lng`, and `orderPayload()` blindly read that overwritten column.
+     *
+     * 3. Fix Applied:
+     *    - Reused the verified Checkout distance logic (`TrackingService::storePoint()` -> customer destination
+     *      via `TrackingService::haversineKm()`) in `DriverAppController::orderPayload()` and `TrackingService`
+     *      so order cards always reflect the true store-to-customer delivery distance in Dangcagan (e.g. 0.6km–2.1km),
+     *      and guarded `TrackingService::riderPoint()` against out-of-town (>10km from store) stale GPS coordinates.
+     */
     private function orderPayload(Order $o): array
     {
         $displayStatus = $o->status === 'Completed' ? 'Delivered' : $o->status;
         $code = ltrim((string) $o->order_code, '#');
         $shortId = preg_replace('/\D+/', '', $code) ?: (string) $o->id;
 
-        $distanceKm = $o->delivery_distance_km ?: 2.5;
-        $etaMins = $o->delivery_minutes ?: 20;
+        $tracking = app(\App\Services\TrackingService::class);
+        $o = $tracking->ensureDestination($o);
+        $storeOrigin = $tracking->storePoint();
+        $customerDest = [
+            'latitude' => (float) $o->dest_lat,
+            'longitude' => (float) $o->dest_lng,
+        ];
+
+        $distanceKm = ($o->dest_lat && $o->dest_lng)
+            ? $tracking->haversineKm($storeOrigin, $customerDest)
+            : (float) ($o->delivery_distance_km ?: 2.5);
+        $etaMins = max(8, (int) round($distanceKm * 4));
 
         return [
             'id' => $shortId,

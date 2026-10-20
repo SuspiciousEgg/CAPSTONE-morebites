@@ -1,16 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  LuAward,
   LuCircleCheck,
   LuTriangleAlert,
-  LuSparkles,
-  LuHistory,
   LuSearch,
   LuChevronLeft,
   LuChevronRight,
   LuRefreshCw,
 } from 'react-icons/lu'
 import { loyaltySettingsApi } from '../api/client'
+
+/*
+ * DIAGNOSIS REPORT — Loyalty UI vs. Existing System Design:
+ *
+ * 1. Web Reference Components Confirmed Correct:
+ *    - Dashboard Stat Cards (`SuperAdminDashboard.css` `.sa-stat-card`) & Settings Cards (`DeliveryRatesSettings.css` `.dr-card`):
+ *      `background: #FFFFFF; border: 1px solid #EDEDED; border-radius: 14px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);`
+ *      Headings (`.dr-card-head h2` / `p`) are plain `#1C1B18` (18px, weight 700) + `#6B7280` (13px) with no decorative icon boxes.
+ *      Preview sub-cards (`.dr-quote div`) & Customer Details cards (`CustomerManagement.css` `.cm-info-card`) use flat
+ *      `background: #F9FAFB; border: 1px solid #EDEDED; border-radius: 10px; padding: 12px 14px;` with `#6B7280` labels and `#1C1B18` values.
+ *    - Low Stocks Alert Green Card (`SuperAdminDashboard.css` `.sa-healthy-card`):
+ *      `background: #F0FDF4; border: 1.5px solid #BBF7D0; border-radius: 12px;` — uniform flat border, no left-edge accent bar or glow.
+ *
+ * 2. Mobile Reference Component Confirmed Correct:
+ *    - Profile Section Cards (`morebites-customer/app/(customer)/(tabs)/profile.jsx` `infoCard` / `menuCard`):
+ *      `backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12`, flat `#F0F0F0` row dividers,
+ *      `#9CA3AF` 10px uppercase labels, `#121212` 14px bold values, `#6B7280` muted grey secondary text, and `#F97000` solid orange primary actions.
+ *
+ * 3. What Was Broken Across Loyalty Components & Fixed Here:
+ *    - `LoyaltySettingsSection.jsx` + `DeliveryRatesSettings.css`: Removed `.loyalty-icon-badge` / `.loyalty-history-icon-badge` decorative
+ *      tinted icon boxes next to section headers, removed the `.loyalty-example-banner` `#FFF9F0`/`#FFE4C2` callout with sparkles icon box,
+ *      and restyled the Live Example and Ledger History table/badges to match `.dr-quote div`, `.dr-table`, `.reports-table`, and `.dr-badge`.
+ *    - `CustomerManagement.jsx`: Removed inline `#EA580C` orange override on Loyalty Balance so it matches `.cm-info-value` (`#1C1B18`).
+ *    - `OrderManagement.css`: Replaced dashed border on `.om-loyalty-not-found` and italic styling on `.om-loyalty-matched-note` with flat solid rules.
+ *    - Mobile `profile.jsx`, `checkout.jsx`, `receipt.jsx`: Removed `#FFFBF7`/`#FFF4EB` cream backgrounds, `#FED7AA` orange borders,
+ *      `#F97000` drop shadow/glow, `#FEF3C7` amber pills, and decorative icon circles so all cards match `infoCard`, `feeCard`, and `DetailRow`.
+ */
 
 const DEFAULT_LOYALTY = {
   spend_per_point: 2,
@@ -180,9 +204,6 @@ export default function LoyaltySettingsSection() {
     <section className="dr-card sa-card loyalty-card">
       <div className="dr-card-head loyalty-card-head">
         <div className="loyalty-head-left">
-          <div className="loyalty-icon-badge">
-            <LuAward size={20} />
-          </div>
           <div>
             <h2>Loyalty Program Settings</h2>
             <p>
@@ -290,11 +311,8 @@ export default function LoyaltySettingsSection() {
 
         {exampleCalc ? (
           <div className="loyalty-example-banner">
-            <div className="loyalty-example-icon">
-              <LuSparkles size={18} />
-            </div>
             <div className="loyalty-example-text">
-              <span className="loyalty-example-title">Live Example:</span>
+              <span className="loyalty-example-title">Live Example</span>
               <strong className="loyalty-example-formula">
                 Spend ₱{exampleCalc.testSpend} → {exampleCalc.points} points → worth ₱{exampleCalc.worth} ({exampleCalc.percentBack}% back)
               </strong>
@@ -327,9 +345,6 @@ export default function LoyaltySettingsSection() {
       <div className="loyalty-history-card">
         <div className="loyalty-history-header">
           <div className="loyalty-history-title-wrap">
-            <div className="loyalty-history-icon-badge">
-              <LuHistory size={18} />
-            </div>
             <div>
               <h3>Loyalty Ledger History</h3>
               <p>Audit log of all points earned, redeemed, refunded, and expired across members.</p>
