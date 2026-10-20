@@ -178,6 +178,25 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $this->assertNotNull($twoPmSlot);
         $this->assertEquals(450.00, $twoPmSlot['v']);
 
+        // Evening order placed at 10:15 PM PHT (outside standard 8am-8pm window)
+        $manilaToday10pm = Carbon::now('Asia/Manila')->setTime(22, 15, 0)->setTimezone('UTC');
+        $orderLate = Order::query()->create([
+            'order_code' => '#ORD-00109',
+            'customer_name' => 'Late Customer',
+            'order_type' => 'Online Order',
+            'total' => 200.00,
+            'status' => 'Completed',
+        ]);
+        $orderLate->created_at = $manilaToday10pm;
+        $orderLate->save();
+
+        // Even with from_hour=8 and to_hour=20, slots dynamically expand to include hours with sales
+        $resDailyLate = $this->getJson('/api/dashboard?period=Daily&from_hour=8&to_hour=20');
+        $resDailyLate->assertOk();
+        $tenPmSlot = collect($resDailyLate->json('data.sales'))->firstWhere('t', '10 PM');
+        $this->assertNotNull($tenPmSlot, '10 PM slot should exist dynamically when sales occur at 10 PM');
+        $this->assertEquals(200.00, $tenPmSlot['v']);
+
         // Weekly view
         $resWeekly = $this->getJson('/api/dashboard?period=Weekly');
         $resWeekly->assertOk();
@@ -185,7 +204,7 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $currentDayName = Carbon::now('Asia/Manila')->format('D');
         $daySlot = collect($salesWeekly)->firstWhere('t', $currentDayName);
         $this->assertNotNull($daySlot);
-        $this->assertEquals(450.00, $daySlot['v']);
+        $this->assertEquals(650.00, $daySlot['v']);
 
         // Monthly view
         $resMonthly = $this->getJson('/api/dashboard?period=Monthly');
@@ -199,7 +218,7 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $currentMonthName = Carbon::now('Asia/Manila')->format('M');
         $monthSlot = collect($salesYearly)->firstWhere('t', $currentMonthName);
         $this->assertNotNull($monthSlot);
-        $this->assertEquals(450.00, $monthSlot['v']);
+        $this->assertEquals(650.00, $monthSlot['v']);
     }
 
     public function test_inventory_and_order_actions_populate_activity_log(): void

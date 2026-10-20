@@ -46,8 +46,8 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $period = $request->query('period', 'Daily');
-        $fromTime = $request->query('from_time', $request->query('fromTime'));
-        $toTime = $request->query('to_time', $request->query('toTime'));
+        $fromTime = $request->query('from_time', $request->query('fromTime', $request->query('from_hour')));
+        $toTime = $request->query('to_time', $request->query('toTime', $request->query('to_hour')));
 
         $manilaNow = Carbon::now('Asia/Manila');
         $todayStartUtc = $manilaNow->copy()->startOfDay()->setTimezone('UTC');
@@ -99,9 +99,10 @@ class DashboardController extends Controller
         $lowStocksCount = (clone $lowStockQuery)->count();
 
         // Parse From / To time filters for daily view
-        $parseHour = function (?string $str, ?int $default): ?int {
-            if (! $str) return $default;
-            $clean = preg_replace('/^(from|to)\s+/i', '', trim($str));
+        $parseHour = function ($val, ?int $default): ?int {
+            if ($val === null || $val === '') return $default;
+            if (is_numeric($val)) return (int) $val;
+            $clean = preg_replace('/^(from|to)\s+/i', '', trim((string) $val));
             try {
                 return (int) Carbon::createFromFormat('g:i A', $clean)->format('G');
             } catch (\Throwable $e) {
@@ -145,17 +146,7 @@ class DashboardController extends Controller
                 $periodName = 'Daily';
                 $salesStartUtc = $todayStartUtc;
                 $salesEndUtc = $todayEndUtc;
-
-                $defaultStart = $startHour ?? 8;
-                $effectiveEnd = ($endHour !== null && $endHour > $defaultStart) ? ($endHour - 1) : 19;
-                if ($effectiveEnd < $defaultStart) {
-                    $effectiveEnd = $defaultStart;
-                }
-
                 $slots = [];
-                for ($h = $defaultStart; $h <= $effectiveEnd; $h++) {
-                    $slots[] = Carbon::today('Asia/Manila')->setHour($h)->format('g A');
-                }
                 break;
         }
 
@@ -165,7 +156,10 @@ class DashboardController extends Controller
             ->where('status', 'Completed')
             ->get(['total', 'created_at']);
 
+        $periodSales = (float) $completedSalesOrders->sum('total');
+
         $aggregatedSales = [];
+        $orderHours = [];
         foreach ($completedSalesOrders as $ord) {
             $dt = Carbon::parse($ord->created_at)->setTimezone('Asia/Manila');
             $total = (float) $ord->total;
@@ -184,10 +178,29 @@ class DashboardController extends Controller
                 case 'Daily':
                 default:
                     $key = $dt->format('g A'); // 8 AM, 9 AM, etc.
+                    $orderHours[] = (int) $dt->format('G');
                     break;
             }
 
             $aggregatedSales[$key] = ($aggregatedSales[$key] ?? 0.0) + $total;
+        }
+
+        if ($periodName === 'Daily') {
+            $defaultStart = $startHour ?? 8;
+            $defaultEnd = $endHour ?? 20;
+            // Always ensure all hours that have completed sales today are included in the chart slots
+            if (! empty($orderHours)) {
+                $defaultStart = min($defaultStart, min($orderHours));
+                $defaultEnd = max($defaultEnd, max($orderHours));
+            }
+            if ($defaultStart > $defaultEnd) {
+                $defaultStart = $defaultEnd;
+            }
+
+            $slots = [];
+            for ($h = $defaultStart; $h <= $defaultEnd; $h++) {
+                $slots[] = Carbon::today('Asia/Manila')->setHour($h)->format('g A');
+            }
         }
 
         $formattedSales = collect($slots)->map(fn ($slot) => [
@@ -334,6 +347,8 @@ class DashboardController extends Controller
                 'stats' => [
                     'total_sales' => (float) $totalSales,
                     'total_sales_label' => '₱'.number_format($totalSales, 2),
+                    'period_sales' => (float) $periodSales,
+                    'period_sales_label' => '₱'.number_format($periodSales, 2),
                     'total_orders' => $totalOrders,
                     'active_orders' => $activeOrders,
                     'active_drivers' => $activeDrivers,

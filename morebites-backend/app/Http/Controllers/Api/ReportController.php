@@ -251,11 +251,39 @@ class ReportController extends Controller
             ->realOrderCodes()
             ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
 
+        $todayDeliveredOrders = (clone $todayOrdersQuery)
+            ->where('order_type', 'Online Order')
+            ->where('status', 'Completed');
+
+        $todayCompletedDeliveries = (clone $todayDeliveredOrders)->count();
+        $todayAvgDeliveryTime = $todayCompletedDeliveries > 0
+            ? (int) round((clone $todayDeliveredOrders)->whereNotNull('delivery_minutes')->avg('delivery_minutes') ?: 0)
+            : 0;
+
+        $hasDateRange = $from !== null || $to !== null;
+        if ($hasDateRange) {
+            $scopedOrdersQuery = Order::query()->realOrderCodes();
+            if ($from) {
+                $scopedOrdersQuery->where('created_at', '>=', $from);
+            }
+            if ($to) {
+                $scopedOrdersQuery->where('created_at', '<=', $to);
+            }
+            $scopedDeliveredOrders = (clone $scopedOrdersQuery)
+                ->where('order_type', 'Online Order')
+                ->where('status', 'Completed');
+            $scopedCompletedDeliveries = (clone $scopedDeliveredOrders)->count();
+            $scopedAvgDeliveryTime = $scopedCompletedDeliveries > 0
+                ? (int) round((clone $scopedDeliveredOrders)->whereNotNull('delivery_minutes')->avg('delivery_minutes') ?: 0)
+                : 0;
+            $scopedTotalOrders = (clone $scopedOrdersQuery)->count();
+        }
+
         $stats = [
             'total_sales_today' => (float) (clone $todayOrdersQuery)->where('status', 'Completed')->sum('total'),
-            'completed_deliveries' => (clone $todayOrdersQuery)->where('order_type', 'Online Order')->where('status', 'Completed')->count(),
-            'avg_delivery_time' => (int) (Order::query()->where('order_type', 'Online Order')->whereNotNull('delivery_minutes')->avg('delivery_minutes') ?: 0),
-            'total_orders' => (clone $todayOrdersQuery)->count(),
+            'completed_deliveries' => $hasDateRange ? $scopedCompletedDeliveries : $todayCompletedDeliveries,
+            'avg_delivery_time' => $hasDateRange ? $scopedAvgDeliveryTime : $todayAvgDeliveryTime,
+            'total_orders' => $hasDateRange ? $scopedTotalOrders : (clone $todayOrdersQuery)->count(),
         ];
 
         $status = $request->query('status');

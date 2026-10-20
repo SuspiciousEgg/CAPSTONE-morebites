@@ -137,7 +137,7 @@ export default function PickupConfirmedScreen() {
           <View style={styles.successTextContainer}>
             <Text style={styles.successTitle}>Picked confirmed</Text>
             <Text style={styles.successSubtitle}>
-              Order verified â€” head to customer
+              Order verified — head to customer
             </Text>
           </View>
         </View>
@@ -228,7 +228,7 @@ export default function PickupConfirmedScreen() {
           onPress={startDelivery}
         >
           <Text style={styles.startDeliveryButtonText}>
-            {saving ? "Starting..." : "Start Delivery â†’"}
+            {saving ? "Starting..." : "Start Delivery →"}
           </Text>
         </TouchableOpacity>
 
@@ -237,7 +237,7 @@ export default function PickupConfirmedScreen() {
           activeOpacity={0.85}
           onPress={() => router.back()}
         >
-          <Text style={styles.backToPickupButtonText}>â† Back to pickup</Text>
+          <Text style={styles.backToPickupButtonText}>← Back to pickup</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -358,7 +358,7 @@ export default function HomeScreen() {
                     <Feather name="package" size={22} color="#F97000" />
                   </View>
                   <Text style={styles.orderAmount}>
-                    â‚±{Number(order.amount || 0).toFixed(2)}
+                    ₱{Number(order.amount || 0).toFixed(2)}
                   </Text>
                 </View>
                 <Text style={styles.customerName}>{order.customer}</Text>

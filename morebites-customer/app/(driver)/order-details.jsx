@@ -35,8 +35,8 @@ export default function OrderDetailsScreen() {
   const buttonLabel = isDelivered
     ? "Completed"
     : order?.status === "Assigned"
-      ? "Proceed â†’"
-      : "Continue â†’";
+      ? "Proceed →"
+      : "Continue →";
 
   const continueOrder = () => {
     if (!order || isDelivered) return;

@@ -60,7 +60,7 @@ export default function ConfirmDeliveryScreen() {
           id: String(data.id || order?.id || orderId),
           customer: data.customer || order?.customer || "",
           distance: data.distance || order?.distance || "",
-          duration: mins != null ? `${mins} mins` : "â€”",
+          duration: mins != null ? `${mins} mins` : "—",
           total: formatPeso(data.amount || order?.amount || 0),
         },
       });

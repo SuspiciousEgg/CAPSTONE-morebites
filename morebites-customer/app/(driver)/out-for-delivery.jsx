@@ -216,11 +216,11 @@ export default function OutForDeliveryScreen() {
       ? `${tracking.eta_mins} mins`
       : order?.eta_mins != null
         ? `${order.eta_mins} mins`
-        : "â€”";
+        : "—";
   const distanceLabel =
     tracking?.distance_label ||
     order?.distance ||
-    (tracking?.distance_km != null ? `${tracking.distance_km} km` : "â€”");
+    (tracking?.distance_km != null ? `${tracking.distance_km} km` : "—");
 
   const callCustomer = async () => {
     const phone = order?.contact;
@@ -381,8 +381,8 @@ export default function OutForDeliveryScreen() {
               )}
               <Text style={styles.mapPlaceholderText}>
                 {trackingLoading
-                  ? "Loading live routeâ€¦"
-                  : "Waiting for GPS / destination coordinatesâ€¦"}
+                  ? "Loading live route…"
+                  : "Waiting for GPS / destination coordinates…"}
               </Text>
             </View>
           )}

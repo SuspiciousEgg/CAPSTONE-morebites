@@ -89,15 +89,10 @@ const DEFAULT_HOURLY_SLOTS = [
   { t: '5 PM', v: 0 },
   { t: '6 PM', v: 0 },
   { t: '7 PM', v: 0 },
-]
-
-const DEFAULT_ACTIVITY_LOG = [
-  { time: '8:00 AM', user: 'Admin', action: 'Added new menu item "Burger Combo"', status: 'Success' },
-  { time: '8:32 AM', user: 'Admin', action: 'Processed Order #1012', status: 'Success' },
-  { time: '9:32 AM', user: 'Driver', action: 'Accepted Delivery #1023', status: 'Success' },
-  { time: '10:39 AM', user: 'Owner', action: 'Generates Report', status: 'Success' },
-  { time: '11:09 AM', user: 'Owner', action: 'Deleted John Driver', status: 'Success' },
-  { time: '11:40 AM', user: 'Admin', action: 'Updated stock for chicken wing', status: 'Success' },
+  { t: '8 PM', v: 0 },
+  { t: '9 PM', v: 0 },
+  { t: '10 PM', v: 0 },
+  { t: '11 PM', v: 0 },
 ]
 
 export const ALL_NAV_ITEMS = [
@@ -240,7 +235,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   }, [visibleNavItems, activeNav])
   const [salesPeriod, setSalesPeriod] = useState('Daily')
   const [fromTime, setFromTime] = useState('From 8:00 AM')
-  const [toTime, setToTime] = useState('To 8:00 PM')
+  const [toTime, setToTime] = useState('To 11:00 PM')
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifTab, setNotifTab] = useState('All')
   const [notifications, setNotifications] = useState([])
@@ -550,7 +545,11 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       })
       const d = res.data?.data || {}
       const stats = d.stats || {}
-      setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
+      if (salesPeriod && salesPeriod !== 'Daily') {
+        setSalesTotalLabel(stats.period_sales_label || `₱${Number(stats.period_sales || 0).toFixed(2)}`)
+      } else {
+        setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
+      }
       setTotalOrdersToday(stats.total_orders ?? 0)
       setActiveOrders(stats.active_orders ?? 0)
       setActiveDrivers(stats.active_drivers ?? 0)
@@ -1032,7 +1031,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             </div>
             <div className="sa-stat-text">
               <div className="sa-stat-value">{salesTotalLabel || '₱0.00'}</div>
-              <div className="sa-stat-label">Total Sales</div>
+              <div className="sa-stat-label">{salesPeriod === 'Daily' ? 'Total Sales Today' : `Total Sales (${salesPeriod})`}</div>
             </div>
           </article>
 
@@ -1106,6 +1105,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   <option value="To 9:00 PM">To 9:00 PM</option>
                   <option value="To 10:00 PM">To 10:00 PM</option>
                   <option value="To 11:00 PM">To 11:00 PM</option>
+                  <option value="To 12:00 AM">To 12:00 AM</option>
                 </select>
               </div>
             </div>
