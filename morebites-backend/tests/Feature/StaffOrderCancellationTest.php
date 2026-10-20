@@ -184,6 +184,7 @@ class StaffOrderCancellationTest extends TestCase
             'status' => 'Preparing',
         ]);
 
+        $this->driverUser->update(['allowed_pages' => ['Orders']]);
         Sanctum::actingAs($this->driverUser);
 
         $response = $this->patchJson("/api/orders/{$order->id}/status", [
@@ -232,6 +233,7 @@ class StaffOrderCancellationTest extends TestCase
             'status' => 'Preparing',
         ]);
 
+        $this->customerUser->update(['allowed_pages' => ['Orders']]);
         Sanctum::actingAs($this->customerUser);
 
         $response = $this->patchJson("/api/orders/{$order->id}/status", [

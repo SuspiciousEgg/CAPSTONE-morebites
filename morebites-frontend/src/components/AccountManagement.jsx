@@ -1272,10 +1272,10 @@ export default function AccountManagement() {
                 }}
               >
                 {menu.type === 'driver'
-                  ? 'Blacklist Driver'
+                  ? 'Blocklist Driver'
                   : menu.type === 'cashier'
-                    ? 'Blacklist Cashier'
-                    : 'Blacklist Admin'}
+                    ? 'Blocklist Cashier'
+                    : 'Blocklist Admin'}
               </button>
             </>
           ) : null}
@@ -1767,7 +1767,7 @@ export default function AccountManagement() {
                 <div className="ac-modal-head" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                   <div className="ac-block-title">
                     <LuTriangleAlert size={22} color="#EF4444" />
-                    <h2>Blacklist Account</h2>
+                    <h2>Blocklist Account</h2>
                   </div>
                   <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
                     <LuX size={18} />
@@ -1775,7 +1775,7 @@ export default function AccountManagement() {
                 </div>
                 <div style={{ padding: '0 24px 20px' }}>
                   <p style={{ margin: '8px 0 14px', fontSize: 14, color: '#4B5563' }}>
-                    Select the reason for blacklisting <strong>{blockTarget.item.name}</strong>:
+                    Select the reason for blocklisting <strong>{blockTarget.item.name}</strong>:
                   </p>
                   <div className="ac-radios">
                     {BLOCK_REASONS.map((r) => (
@@ -1803,7 +1803,7 @@ export default function AccountManagement() {
                 <div className="ac-modal-head" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                   <div className="ac-block-title">
                     <LuTriangleAlert size={22} color="#DC2626" />
-                    <h2 style={{ color: '#DC2626' }}>Second Warning: Confirm Blacklist</h2>
+                    <h2 style={{ color: '#DC2626' }}>Second Warning: Confirm Blocklist</h2>
                   </div>
                   <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
                     <LuX size={18} />
@@ -1824,7 +1824,7 @@ export default function AccountManagement() {
                       ⚠️ Are you absolutely sure?
                     </p>
                     <p style={{ margin: '0 0 8px' }}>
-                      You are about to blacklist <strong>{blockTarget.item.name}</strong> ({blockTarget.type}).
+                      You are about to blocklist <strong>{blockTarget.item.name}</strong> ({blockTarget.type}).
                     </p>
                     <p style={{ margin: '0 0 4px', fontSize: 12 }}>
                       This account will be immediately deactivated and denied access to MoreBites.
@@ -1843,7 +1843,7 @@ export default function AccountManagement() {
                     onClick={confirmBlock}
                     disabled={saving}
                   >
-                    {saving ? 'Blacklisting...' : 'Yes, Blacklist Account'}
+                    {saving ? 'Blocklisting...' : 'Yes, Blocklist Account'}
                   </button>
                 </div>
               </>

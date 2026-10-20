@@ -46,6 +46,8 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $period = $request->query('period', 'Daily');
+        $fromTime = $request->query('from_time', $request->query('fromTime'));
+        $toTime = $request->query('to_time', $request->query('toTime'));
 
         $manilaNow = Carbon::now('Asia/Manila');
         $todayStartUtc = $manilaNow->copy()->startOfDay()->setTimezone('UTC');
@@ -66,39 +68,134 @@ class DashboardController extends Controller
         $activeOrders = (clone $todayOrders)->whereIn('status', [
             'Pending', 'Preparing', 'Ready', 'Out for Delivery',
         ])->count();
+
+        // Active driver count matching non-archived active drivers case-insensitively and multi-role drivers
         $activeDrivers = User::query()
-            ->where('role', 'driver')
+            ->where(function ($query) {
+                $query->where('role', 'driver')
+                    ->orWhereJsonContains('role_access', 'driver');
+            })
+            ->where('role', '!=', 'super_admin')
             ->whereNull('archived_at')
+            ->whereNotIn('status', ['Blacklisted', 'Blocklisted', 'Inactive', 'inactive'])
             ->where(function ($q) {
-                $q->where('status', 'active')->orWhereNull('status');
+                $q->whereRaw('LOWER(status) = ?', ['active'])
+                    ->orWhere('status', 'Active')
+                    ->orWhereNull('status');
             })
             ->count();
-        $lowStocksCount = InventoryItem::query()
-            ->whereIn('status', ['Low Stock', 'Out of Stock'])
-            ->count();
 
-        $defaultHours = ['8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM'];
-        $isSqlite = DB::connection()->getDriverName() === 'sqlite';
-        $timeExpression = $isSqlite
-            ? "case cast(strftime('%H', created_at) as integer) when 8 then '8 AM' when 9 then '9 AM' when 10 then '10 AM' when 11 then '11 AM' when 12 then '12 PM' when 13 then '1 PM' when 14 then '2 PM' when 15 then '3 PM' when 16 then '4 PM' when 17 then '5 PM' when 18 then '6 PM' when 19 then '7 PM' else 'Other' end"
-            : "DATE_FORMAT(created_at, '%l %p')";
+        // Low stock alert: non-archived items where status is Low Stock / Out of Stock OR stock <= reorder_level
+        $lowStockQuery = InventoryItem::query()
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', '!=', 'Archived');
+            })
+            ->where(function ($q) {
+                $q->whereIn('status', ['Low Stock', 'Out of Stock'])
+                    ->orWhereColumn('stock', '<=', 'reorder_level');
+            });
 
-        $salesRows = Order::query()
+        $lowStocksCount = (clone $lowStockQuery)->count();
+
+        // Parse From / To time filters for daily view
+        $parseHour = function (?string $str, ?int $default): ?int {
+            if (! $str) return $default;
+            $clean = preg_replace('/^(from|to)\s+/i', '', trim($str));
+            try {
+                return (int) Carbon::createFromFormat('g:i A', $clean)->format('G');
+            } catch (\Throwable $e) {
+                try {
+                    return (int) Carbon::parse($clean)->format('G');
+                } catch (\Throwable $e2) {
+                    return $default;
+                }
+            }
+        };
+
+        $startHour = $parseHour($fromTime, 8); // default 8 AM
+        $endHour = $parseHour($toTime, 20);    // default To 8:00 PM (hour 20)
+        if ($startHour !== null && $endHour !== null && $startHour > $endHour) {
+            [$startHour, $endHour] = [$endHour, $startHour];
+        }
+
+        // Determine date boundaries and slot buckets for Sales Overview period
+        $periodName = ucfirst(strtolower((string) $period));
+        switch ($periodName) {
+            case 'Weekly':
+                $salesStartUtc = $manilaNow->copy()->startOfWeek()->setTimezone('UTC');
+                $salesEndUtc = $manilaNow->copy()->endOfWeek()->setTimezone('UTC');
+                $slots = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                break;
+            case 'Monthly':
+                $salesStartUtc = $manilaNow->copy()->startOfMonth()->setTimezone('UTC');
+                $salesEndUtc = $manilaNow->copy()->endOfMonth()->setTimezone('UTC');
+                $slots = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+                if ($manilaNow->copy()->endOfMonth()->day > 28) {
+                    $slots[] = 'Week 5';
+                }
+                break;
+            case 'Yearly':
+                $salesStartUtc = $manilaNow->copy()->startOfYear()->setTimezone('UTC');
+                $salesEndUtc = $manilaNow->copy()->endOfYear()->setTimezone('UTC');
+                $slots = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                break;
+            case 'Daily':
+            default:
+                $periodName = 'Daily';
+                $salesStartUtc = $todayStartUtc;
+                $salesEndUtc = $todayEndUtc;
+
+                $defaultStart = $startHour ?? 8;
+                $effectiveEnd = ($endHour !== null && $endHour > $defaultStart) ? ($endHour - 1) : 19;
+                if ($effectiveEnd < $defaultStart) {
+                    $effectiveEnd = $defaultStart;
+                }
+
+                $slots = [];
+                for ($h = $defaultStart; $h <= $effectiveEnd; $h++) {
+                    $slots[] = Carbon::today('Asia/Manila')->setHour($h)->format('g A');
+                }
+                break;
+        }
+
+        $completedSalesOrders = Order::query()
             ->realOrderCodes()
-            ->select(DB::raw("{$timeExpression} as t"), DB::raw('SUM(total) as v'))
-            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
+            ->whereBetween('created_at', [$salesStartUtc, $salesEndUtc])
             ->where('status', 'Completed')
-            ->groupBy('t')
-            ->orderBy('t')
-            ->get()
-            ->pluck('v', 't');
+            ->get(['total', 'created_at']);
 
-        $formattedSales = collect($defaultHours)->map(fn ($h) => [
-            't' => $h,
-            'v' => (float) ($salesRows[$h] ?? 0),
+        $aggregatedSales = [];
+        foreach ($completedSalesOrders as $ord) {
+            $dt = Carbon::parse($ord->created_at)->setTimezone('Asia/Manila');
+            $total = (float) $ord->total;
+
+            switch ($periodName) {
+                case 'Weekly':
+                    $key = $dt->format('D'); // Mon, Tue, etc.
+                    break;
+                case 'Monthly':
+                    $day = (int) $dt->format('j');
+                    $key = $day <= 7 ? 'Week 1' : ($day <= 14 ? 'Week 2' : ($day <= 21 ? 'Week 3' : ($day <= 28 ? 'Week 4' : 'Week 5')));
+                    break;
+                case 'Yearly':
+                    $key = $dt->format('M'); // Jan, Feb, etc.
+                    break;
+                case 'Daily':
+                default:
+                    $key = $dt->format('g A'); // 8 AM, 9 AM, etc.
+                    break;
+            }
+
+            $aggregatedSales[$key] = ($aggregatedSales[$key] ?? 0.0) + $total;
+        }
+
+        $formattedSales = collect($slots)->map(fn ($slot) => [
+            't' => $slot,
+            'v' => (float) ($aggregatedSales[$slot] ?? 0.0),
         ]);
 
-        // Left-side donut chart Order Breakdown widget: preserved with Manila today window
+        // Left-side donut chart Order Breakdown widget: strictly Manila today window
         $statusCounts = Order::query()
             ->realOrderCodes()
             ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
@@ -133,21 +230,22 @@ class DashboardController extends Controller
                 ];
             });
 
+        // Activity Log: strictly today in Asia/Manila with timezone-converted timestamp
         $activity = ActivityLog::query()
-            ->whereDate('created_at', today())
-            ->latest()
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
+            ->latest('created_at')
             ->take(8)
             ->get()
             ->map(fn ($a) => [
-                'time' => $a->created_at?->format('g:i A'),
+                'time' => $a->created_at?->copy()->setTimezone('Asia/Manila')->format('g:i A') ?: 'Just now',
                 'user' => $a->actor ?: 'Admin',
                 'action' => $a->action,
                 'status' => 'Success',
             ]);
 
-        $lowStocks = InventoryItem::query()
-            ->whereIn('status', ['Low Stock', 'Out of Stock'])
-            ->orderBy('stock')
+        // Low stocks list: non-archived items where status is Low Stock / Out of Stock OR stock <= reorder_level
+        $lowStocks = (clone $lowStockQuery)
+            ->orderBy('stock', 'asc')
             ->take(5)
             ->get()
             ->map(fn ($i) => [
@@ -167,9 +265,8 @@ class DashboardController extends Controller
             foreach ($recentOrdersForNotifs as $ord) {
                 Notification::createOrderNotification($ord);
             }
-            $lowStockItems = InventoryItem::query()
-                ->whereIn('status', ['Low Stock', 'Out of Stock'])
-                ->orderBy('stock')
+            $lowStockItems = (clone $lowStockQuery)
+                ->orderBy('stock', 'asc')
                 ->take(5)
                 ->get();
             foreach ($lowStockItems as $item) {

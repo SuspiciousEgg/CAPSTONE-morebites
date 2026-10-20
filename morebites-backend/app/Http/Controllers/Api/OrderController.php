@@ -150,7 +150,7 @@ class OrderController extends Controller
          * under concurrent requests. Order IDs are now generated via a true database
          * auto-increment column (`order_sequences`), zero-padded to 5 digits: #ORD-00028.
          */
-        $order = DB::transaction(function () use ($data) {
+        $order = DB::transaction(function () use ($data, $request) {
             $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
 
             $order = Order::query()->create([
@@ -183,8 +183,9 @@ class OrderController extends Controller
                 ]);
             }
 
+            $actor = $request->user()?->name ?: 'Staff';
             ActivityLog::query()->create([
-                'actor' => 'Admin',
+                'actor' => $actor,
                 'action' => 'Created order '.$order->order_code,
             ]);
 
@@ -245,6 +246,11 @@ class OrderController extends Controller
 
         if ($data['status'] !== $previous) {
             Notification::createOrderNotification($order);
+            $actor = $user?->name ?: 'Staff';
+            ActivityLog::query()->create([
+                'actor' => $actor,
+                'action' => "Order {$order->order_code} status updated to {$data['status']}",
+            ]);
         }
 
         return response()->json(['data' => $this->transform($order->load('items'))]);

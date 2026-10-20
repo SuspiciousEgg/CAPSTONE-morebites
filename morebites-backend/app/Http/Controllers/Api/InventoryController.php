@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\InventoryItem;
 use App\Models\InventoryLog;
 use App\Models\MenuItemIngredient;
@@ -470,6 +471,22 @@ class InventoryController extends Controller
             'log_type' => $extra['log_type'],
             'status' => $extra['status'] ?? $item->status,
             'user_id' => $request->user()?->id,
+        ]);
+
+        $actor = $request->user()?->name ?: 'Staff';
+        $logType = $extra['log_type'] ?? 'Updated';
+        $qty = abs((float) ($extra['quantity'] ?? 0));
+        $qtyFormatted = rtrim(rtrim(number_format($qty, 2), '0'), '.');
+        $actionDesc = match ($logType) {
+            'Restocked' => "Restocked {$item->name}".($qty > 0 ? " (+{$qtyFormatted} {$item->unit})" : ''),
+            'Added' => "Added new ingredient '{$item->name}'",
+            'Removed' => "Deducted stock for {$item->name}".($qty > 0 ? " (-{$qtyFormatted} {$item->unit})" : ''),
+            default => "Updated stock for {$item->name}",
+        };
+
+        ActivityLog::query()->create([
+            'actor' => $actor,
+            'action' => $actionDesc,
         ]);
     }
 

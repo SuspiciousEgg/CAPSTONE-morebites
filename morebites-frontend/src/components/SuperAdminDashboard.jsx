@@ -541,49 +541,78 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   const [lowStocks, setLowStocks] = useState([])
   const notifRef = useRef(null)
 
-  useEffect(() => {
-    let cancelled = false
-    dashboardApi
-      .get(salesPeriod)
-      .then((res) => {
-        if (cancelled) return
-        const d = res.data?.data || {}
-        const stats = d.stats || {}
-        setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
-        setTotalOrdersToday(stats.total_orders ?? 0)
-        setActiveOrders(stats.active_orders ?? 0)
-        setActiveDrivers(stats.active_drivers ?? 0)
-        setLowStocksCount(stats.low_stocks_count ?? d.low_stocks?.length ?? 0)
-        setSalesData(d.sales || [])
-        setOrderStatus(
-          (d.order_status || []).map((row) => ({
-            ...row,
-            color: STATUS_COLORS[row.name] || '#888',
-          })),
-        )
-        setOrders(
-          (d.recent_orders || []).map((o) => ({
-            ...o,
-            tone:
-              o.status === 'Completed'
-                ? 'green'
-                : o.status === 'Out for Delivery'
-                  ? 'blue'
-                  : 'orange',
-          })),
-        )
-        setActivityLog(d.activity_log || [])
-        setLowStocks(d.low_stocks || [])
-        if (d.notifications && Array.isArray(d.notifications)) {
-          setNotifications(d.notifications)
-          setUnreadCount(d.notifications.filter((n) => Boolean(n.unread)).length)
-        }
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const res = await dashboardApi.get({
+        period: salesPeriod,
+        from_time: fromTime,
+        to_time: toTime,
       })
-      .catch(console.error)
-    return () => {
-      cancelled = true
+      const d = res.data?.data || {}
+      const stats = d.stats || {}
+      setSalesTotalLabel(stats.total_sales_label || `₱${Number(stats.total_sales || 0).toFixed(2)}`)
+      setTotalOrdersToday(stats.total_orders ?? 0)
+      setActiveOrders(stats.active_orders ?? 0)
+      setActiveDrivers(stats.active_drivers ?? 0)
+      setLowStocksCount(stats.low_stocks_count ?? d.low_stocks?.length ?? 0)
+      setSalesData(d.sales || [])
+      setOrderStatus(
+        (d.order_status || []).map((row) => ({
+          ...row,
+          color: STATUS_COLORS[row.name] || '#888',
+        })),
+      )
+      setOrders(
+        (d.recent_orders || []).map((o) => ({
+          ...o,
+          tone:
+            o.status === 'Completed'
+              ? 'green'
+              : o.status === 'Out for Delivery'
+                ? 'blue'
+                : 'orange',
+        })),
+      )
+      setActivityLog(d.activity_log || [])
+      setLowStocks(d.low_stocks || [])
+      if (d.notifications && Array.isArray(d.notifications)) {
+        setNotifications(d.notifications)
+        setUnreadCount(d.notifications.filter((n) => Boolean(n.unread)).length)
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err)
     }
-  }, [salesPeriod])
+  }, [salesPeriod, fromTime, toTime])
+
+  // Refetch when switching back to Dashboard tab, when filters change, and on background polling interval
+  useEffect(() => {
+    if (activeNav !== 'Dashboard') return
+
+    fetchDashboard()
+
+    const interval = setInterval(() => {
+      fetchDashboard()
+    }, 5000)
+
+    const handleWindowFocus = () => {
+      fetchDashboard()
+    }
+
+    const handleSyncEvent = () => {
+      fetchDashboard()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    window.addEventListener('mb:inventory-changed', handleSyncEvent)
+    window.addEventListener('mb:order-updated', handleSyncEvent)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleWindowFocus)
+      window.removeEventListener('mb:inventory-changed', handleSyncEvent)
+      window.removeEventListener('mb:order-updated', handleSyncEvent)
+    }
+  }, [activeNav, fetchDashboard])
 
   const displayName = user?.name || 'John Doe'
   const displayRole =
@@ -625,8 +654,17 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
   const displaySalesData = useMemo(() => {
     if (salesData && salesData.length > 0) return salesData
+    if (salesPeriod === 'Weekly') {
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((t) => ({ t, v: 0 }))
+    }
+    if (salesPeriod === 'Monthly') {
+      return ['Week 1', 'Week 2', 'Week 3', 'Week 4'].map((t) => ({ t, v: 0 }))
+    }
+    if (salesPeriod === 'Yearly') {
+      return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((t) => ({ t, v: 0 }))
+    }
     return DEFAULT_HOURLY_SLOTS
-  }, [salesData])
+  }, [salesData, salesPeriod])
 
   const hasSales = useMemo(() => {
     return (displaySalesData || []).some((item) => Number(item.v) > 0)
@@ -1083,8 +1121,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     tickLine={false}
                   />
                   <YAxis
-                    domain={[0, 30000]}
-                    ticks={[0, 6000, 12000, 18000, 24000, 30000]}
+                    domain={[0, (max) => (max > 30000 ? Math.ceil(max * 1.15) : 30000)]}
+                    ticks={salesPeriod === 'Daily' ? [0, 6000, 12000, 18000, 24000, 30000] : undefined}
                     tick={{ fill: '#888888', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
