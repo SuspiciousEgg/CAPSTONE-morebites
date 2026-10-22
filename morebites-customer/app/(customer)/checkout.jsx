@@ -425,6 +425,7 @@ export default function CheckoutScreen() {
       };
 
       clearCart();
+      idempotencyKeyRef.current = generateIdempotencyKey();
       submittingRef.current = false;
       setSubmitting(false);
       setCheckingOrder(false);
@@ -452,6 +453,7 @@ export default function CheckoutScreen() {
   };
 
   const cancelOrder = () => {
+    if (submittingRef.current || submitting || checkingOrder) return;
     Alert.alert("Cancel this order?", "", [
       { text: "No", style: "cancel" },
       {
@@ -468,7 +470,7 @@ export default function CheckoutScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={() => { if (!submitting && !checkingOrder) router.back(); }} disabled={submitting || checkingOrder} hitSlop={8}>
           <Ionicons name="arrow-back" size={24} color="#121212" />
         </Pressable>
         <Text style={styles.headerTitle}>Checkout</Text>
@@ -807,7 +809,7 @@ export default function CheckoutScreen() {
           )}
         </Pressable>
 
-        <Pressable style={styles.cancelButton} onPress={cancelOrder}>
+        <Pressable style={[styles.cancelButton, (submitting || checkingOrder) && { opacity: 0.5 }]} onPress={cancelOrder} disabled={submitting || checkingOrder}>
           <Text style={styles.cancelText}>Cancel Order</Text>
         </Pressable>
       </ScrollView>

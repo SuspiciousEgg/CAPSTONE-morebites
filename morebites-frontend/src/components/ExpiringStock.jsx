@@ -481,9 +481,6 @@ export default function ExpiringStock() {
           <div className="exp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="exp-modal-head">
               <h2>Create Use-It-Up Promo</h2>
-              <button type="button" className="exp-icon-btn" onClick={() => setPromoRow(null)} aria-label="Close">
-                <IconClose />
-              </button>
             </div>
             <div className="exp-modal-body">
               <p className="exp-modal-lead">

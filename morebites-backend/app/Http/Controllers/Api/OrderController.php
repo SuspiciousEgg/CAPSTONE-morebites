@@ -124,9 +124,24 @@ class OrderController extends Controller
         ]);
     }
 
+    public function showByKey(string $key)
+    {
+        $order = Order::query()
+            ->where('idempotency_key', $key)
+            ->with(['items'])
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        return response()->json(['data' => $this->transform($order)]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
+            'idempotency_key' => ['nullable', 'string', 'max:191'],
             'customer_name' => ['required', 'string'],
             'order_type' => ['required', 'string', 'in:Dine-in,Takeout'],
             'status' => ['nullable', 'string'],
@@ -140,6 +155,17 @@ class OrderController extends Controller
             'delivery_address' => ['nullable', 'string'],
         ]);
 
+        $idempotencyKey = $data['idempotency_key'] ?? null;
+        if (! empty($idempotencyKey)) {
+            $existingOrder = Order::query()
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+
+            if ($existingOrder) {
+                return response()->json(['data' => $this->transform($existingOrder->load('items'))], 200);
+            }
+        }
+
         $service = app(InventoryDeductionService::class);
         $service->validateCartAvailability($data['items']);
 
@@ -150,53 +176,80 @@ class OrderController extends Controller
          * under concurrent requests. Order IDs are now generated via a true database
          * auto-increment column (`order_sequences`), zero-padded to 5 digits: #ORD-00028.
          */
-        $order = DB::transaction(function () use ($data, $request) {
-            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+        try {
+            $order = DB::transaction(function () use ($data, $request, $idempotencyKey) {
+                if (! empty($idempotencyKey)) {
+                    $existingOrder = Order::query()
+                        ->where('idempotency_key', $idempotencyKey)
+                        ->lockForUpdate()
+                        ->first();
 
-            $order = Order::query()->create([
-                'order_code' => Order::generateOrderCode(),
-                'customer_id' => null,
-                'loyalty_customer_id' => $data['loyalty_customer_id'] ?? null,
-                'customer_name' => $data['customer_name'],
-                'order_type' => $data['order_type'],
-                'total' => $total,
-                'status' => $data['status'] ?? 'Preparing',
-                'payment_method' => 'COD',
-                'payment_status' => 'Paid',
-                'delivery_address' => $data['delivery_address'] ?? null,
-            ]);
+                    if ($existingOrder) {
+                        return $existingOrder->load('items');
+                    }
+                }
 
-            foreach ($data['items'] as $item) {
-                $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
-                $name = ! empty($item['size']) && ! $hasSizeInName
-                    ? $item['name'].' ('.$item['size'].')'
-                    : $item['name'];
+                $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
 
-                OrderItem::query()->create([
-                    'order_id' => $order->id,
-                    'menu_item_id' => $item['menu_item_id'] ?? null,
-                    'name' => $name,
-                    'size' => $item['size'] ?? null,
-                    'qty' => $item['qty'],
-                    'unit_price' => $item['unit_price'],
-                    'line_total' => $item['qty'] * $item['unit_price'],
+                $order = Order::query()->create([
+                    'order_code' => Order::generateOrderCode(),
+                    'idempotency_key' => $idempotencyKey,
+                    'customer_id' => null,
+                    'loyalty_customer_id' => $data['loyalty_customer_id'] ?? null,
+                    'customer_name' => $data['customer_name'],
+                    'order_type' => $data['order_type'],
+                    'total' => $total,
+                    'status' => $data['status'] ?? 'Preparing',
+                    'payment_method' => 'COD',
+                    'payment_status' => 'Paid',
+                    'delivery_address' => $data['delivery_address'] ?? null,
                 ]);
+
+                foreach ($data['items'] as $item) {
+                    $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
+                    $name = ! empty($item['size']) && ! $hasSizeInName
+                        ? $item['name'].' ('.$item['size'].')'
+                        : $item['name'];
+
+                    OrderItem::query()->create([
+                        'order_id' => $order->id,
+                        'menu_item_id' => $item['menu_item_id'] ?? null,
+                        'name' => $name,
+                        'size' => $item['size'] ?? null,
+                        'qty' => $item['qty'],
+                        'unit_price' => $item['unit_price'],
+                        'line_total' => $item['qty'] * $item['unit_price'],
+                    ]);
+                }
+
+                $actor = $request->user()?->name ?: 'Staff';
+                ActivityLog::query()->create([
+                    'actor' => $actor,
+                    'action' => 'Created order '.$order->order_code,
+                ]);
+
+                app(InventoryDeductionService::class)->deductForOrder($order);
+
+                Notification::createOrderNotification($order);
+
+                return $order->load('items');
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if (! empty($idempotencyKey)) {
+                $existingOrder = Order::query()
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->first();
+
+                if ($existingOrder) {
+                    return response()->json(['data' => $this->transform($existingOrder->load('items'))], 200);
+                }
             }
+            throw $e;
+        }
 
-            $actor = $request->user()?->name ?: 'Staff';
-            ActivityLog::query()->create([
-                'actor' => $actor,
-                'action' => 'Created order '.$order->order_code,
-            ]);
+        $statusCode = (! empty($idempotencyKey) && $order->wasRecentlyCreated === false) ? 200 : 201;
 
-            app(InventoryDeductionService::class)->deductForOrder($order);
-
-            Notification::createOrderNotification($order);
-
-            return $order->load('items');
-        });
-
-        return response()->json(['data' => $this->transform($order)], 201);
+        return response()->json(['data' => $this->transform($order)], $statusCode);
     }
 
     public function updateStatus(Request $request, Order $order)

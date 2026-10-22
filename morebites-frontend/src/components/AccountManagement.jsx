@@ -1287,14 +1287,6 @@ export default function AccountManagement() {
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Admin</h2>
-              <button
-                type="button"
-                className="ac-modal-close-circle"
-                onClick={() => { setAddAdmin(false); setFormError('') }}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <div className="ac-modal-body">
               <PhotoUploader
@@ -1393,14 +1385,6 @@ export default function AccountManagement() {
           <div className="ac-modal ac-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Driver</h2>
-              <button
-                type="button"
-                className="ac-modal-close-circle"
-                onClick={() => { setAddDriver(false); setFormError('') }}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <div className="ac-modal-body">
               <PhotoUploader
@@ -1548,14 +1532,6 @@ export default function AccountManagement() {
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Cashier</h2>
-              <button
-                type="button"
-                className="ac-modal-close-circle"
-                onClick={() => { setAddCashier(false); setFormError('') }}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <div className="ac-modal-body">
               <PhotoUploader
@@ -1769,9 +1745,6 @@ export default function AccountManagement() {
                     <LuTriangleAlert size={22} color="#EF4444" />
                     <h2>Blocklist Account</h2>
                   </div>
-                  <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
-                    <LuX size={18} />
-                  </button>
                 </div>
                 <div style={{ padding: '0 24px 20px' }}>
                   <p style={{ margin: '8px 0 14px', fontSize: 14, color: '#4B5563' }}>
@@ -1805,9 +1778,6 @@ export default function AccountManagement() {
                     <LuTriangleAlert size={22} color="#DC2626" />
                     <h2 style={{ color: '#DC2626' }}>Second Warning: Confirm Blocklist</h2>
                   </div>
-                  <button type="button" className="ac-modal-close-circle" onClick={() => { setBlockTarget(null); setBlockStep(1); }} aria-label="Close">
-                    <LuX size={18} />
-                  </button>
                 </div>
                 <div style={{ padding: '0 24px 20px' }}>
                   <div style={{

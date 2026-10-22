@@ -77,6 +77,7 @@ export const dashboardApi = {
 
 export const ordersApi = {
   list: (params) => api.get('/orders', { params }),
+  byKey: (key) => api.get(`/orders/by-key/${encodeURIComponent(key)}`),
   create: (payload) => api.post('/orders', payload),
   updateStatus: (id, payload) =>
     api.patch(`/orders/${id}/status`, typeof payload === 'string' ? { status: payload } : payload),
