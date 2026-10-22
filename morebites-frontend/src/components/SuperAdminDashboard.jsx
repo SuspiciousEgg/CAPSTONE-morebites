@@ -574,10 +574,6 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       )
       setActivityLog(d.activity_log || [])
       setLowStocks(d.low_stocks || [])
-      if (d.notifications && Array.isArray(d.notifications)) {
-        setNotifications(d.notifications)
-        setUnreadCount(d.notifications.filter((n) => Boolean(n.unread)).length)
-      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err)
     }

@@ -120,6 +120,11 @@ function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
  *      before opening the DB transaction, throwing a 422 `ValidationException` if any item is disabled,
  *      archived, or lacks sufficient unexpired ingredient stock for the requested size and quantity.
  */
+function generateIdempotencyKey() {
+  const rand = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10)
+  return `pos_${Date.now()}_${rand}`
+}
+
 function CreateOrderModal({
   orderId,
   onClose,
@@ -144,6 +149,18 @@ function CreateOrderModal({
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
   const typeRef = useRef(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [checkingOrder, setCheckingOrder] = useState(false)
+  const [hasConnectionFailed, setHasConnectionFailed] = useState(false)
+  const submittingRef = useRef(false)
+  const idempotencyKeyRef = useRef(generateIdempotencyKey())
+
+  useEffect(() => {
+    if (cart.length === 0) {
+      idempotencyKeyRef.current = generateIdempotencyKey()
+      setHasConnectionFailed(false)
+    }
+  }, [cart.length])
 
   function handleClearLoyalty() {
     setLoyaltyPhone('')
@@ -337,25 +354,63 @@ function CreateOrderModal({
     )
   }
 
-  function placeOrder() {
+  async function placeOrder() {
     if (!customerName.trim() || cart.length === 0) return
-    onPlace({
-      customer_name: customerName.trim(),
-      order_type: orderType,
-      status: 'Preparing',
-      loyalty_customer_id: loyaltyCustomer ? loyaltyCustomer.id : null,
-      items: cart.map((c) => ({
-        name: c.baseName || c.name,
-        menu_item_id: c.id,
-        size: c.size || null,
-        qty: c.qty,
-        unit_price: c.price,
-      })),
-    })
+    if (submittingRef.current || submitting || checkingOrder) return
+
+    submittingRef.current = true
+    setSubmitting(true)
+    if (onClearError) onClearError()
+
+    const currentKey = idempotencyKeyRef.current
+
+    try {
+      await onPlace({
+        idempotency_key: currentKey,
+        customer_name: customerName.trim(),
+        order_type: orderType,
+        status: 'Preparing',
+        loyalty_customer_id: loyaltyCustomer ? loyaltyCustomer.id : null,
+        items: cart.map((c) => ({
+          name: c.baseName || c.name,
+          menu_item_id: c.id,
+          size: c.size || null,
+          qty: c.qty,
+          unit_price: c.price,
+        })),
+      })
+      idempotencyKeyRef.current = generateIdempotencyKey()
+      setHasConnectionFailed(false)
+    } catch (err) {
+      const isTimeoutOrNetwork =
+        !err.response ||
+        err.code === 'ECONNABORTED' ||
+        err.message?.includes('Network Error') ||
+        err.message?.includes('timeout')
+      if (isTimeoutOrNetwork) {
+        setHasConnectionFailed(true)
+        setCheckingOrder(true)
+        try {
+          const lookup = await ordersApi.byKey(currentKey)
+          if (lookup?.data?.data) {
+            await onRefreshMenu?.()
+            onClose()
+            return
+          }
+        } catch {
+          // Keep same key for safe retry
+        } finally {
+          setCheckingOrder(false)
+        }
+      }
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
   }
 
   return (
-    <div className="om-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="om-modal-backdrop" onClick={submitting || checkingOrder ? undefined : onClose} role="presentation">
       <div
         className="om-modal"
         role="dialog"
@@ -365,14 +420,6 @@ function CreateOrderModal({
       >
         <div className="om-modal-head">
           <h2 id="om-modal-title">Create New Order - {orderId}</h2>
-          <button
-            type="button"
-            className="om-modal-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <LuX size={18} />
-          </button>
         </div>
 
         <div className="om-modal-body">
@@ -649,16 +696,27 @@ function CreateOrderModal({
                 <strong>{peso(total)}.00</strong>
               </div>
               <div className="om-modal-actions">
-                <button type="button" className="om-btn-ghost" onClick={onClose}>
+                <button
+                  type="button"
+                  className="om-btn-ghost"
+                  onClick={onClose}
+                  disabled={submitting || checkingOrder}
+                >
                   Cancel
                 </button>
                 <button
                   type="button"
                   className="om-btn-primary"
-                  disabled={!customerName.trim() || cart.length === 0}
+                  disabled={submitting || checkingOrder || !customerName.trim() || cart.length === 0}
                   onClick={placeOrder}
                 >
-                  Place Order
+                  {checkingOrder
+                    ? 'Checking Order...'
+                    : submitting
+                    ? 'Placing Order...'
+                    : hasConnectionFailed
+                    ? 'Retry Order'
+                    : 'Place Order'}
                 </button>
               </div>
             </div>
@@ -694,14 +752,6 @@ function CreateOrderModal({
                       {activeSizedItem.category?.toUpperCase()}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="om-size-popover-close"
-                    onClick={() => setActiveSizedItem(null)}
-                    aria-label="Close"
-                  >
-                    <LuX size={16} />
-                  </button>
                 </div>
 
                 <div className="om-size-popover-body">
@@ -1048,19 +1098,26 @@ export default function OrderManagement() {
     setSaving(true)
     setOrderError('')
     try {
-      await ordersApi.create(payload)
+      const res = await ordersApi.create(payload)
       await loadOrders()
       setCreateOpen(false)
       setPage(1)
+      return res
     } catch (err) {
       console.error(err)
-      const message =
-        err.response?.data?.errors?.items?.[0] ||
-        err.response?.data?.message ||
-        'Failed to create order.'
+      const isTimeoutOrNetwork =
+        !err.response ||
+        err.code === 'ECONNABORTED' ||
+        err.message?.includes('Network Error') ||
+        err.message?.includes('timeout')
+      const message = isTimeoutOrNetwork
+        ? 'Connection lost or timed out. We could not verify if the order was placed. Tap "Retry Order" to safely retry without duplicate orders.'
+        : err.response?.data?.errors?.items?.[0] ||
+          err.response?.data?.message ||
+          'Failed to create order.'
       setOrderError(message)
       await refreshMenuCatalog()
-      alert(message)
+      throw err
     } finally {
       setSaving(false)
     }
@@ -1444,14 +1501,6 @@ export default function OrderManagement() {
           >
             <div className="om-detail-head">
               <h2>Order Details</h2>
-              <button
-                type="button"
-                className="om-modal-close"
-                onClick={() => setViewOrder(null)}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <dl className="om-detail-grid">
               <div>

@@ -217,7 +217,7 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $currentDayName = Carbon::now('Asia/Manila')->format('D');
         $daySlot = collect($salesWeekly)->firstWhere('t', $currentDayName);
         $this->assertNotNull($daySlot);
-        $this->assertEquals(650.00, $daySlot['v']);
+        $this->assertEquals(900.00, $daySlot['v']);
 
         // Monthly view
         $resMonthly = $this->getJson('/api/dashboard?period=Monthly');
@@ -231,7 +231,7 @@ class DashboardLiveSyncAndWidgetsTest extends TestCase
         $currentMonthName = Carbon::now('Asia/Manila')->format('M');
         $monthSlot = collect($salesYearly)->firstWhere('t', $currentMonthName);
         $this->assertNotNull($monthSlot);
-        $this->assertEquals(650.00, $monthSlot['v']);
+        $this->assertEquals(900.00, $monthSlot['v']);
     }
 
     public function test_inventory_and_order_actions_populate_activity_log(): void

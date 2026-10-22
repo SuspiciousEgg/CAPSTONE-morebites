@@ -89,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('page.access:Orders')->group(function () {
         Route::get('/orders/lookup-loyalty', [OrderController::class, 'lookupLoyalty']);
         Route::get('/orders/menu-options', [OrderController::class, 'menuOptions']);
+        Route::get('/orders/by-key/{key}', [OrderController::class, 'showByKey']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::post('/orders', [OrderController::class, 'store']);
         Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);

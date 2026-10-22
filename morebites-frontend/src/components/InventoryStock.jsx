@@ -738,9 +738,6 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               <h2>{title}</h2>
               <p className="inv-modal-sub">{subtitle}</p>
             </div>
-            <button type="button" className="inv-modal-close-circle" onClick={closeFormModal} aria-label="Close">
-              <LuX size={18} />
-            </button>
           </div>
 
           <div className="inv-modal-body inv-modal-body-form">
@@ -1314,14 +1311,6 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
           <div className="inv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="inv-modal-head">
               <h2>Restock {restockItem.name}</h2>
-              <button
-                type="button"
-                className="inv-modal-close-circle"
-                onClick={() => setRestockItem(null)}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <div className="inv-modal-body">
               <p style={{ margin: '0 0 12px', color: '#666', fontSize: 13 }}>

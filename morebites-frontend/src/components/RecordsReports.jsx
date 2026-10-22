@@ -1491,14 +1491,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">Generate Report</h2>
                 <p className="reports-modal-subtitle">Choose format, date range, and sections to export.</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={handleCancel}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">
@@ -1659,14 +1651,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">Top 10 Selling Items — Full List</h2>
                 <p className="reports-modal-subtitle">Ranked by all units ordered</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setTopOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body" style={{ padding: '0 24px 16px' }}>
@@ -1790,14 +1774,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">All Exported Reports</h2>
                 <p className="reports-modal-subtitle">History of generated and downloaded report files</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setExportsOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">

@@ -590,14 +590,6 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       >
         <div className="menu-modal-header">
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="menu-modal-close"
-            onClick={handleDismiss}
-            aria-label="Close modal"
-          >
-            <LuX size={18} />
-          </button>
         </div>
 
         <form className="menu-form" onSubmit={submit}>

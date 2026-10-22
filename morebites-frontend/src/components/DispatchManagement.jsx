@@ -557,14 +557,6 @@ export default function DispatchManagement() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                className="dp-modal-close-btn"
-                onClick={() => setAssignOrder(null)}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
 
             <div className="dp-order-summary-strip">
@@ -744,14 +736,6 @@ export default function DispatchManagement() {
                   <p className="dp-modal-subtitle">Details for order {viewDelivery.id}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                className="dp-modal-close-btn"
-                onClick={() => setViewDelivery(null)}
-                aria-label="Close"
-              >
-                <LuX size={18} />
-              </button>
             </div>
             <dl className="dp-detail-grid">
               <div>

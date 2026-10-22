@@ -262,4 +262,121 @@ class OrderPlacementIdempotencyTest extends TestCase
         $res->assertCreated();
         $this->assertNull($res->json('data.idempotency_key'));
     }
+
+    private function createStaffUser(): User
+    {
+        return User::query()->create([
+            'name' => 'Cashier Juan',
+            'email' => 'juan@morebites.test',
+            'phone' => '09181234567',
+            'password' => bcrypt('password123'),
+            'role' => 'staff',
+            'status' => 'Active',
+            'allowed_pages' => ['Orders'],
+        ]);
+    }
+
+    private function posOrderPayload(string $idempotencyKey): array
+    {
+        return [
+            'idempotency_key' => $idempotencyKey,
+            'customer_name' => 'Walk-in Customer',
+            'order_type' => 'Dine-in',
+            'status' => 'Preparing',
+            'items' => [
+                [
+                    'menu_item_id' => $this->menuItem->id,
+                    'name' => 'Cheese Pizza',
+                    'qty' => 1,
+                    'unit_price' => 200.00,
+                ],
+            ],
+        ];
+    }
+
+    public function test_pos_order_with_idempotency_key_creates_order_and_saves_key(): void
+    {
+        $staff = $this->createStaffUser();
+        $payload = $this->posOrderPayload('pos_chk_attempt_1');
+
+        $res = $this->actingAs($staff, 'sanctum')->postJson('/api/orders', $payload);
+
+        $res->assertStatus(201);
+        $orderId = $res->json('data.id');
+        $this->assertNotNull($orderId);
+
+        $this->assertDatabaseHas('orders', [
+            'idempotency_key' => 'pos_chk_attempt_1',
+            'customer_name' => 'Walk-in Customer',
+        ]);
+
+        $this->assertEquals(9, $this->inventoryItem->fresh()->stock);
+    }
+
+    public function test_pos_same_idempotency_key_returns_existing_order_and_never_deducts_stock_twice(): void
+    {
+        $staff = $this->createStaffUser();
+        $payload = $this->posOrderPayload('pos_chk_duplicate_test');
+
+        // First tap / request
+        $res1 = $this->actingAs($staff, 'sanctum')->postJson('/api/orders', $payload);
+        $res1->assertStatus(201);
+        $orderId1 = $res1->json('data.id');
+
+        $stockAfterFirst = (float) $this->inventoryItem->fresh()->stock;
+        $this->assertEquals(9.0, $stockAfterFirst);
+        $this->assertEquals(1, Order::query()->count());
+
+        // Second tap / retry on weak connection with identical idempotency_key
+        $res2 = $this->actingAs($staff, 'sanctum')->postJson('/api/orders', $payload);
+        $res2->assertSuccessful();
+
+        $orderId2 = $res2->json('data.id');
+        $this->assertEquals($orderId1, $orderId2);
+
+        // Orders table must still have exactly 1 order
+        $this->assertEquals(1, Order::query()->count());
+
+        // Stock must not be deducted again
+        $this->assertEquals($stockAfterFirst, (float) $this->inventoryItem->fresh()->stock);
+    }
+
+    public function test_pos_lookup_order_by_key_returns_order_if_found_and_404_if_not(): void
+    {
+        $staff = $this->createStaffUser();
+
+        // 1. Non-existent key -> 404
+        $res404 = $this->actingAs($staff, 'sanctum')
+            ->getJson('/api/orders/by-key/non_existent_pos_key_999');
+        $res404->assertStatus(404)
+            ->assertJsonPath('message', 'Order not found.');
+
+        // 2. Place order with key
+        $key = 'pos_chk_lookup_test_888';
+        $payload = $this->posOrderPayload($key);
+        $placeRes = $this->actingAs($staff, 'sanctum')->postJson('/api/orders', $payload);
+        $placeRes->assertCreated();
+
+        // 3. Existing key -> 200 with order payload
+        $resFound = $this->actingAs($staff, 'sanctum')
+            ->getJson('/api/orders/by-key/'.$key);
+        $resFound->assertStatus(200)
+            ->assertJsonPath('data.customer', 'Walk-in Customer');
+    }
+
+    public function test_pos_different_idempotency_key_creates_distinct_order(): void
+    {
+        $staff = $this->createStaffUser();
+
+        $res1 = $this->actingAs($staff, 'sanctum')
+            ->postJson('/api/orders', $this->posOrderPayload('pos_key_alpha'));
+        $res1->assertCreated();
+
+        $res2 = $this->actingAs($staff, 'sanctum')
+            ->postJson('/api/orders', $this->posOrderPayload('pos_key_beta'));
+        $res2->assertCreated();
+
+        $this->assertEquals(2, Order::query()->count());
+        $this->assertEquals(8, $this->inventoryItem->fresh()->stock);
+    }
 }

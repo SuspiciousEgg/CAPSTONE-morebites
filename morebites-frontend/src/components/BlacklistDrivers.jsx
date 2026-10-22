@@ -370,14 +370,6 @@ export default function BlacklistDrivers({ embedded = false }) {
                 <h3 className="bl-modal-title">Reinstate Driver</h3>
                 <p className="bl-modal-sub">Confirm driver account reinstatement</p>
               </div>
-              <button
-                type="button"
-                className="bl-modal-close"
-                onClick={() => !unblacklisting && setUnblacklistTarget(null)}
-                aria-label="Close modal"
-              >
-                <LuX size={18} />
-              </button>
             </div>
 
             <div className="bl-modal-body">
