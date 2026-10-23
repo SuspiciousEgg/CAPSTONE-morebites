@@ -728,14 +728,9 @@ export default function DispatchManagement() {
             aria-modal="true"
           >
             <div className="dp-modal-head">
-              <div className="dp-card-title-group">
-                <span className="dp-icon-pill green">
-                  <LuEye size={18} />
-                </span>
-                <div>
-                  <h3 className="dp-modal-title">Delivery Details</h3>
-                  <p className="dp-modal-subtitle">Details for order {viewDelivery.id}</p>
-                </div>
+              <div>
+                <h3 className="dp-modal-title">Delivery Details</h3>
+                <p className="dp-modal-subtitle">Details for order {viewDelivery.id}</p>
               </div>
             </div>
             <dl className="dp-detail-grid">
