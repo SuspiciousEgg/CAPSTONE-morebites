@@ -126,6 +126,10 @@ export default function OrderTrackingScreen() {
   }, [dbId, loadTracking]);
 
   const currentStatus = tracking?.status || orderParam.status || "";
+  const isPreparing =
+    (["Preparing", "Pending", "Confirmed"].includes(currentStatus) || Boolean(tracking?.is_preparing)) &&
+    !["Out for Delivery", "Delivered", "Completed", "Cancelled"].includes(currentStatus) &&
+    tracking?.eta_mins == null;
 
   // Live driver location polling (every 4.5 seconds while delivery is active)
   useEffect(() => {
@@ -280,26 +284,52 @@ export default function OrderTrackingScreen() {
         )}
 
         <View style={styles.content}>
-          <View style={styles.arrivalCard}>
-            <View>
-              <Text style={styles.arrivalLabel}>Estimated Arrival</Text>
-              <Text style={styles.arrivalTime}>
-                {tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
+          {isPreparing ? (
+            <View style={[styles.arrivalCard, styles.prepCard]}>
+              <View style={styles.prepHeaderRow}>
+                <View style={styles.prepBadge}>
+                  <Ionicons name="flame" size={16} color="#FB923C" />
+                  <Text style={styles.prepBadgeText}>Kitchen Preparation</Text>
+                </View>
+                <Text style={styles.prepEstimateTag}>Estimate</Text>
+              </View>
+
+              <Text style={styles.prepMainText}>
+                Preparing — ready in {tracking?.prep_time_label || "about 15–20 mins"}
               </Text>
-            </View>
-            <View style={styles.arrivalRight}>
-              <Text style={styles.arrivalLabel}>By</Text>
-              <Text style={styles.arrivalBy}>{tracking?.arrival_by || "—"}</Text>
-            </View>
-            <View style={styles.distanceRow}>
-              <Ionicons name="location" size={14} color="#9CA3AF" />
-              <Text style={styles.distanceText}>
-                {tracking?.distance_label
-                  ? `${tracking.distance_label} away from your location`
-                  : "Waiting for route…"}
+              <Text style={styles.prepSubText}>
+                Your food is being prepared fresh in the kitchen.
               </Text>
+
+              <View style={styles.distanceRow}>
+                <Ionicons name="information-circle-outline" size={14} color="#9CA3AF" />
+                <Text style={styles.distanceText}>
+                  Non-GPS estimate · Live route ETA begins when rider is on the way
+                </Text>
+              </View>
             </View>
-          </View>
+          ) : (
+            <View style={styles.arrivalCard}>
+              <View>
+                <Text style={styles.arrivalLabel}>Estimated Arrival</Text>
+                <Text style={styles.arrivalTime}>
+                  {tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
+                </Text>
+              </View>
+              <View style={styles.arrivalRight}>
+                <Text style={styles.arrivalLabel}>By</Text>
+                <Text style={styles.arrivalBy}>{tracking?.arrival_by || "—"}</Text>
+              </View>
+              <View style={styles.distanceRow}>
+                <Ionicons name="location" size={14} color="#9CA3AF" />
+                <Text style={styles.distanceText}>
+                  {tracking?.distance_label
+                    ? `${tracking.distance_label} away from your location`
+                    : "Waiting for route…"}
+                </Text>
+              </View>
+            </View>
+          )}
 
           <Text style={styles.sectionTitle}>Order Status</Text>
           <View style={styles.timelineCard}>
@@ -480,6 +510,53 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginTop: 14,
+  },
+  prepCard: {
+    backgroundColor: "#1C1917",
+    borderColor: "#EA580C",
+    borderWidth: 1.5,
+  },
+  prepHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  prepBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  prepBadgeText: {
+    color: "#FB923C",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  prepEstimateTag: {
+    color: "#FED7AA",
+    backgroundColor: "rgba(234, 88, 12, 0.25)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    fontFamily: FONT,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  prepMainText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  prepSubText: {
+    color: "#D6D3D1",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 4,
   },
   arrivalLabel: {
     color: "#9CA3AF",

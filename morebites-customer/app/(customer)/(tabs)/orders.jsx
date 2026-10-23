@@ -70,12 +70,13 @@ const TRACKABLE_STATUSES = [
   "Pending",
 ];
 
-function StatusIndicator({ status }) {
+function StatusIndicator({ status, prepLabel }) {
   const icon = STATUS_ICONS[status] || "time-outline";
+  const displayLabel = status === "Preparing" && prepLabel ? `Preparing (${prepLabel})` : status;
   return (
     <View style={styles.statusIndicator}>
       <Ionicons name={icon} size={18} color="#121212" />
-      <Text style={styles.statusText}>{status}</Text>
+      <Text style={styles.statusText}>{displayLabel}</Text>
     </View>
   );
 }
@@ -92,7 +93,7 @@ function OrderCard({ order, onViewDetails }) {
           <Text style={styles.orderIdLabel}>ORDER ID</Text>
           <Text style={styles.orderId}>{order.id}</Text>
         </View>
-        <StatusIndicator status={order.status} />
+        <StatusIndicator status={order.status} prepLabel={order.prep_time_label} />
       </View>
 
       <View style={styles.itemSummaryWrap}>
@@ -205,6 +206,32 @@ function OrderDetailsModal({ visible, order, onClose }) {
               <Ionicons name="calendar-outline" size={15} color="#8A8A8A" />
               <Text style={styles.dateText}>{order.dateLabel}</Text>
             </View>
+
+            {order.status === "Preparing" && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  backgroundColor: "#FFF7ED",
+                  borderColor: "#FFEDD5",
+                  borderWidth: 1,
+                  borderRadius: 10,
+                  padding: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <Ionicons name="flame" size={18} color="#EA580C" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: FONT, fontSize: 13, fontWeight: "700", color: "#C2410C" }}>
+                    Preparing — ready in {order.prep_time_label || "about 15–20 mins"}
+                  </Text>
+                  <Text style={{ fontFamily: FONT, fontSize: 11, color: "#9A3412" }}>
+                    Kitchen estimate · GPS route tracking begins upon rider dispatch.
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <Text style={styles.sectionTitle}>Items</Text>
             <View style={styles.sectionCard}>

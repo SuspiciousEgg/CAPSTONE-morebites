@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\DispatchController;
 use App\Http\Controllers\Api\ExpiringStockController;
 use App\Http\Controllers\Api\DriverAppController;
 use App\Http\Controllers\Api\DriverController;
+use App\Http\Controllers\Api\GasExpenseController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\LoyaltySettingController;
 use App\Http\Controllers\Api\MenuController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\StoreSettingController;
 use App\Http\Controllers\Api\TrackingController;
 use Illuminate\Support\Facades\Route;
 
@@ -80,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/loyalty/rates', [LoyaltySettingController::class, 'rates']);
+    Route::get('/store/prep-time', [StoreSettingController::class, 'show']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::middleware('page.access:Dashboard')->group(function () {
@@ -137,6 +140,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/reports/generate', [ReportController::class, 'generate']);
         Route::post('/reports/log-export', [ReportController::class, 'logExport']);
         Route::delete('/reports/{report}', [ReportController::class, 'destroy']);
+        Route::get('/gas-expenses', [GasExpenseController::class, 'index']);
+        Route::post('/gas-expenses', [GasExpenseController::class, 'store']);
+        Route::delete('/gas-expenses/{id}', [GasExpenseController::class, 'destroy']);
     });
 
     Route::middleware('page.access:Driver')->group(function () {
@@ -156,6 +162,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/loyalty-settings', [LoyaltySettingController::class, 'update']);
         Route::get('/loyalty-settings/history', [LoyaltySettingController::class, 'history']);
         Route::get('/loyalty/settings/history', [LoyaltySettingController::class, 'history']);
+        Route::get('/store-settings/prep-time', [StoreSettingController::class, 'show']);
+        Route::put('/store-settings/prep-time', [StoreSettingController::class, 'update']);
     });
 
     Route::middleware(['page.access:Customers', 'not.cashier:Customers'])->group(function () {

@@ -301,6 +301,8 @@ class TrackingService
         $isCompleted = in_array($status, ['Delivered', 'Completed'], true);
         $deliveredAt = $order->delivered_at ?? ($isCompleted ? $order->updated_at : null);
         $rates = app(DeliveryRateService::class);
+        $prepSetting = \App\Models\StoreSetting::current();
+        $isPreparing = in_array($order->status, ['Preparing', 'Pending'], true);
 
         return [
             'order_id' => $order->order_code,
@@ -309,6 +311,11 @@ class TrackingService
             'receipt_number' => $order->receiptNumber(),
             'status' => $status,
             'raw_status' => $order->status,
+            'is_preparing' => $isPreparing,
+            'prep_time_min' => $prepSetting->min_prep_time,
+            'prep_time_max' => $prepSetting->max_prep_time,
+            'prep_time_label' => $prepSetting->formattedLabel(),
+            'prep_estimate_text' => $prepSetting->estimateText(),
             'date' => $order->created_at?->toIso8601String(),
             'dateLabel' => $order->created_at?->format('M j, Y · g:i A'),
             'ordered_at' => $order->created_at?->toIso8601String(),
@@ -421,9 +428,11 @@ class TrackingService
     private function timeline(Order $order): array
     {
         $status = $order->status === 'Completed' ? 'Delivered' : $order->status;
+        $prepSetting = \App\Models\StoreSetting::current();
+        $prepLabel = $prepSetting->formattedLabel();
         $steps = [
             ['key' => 'Pending', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
-            ['key' => 'Preparing', 'title' => 'Preparing', 'description' => 'Your food is being prepared', 'icon' => 'checkmark'],
+            ['key' => 'Preparing', 'title' => 'Preparing', 'description' => "Your food is being prepared · ready in {$prepLabel} (est.)", 'icon' => 'checkmark'],
             ['key' => 'Out for Delivery', 'title' => 'Out For Delivery', 'description' => 'Your order is on the way', 'icon' => 'bicycle'],
             ['key' => 'Delivered', 'title' => 'Delivered', 'description' => 'Order will be delivered soon', 'icon' => 'home-outline'],
         ];

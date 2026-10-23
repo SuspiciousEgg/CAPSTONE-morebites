@@ -1333,6 +1333,8 @@ class CustomerAppController extends Controller
         $date = $o->created_at;
         $deliveredAt = $o->delivered_at ?? ($isCompleted ? $o->updated_at : null);
         $firstItem = $o->items->first();
+        $prepSetting = \App\Models\StoreSetting::current();
+        $isPreparing = in_array($o->status, ['Preparing', 'Pending'], true);
 
         return [
             'id' => $o->order_code,
@@ -1340,6 +1342,11 @@ class CustomerAppController extends Controller
             'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
+            'is_preparing' => $isPreparing,
+            'prep_time_min' => $prepSetting->min_prep_time,
+            'prep_time_max' => $prepSetting->max_prep_time,
+            'prep_time_label' => $prepSetting->formattedLabel(),
+            'prep_estimate_text' => $prepSetting->estimateText(),
             'date' => $date?->toIso8601String(),
             'dateLabel' => $date?->format('M j, Y · g:i A'),
             'ordered_at' => $date?->toIso8601String(),

@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\ExportedReport;
+use App\Models\GasExpense;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -105,6 +107,7 @@ class ReportController extends Controller
                 'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
                 'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
                 'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
+                'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
                 'status' => $o->status ?: 'Preparing',
                 'type' => $o->order_type,
                 'order_type' => $o->order_type,
@@ -289,6 +292,71 @@ class ReportController extends Controller
         $status = $request->query('status');
         $dataset = $this->buildReportDataset($from, $to, $search, 50, $status);
 
+        // Delivery finance: Delivery Fees Collected vs Gas Expenses
+        $delivFeeQuery = Order::query()
+            ->realOrderCodes()
+            ->where('order_type', 'Online Order')
+            ->where('status', 'Completed');
+
+        $gasExpensesQuery = GasExpense::query()
+            ->with(['user:id,name,role', 'driver:id,name'])
+            ->latest('expense_date')
+            ->latest('id');
+
+        if ($from) {
+            $delivFeeQuery->where('created_at', '>=', $from);
+        }
+        if ($to) {
+            $delivFeeQuery->where('created_at', '<=', $to);
+        }
+        if ($fromDate) {
+            $gasExpensesQuery->where('expense_date', '>=', $fromDate);
+        }
+        if ($toDate) {
+            $gasExpensesQuery->where('expense_date', '<=', $toDate);
+        }
+
+        $allDelivOrders = $delivFeeQuery->get(['id', 'delivery_fee']);
+        $totalDeliveryFees = (float) $allDelivOrders->sum(fn ($o) => (float) ($o->delivery_fee ?? 40.0));
+
+        $gasExpenses = $gasExpensesQuery->get()->map(function (GasExpense $e) {
+            return [
+                'id' => $e->id,
+                'amount' => (float) $e->amount,
+                'amount_label' => '₱'.number_format((float) $e->amount, 2),
+                'expense_date' => $e->expense_date?->format('Y-m-d') ?: $e->created_at?->format('Y-m-d'),
+                'note' => $e->note ?: 'Fuel / Gas Expense',
+                'driver_id' => $e->driver_id,
+                'driver_name' => $e->driver?->name ?: null,
+                'order_id' => $e->order_id,
+                'logged_by_id' => $e->user_id,
+                'logged_by_name' => $e->user?->name ?: 'Staff',
+                'logged_by_role' => $e->user?->role ?: 'staff',
+                'created_at' => $e->created_at?->toISOString(),
+            ];
+        });
+
+        $totalGasExpense = (float) $gasExpenses->sum('amount');
+        $netDeliveryIncome = $totalDeliveryFees - $totalGasExpense;
+
+        $deliveryFinance = [
+            'delivery_fees_collected' => $totalDeliveryFees,
+            'total_gas_expense' => $totalGasExpense,
+            'net_delivery_income' => $netDeliveryIncome,
+            'completed_deliveries_count' => $allDelivOrders->count(),
+            'gas_expenses' => $gasExpenses,
+        ];
+
+        $drivers = User::query()
+            ->where(function ($q) {
+                $q->where('role', 'driver')
+                    ->orWhereJsonContains('role_access', 'driver');
+            })
+            ->whereNull('archived_at')
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]);
+
         $exports = ExportedReport::query()
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -312,6 +380,8 @@ class ReportController extends Controller
                 'delivery_records' => $dataset['delivery_records'],
                 'customer_records' => $dataset['customer_records'],
                 'top_items' => $dataset['top_items'],
+                'delivery_finance' => $deliveryFinance,
+                'drivers' => $drivers,
                 'exports' => $exports,
                 'tab' => $tab,
                 'from_date' => $fromDate,
@@ -436,6 +506,47 @@ class ReportController extends Controller
         $status = $data['status'] ?? null;
         $dataset = $this->buildReportDataset($from, $to, null, null, $status);
 
+        $delivFeeQuery = Order::query()
+            ->realOrderCodes()
+            ->where('order_type', 'Online Order')
+            ->where('status', 'Completed')
+            ->where('created_at', '>=', $from)
+            ->where('created_at', '<=', $to);
+
+        $gasExpensesQuery = GasExpense::query()
+            ->with(['user:id,name,role', 'driver:id,name'])
+            ->where('expense_date', '>=', $data['from_date'])
+            ->where('expense_date', '<=', $data['to_date'])
+            ->latest('expense_date')
+            ->latest('id');
+
+        $allDelivOrders = $delivFeeQuery->get(['id', 'delivery_fee']);
+        $totalDeliveryFees = (float) $allDelivOrders->sum(fn ($o) => (float) ($o->delivery_fee ?? 40.0));
+        $gasExpenses = $gasExpensesQuery->get()->map(function (GasExpense $e) {
+            return [
+                'id' => $e->id,
+                'amount' => (float) $e->amount,
+                'amount_label' => '₱'.number_format((float) $e->amount, 2),
+                'expense_date' => $e->expense_date?->format('Y-m-d') ?: $e->created_at?->format('Y-m-d'),
+                'note' => $e->note ?: 'Fuel / Gas Expense',
+                'driver_id' => $e->driver_id,
+                'driver_name' => $e->driver?->name ?: null,
+                'order_id' => $e->order_id,
+                'logged_by_id' => $e->user_id,
+                'logged_by_name' => $e->user?->name ?: 'Staff',
+                'logged_by_role' => $e->user?->role ?: 'staff',
+                'created_at' => $e->created_at?->toISOString(),
+            ];
+        });
+        $totalGasExpense = (float) $gasExpenses->sum('amount');
+        $deliveryFinance = [
+            'delivery_fees_collected' => $totalDeliveryFees,
+            'total_gas_expense' => $totalGasExpense,
+            'net_delivery_income' => $totalDeliveryFees - $totalGasExpense,
+            'completed_deliveries_count' => $allDelivOrders->count(),
+            'gas_expenses' => $gasExpenses,
+        ];
+
         $ext = match (strtolower($data['export_as'])) {
             'excel', 'xlsx' => 'xlsx',
             'csv' => 'csv',
@@ -485,6 +596,7 @@ class ReportController extends Controller
                 'created_at' => $reportPayload['created_at'] ?? now()->toISOString(),
                 'from_date' => $data['from_date'],
                 'to_date' => $data['to_date'],
+                'delivery_finance' => $deliveryFinance,
                 'records' => $dataset,
             ],
         ], $shouldCreateRecord ? 201 : 200);

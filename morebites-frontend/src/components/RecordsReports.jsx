@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { LuChevronLeft, LuChevronRight } from 'react-icons/lu'
+import { LuChevronLeft, LuChevronRight, LuFuel, LuPlus, LuTrash2 } from 'react-icons/lu'
 import {
   IconClose,
   IconDownload,
   IconFile,
   IconSearch,
 } from './Icons'
-import { getStoredUser, menuApi, reportsApi } from '../api/client'
+import { gasExpensesApi, getStoredUser, menuApi, reportsApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
 import './RecordsReports.css'
@@ -373,6 +373,12 @@ export default function RecordsReports({ user: propUser }) {
         setCustomerRecords(Array.isArray(d.customer_records) ? d.customer_records : [])
         setTopItems(Array.isArray(topData) ? topData : [])
         setExportsList(Array.isArray(d.exports) ? d.exports : [])
+        if (d.delivery_finance?.gas_expenses) {
+          setGasExpenses(Array.isArray(d.delivery_finance.gas_expenses) ? d.delivery_finance.gas_expenses : [])
+        }
+        if (Array.isArray(d.drivers)) {
+          setDriversList(d.drivers)
+        }
         setReportStats(
           d.stats || {
             total_sales_today: 0,
@@ -384,6 +390,16 @@ export default function RecordsReports({ user: propUser }) {
       })
       .catch(console.error)
   }, [])
+  const [gasExpenses, setGasExpenses] = useState([])
+  const [driversList, setDriversList] = useState([])
+  const [gasModalOpen, setGasModalOpen] = useState(false)
+  const [gasHistoryOpen, setGasHistoryOpen] = useState(false)
+  const [gasDate, setGasDate] = useState(() => getLocalTodayString())
+  const [gasAmount, setGasAmount] = useState('')
+  const [gasDriverId, setGasDriverId] = useState('')
+  const [gasNote, setGasNote] = useState('')
+  const [gasSubmitting, setGasSubmitting] = useState(false)
+  const [gasError, setGasError] = useState('')
   const [salesSearch, setSalesSearch] = useState('')
   const [salesStatus, setSalesStatus] = useState('Completed')
   const [deliverySearch, setDeliverySearch] = useState('')
@@ -492,13 +508,14 @@ export default function RecordsReports({ user: propUser }) {
     const statusSuffix = salesStatus !== 'All Statuses' ? ` - ${salesStatus}` : ''
 
     if (formatType === 'Sales Per Delivery Person' || formatType === 'Delivery Records' || formatType === 'Delivery Summary Report') {
-      const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Status']
+      const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Delivery Fee', 'Status']
       const rows = sourceDelivery.map((r) => [
         r.id,
-        r.driver,
+        r.driver || r.rider || 'Unassigned',
         r.datetime,
         r.time,
         r.distance,
+        peso(r.delivery_fee ?? 40),
         r.status,
       ])
       return { title: `Sales Per Delivery Person${statusSuffix} (${rangeLabel})`, headers, rows }
@@ -858,6 +875,103 @@ export default function RecordsReports({ user: propUser }) {
     })
   }, [deliverySearch, startDate, endDate, deliveryStatus, deliveryRecords])
 
+  const deliveryFinanceCalculated = useMemo(() => {
+    const completedDelivs = filteredDeliveries.filter(
+      (r) => (r.status || '').toLowerCase() === 'completed'
+    )
+    const feesCollected = completedDelivs.reduce(
+      (acc, r) => acc + (Number(r.delivery_fee) || 40),
+      0
+    )
+
+    const filteredGas = gasExpenses.filter((e) => {
+      if (!startDate && !endDate) return true
+      const expDate = e.expense_date ? String(e.expense_date).slice(0, 10) : null
+      if (!expDate) return false
+      if (startDate && expDate < startDate) return false
+      if (endDate && expDate > endDate) return false
+      return true
+    })
+
+    const totalGas = filteredGas.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+    const netMargin = feesCollected - totalGas
+
+    return {
+      feesCollected,
+      completedDeliveries: completedDelivs.length,
+      totalGasExpense: totalGas,
+      expenseCount: filteredGas.length,
+      netMargin,
+      filteredGasExpenses: filteredGas,
+    }
+  }, [filteredDeliveries, gasExpenses, startDate, endDate])
+
+  const fetchGasExpenses = async () => {
+    try {
+      const res = await gasExpensesApi.list()
+      const data = res.data?.data || {}
+      setGasExpenses(Array.isArray(data.expenses) ? data.expenses : [])
+    } catch (e) {
+      console.error('Failed to fetch gas expenses:', e)
+    }
+  }
+
+  const handleSaveGasExpense = async (e) => {
+    if (e) e.preventDefault()
+    setGasError('')
+
+    const numAmount = parseFloat(gasAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setGasError('Please enter a valid amount greater than 0.')
+      return
+    }
+    if (!gasDate) {
+      setGasError('Please select a valid expense date.')
+      return
+    }
+
+    setGasSubmitting(true)
+    try {
+      const res = await gasExpensesApi.create({
+        amount: numAmount,
+        expense_date: gasDate,
+        driver_id: gasDriverId ? parseInt(gasDriverId, 10) : null,
+        note: gasNote.trim() || null,
+      })
+
+      const newExpense = res.data?.data
+      if (newExpense) {
+        setGasExpenses((prev) => [newExpense, ...prev])
+      } else {
+        await fetchGasExpenses()
+      }
+
+      setGasAmount('')
+      setGasNote('')
+      setGasDriverId('')
+      setGasModalOpen(false)
+    } catch (err) {
+      console.error('Failed to log gas expense:', err)
+      const msg = err.response?.data?.message || 'Failed to log gas expense. Please try again.'
+      setGasError(msg)
+    } finally {
+      setGasSubmitting(false)
+    }
+  }
+
+  const handleDeleteGasExpense = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this gas expense entry?')) {
+      return
+    }
+    try {
+      await gasExpensesApi.delete(id)
+      setGasExpenses((prev) => prev.filter((item) => item.id !== id))
+    } catch (err) {
+      console.error('Failed to delete gas expense:', err)
+      alert(err.response?.data?.message || 'Failed to delete gas expense.')
+    }
+  }
+
   const activeItems = tab === 'all' ? filteredSales : tab === 'delivery' ? filteredDeliveries : customerRecords
   const totalPages = tab === 'customer' ? customerTotalPages : Math.max(1, Math.ceil(activeItems.length / pageSize))
   const totalCount = tab === 'customer' ? customerTotalCount : activeItems.length
@@ -1164,6 +1278,27 @@ export default function RecordsReports({ user: propUser }) {
               Generate Report
             </button>
           )}
+
+          {tab === 'delivery' && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="reports-btn-gas-add"
+                onClick={() => setGasModalOpen(true)}
+              >
+                <LuPlus size={16} />
+                Log Gas Expense
+              </button>
+              <button
+                type="button"
+                className="reports-btn-gas-history"
+                onClick={() => setGasHistoryOpen(true)}
+              >
+                <LuFuel size={16} />
+                Gas Log ({deliveryFinanceCalculated.expenseCount})
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="reports-table-wrapper">
@@ -1220,50 +1355,125 @@ export default function RecordsReports({ user: propUser }) {
           )}
 
           {tab === 'delivery' && (
-            <table className="reports-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Order ID</th>
-                  <th>Customer</th>
-                  <th>Rider</th>
-                  <th>Duration</th>
-                  <th>Distance</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedRows.length === 0 ? (
+            <>
+              {/* Delivery Finance Side-by-Side Comparison Banner */}
+              <div className="reports-delivery-finance-banner">
+                <div className="reports-finance-metrics">
+                  <div className="reports-finance-card income">
+                    <div className="reports-finance-icon">
+                      <LuFuel size={18} style={{ transform: 'rotate(180deg)' }} />
+                    </div>
+                    <div className="reports-finance-info">
+                      <span className="reports-finance-label">Delivery Fees Collected</span>
+                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.feesCollected)}</span>
+                      <span className="reports-finance-sub">
+                        {deliveryFinanceCalculated.completedDeliveries} completed {deliveryFinanceCalculated.completedDeliveries === 1 ? 'delivery' : 'deliveries'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="reports-finance-operator">−</div>
+
+                  <div className="reports-finance-card expense">
+                    <div className="reports-finance-icon">
+                      <LuFuel size={18} />
+                    </div>
+                    <div className="reports-finance-info">
+                      <span className="reports-finance-label">Gas / Fuel Expenses</span>
+                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.totalGasExpense)}</span>
+                      <span className="reports-finance-sub">
+                        {deliveryFinanceCalculated.expenseCount} {deliveryFinanceCalculated.expenseCount === 1 ? 'entry' : 'entries'} logged
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="reports-finance-operator">=</div>
+
+                  <div className={`reports-finance-card margin ${deliveryFinanceCalculated.netMargin >= 0 ? 'positive' : 'negative'}`}>
+                    <div className="reports-finance-icon">
+                      {deliveryFinanceCalculated.netMargin >= 0 ? '📈' : '📉'}
+                    </div>
+                    <div className="reports-finance-info">
+                      <span className="reports-finance-label">Net Delivery Margin</span>
+                      <span className="reports-finance-value">
+                        {deliveryFinanceCalculated.netMargin >= 0
+                          ? `+${peso(deliveryFinanceCalculated.netMargin)}`
+                          : `-${peso(Math.abs(deliveryFinanceCalculated.netMargin))}`}
+                      </span>
+                      <span className="reports-finance-sub">
+                        {deliveryFinanceCalculated.feesCollected > 0
+                          ? `${Math.round((deliveryFinanceCalculated.netMargin / deliveryFinanceCalculated.feesCollected) * 100)}% margin`
+                          : 'Inflow vs gas cost'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="reports-finance-actions">
+                  <button
+                    type="button"
+                    className="reports-btn-gas-add"
+                    onClick={() => setGasModalOpen(true)}
+                  >
+                    <LuPlus size={16} /> Log Gas Expense
+                  </button>
+                  <button
+                    type="button"
+                    className="reports-btn-gas-history"
+                    onClick={() => setGasHistoryOpen(true)}
+                  >
+                    View History ({deliveryFinanceCalculated.expenseCount})
+                  </button>
+                </div>
+              </div>
+
+              <table className="reports-table">
+                <thead>
                   <tr>
-                    <td colSpan={7}>
-                      <EmptyState
-                        icon="truck"
-                        title="No delivery records found"
-                        subtitle="Dispatched deliveries will be logged here."
-                      />
-                    </td>
+                    <th>Date</th>
+                    <th>Order ID</th>
+                    <th>Customer</th>
+                    <th>Rider</th>
+                    <th>Duration</th>
+                    <th>Distance</th>
+                    <th>Delivery Fee</th>
+                    <th>Status</th>
                   </tr>
-                ) : (
-                  paginatedRows.map((r) => {
-                    const statusClass = getStatusBadgeClass(r.status)
-                    const displayId = r.id?.startsWith('#') ? r.id : `#${r.id}`
-                    return (
-                      <tr key={r.id}>
-                        <td>{r.datetime}</td>
-                        <td className="reports-order-id">{displayId}</td>
-                        <td>{r.customer}</td>
-                        <td>{r.rider || r.driver || 'Unassigned'}</td>
-                        <td>{r.time || '-- mins'}</td>
-                        <td>{r.distance || '-- km'}</td>
-                        <td>
-                          <span className={`reports-badge ${statusClass}`}>{r.status}</span>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginatedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8}>
+                        <EmptyState
+                          icon="truck"
+                          title="No delivery records found"
+                          subtitle="Dispatched deliveries will be logged here."
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedRows.map((r) => {
+                      const statusClass = getStatusBadgeClass(r.status)
+                      const displayId = r.id?.startsWith('#') ? r.id : `#${r.id}`
+                      return (
+                        <tr key={r.id}>
+                          <td>{r.datetime}</td>
+                          <td className="reports-order-id">{displayId}</td>
+                          <td>{r.customer}</td>
+                          <td>{r.rider || r.driver || 'Unassigned'}</td>
+                          <td>{r.time || '-- mins'}</td>
+                          <td>{r.distance || '-- km'}</td>
+                          <td className="reports-total-amount">{peso(r.delivery_fee ?? 40)}</td>
+                          <td>
+                            <span className={`reports-badge ${statusClass}`}>{r.status}</span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </>
           )}
 
           {tab === 'customer' && (
@@ -1895,6 +2105,253 @@ export default function RecordsReports({ user: propUser }) {
                 type="button"
                 className="reports-btn-secondary"
                 onClick={() => setExportsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Gas Expense Modal */}
+      {gasModalOpen && (
+        <div
+          className="reports-modal-overlay"
+          onClick={() => {
+            if (!gasSubmitting) setGasModalOpen(false)
+          }}
+          role="presentation"
+        >
+          <div
+            className="reports-modal-container"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gas-modal-title"
+          >
+            <div className="reports-modal-header">
+              <div>
+                <h3 id="gas-modal-title" className="reports-modal-title">
+                  Log Gas Expense
+                </h3>
+                <p className="reports-modal-subtitle">
+                  Record fuel or gas expense for delivery runs.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="reports-modal-close-btn"
+                onClick={() => setGasModalOpen(false)}
+                disabled={gasSubmitting}
+                aria-label="Close"
+              >
+                <IconClose />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGasExpense}>
+              <div className="reports-modal-body">
+                <div className="reports-form-group">
+                  <label className="reports-form-label">Expense Date *</label>
+                  <input
+                    type="date"
+                    className="reports-date-input"
+                    style={{ width: '100%' }}
+                    value={gasDate}
+                    max={getLocalTodayString()}
+                    onChange={(e) => setGasDate(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="reports-form-group">
+                  <label className="reports-form-label">Gas Amount (₱) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    className="reports-input-number"
+                    placeholder="e.g. 150.00"
+                    value={gasAmount}
+                    onChange={(e) => setGasAmount(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="reports-form-group">
+                  <label className="reports-form-label">Driver / Rider (Optional)</label>
+                  <select
+                    className="reports-select-input"
+                    value={gasDriverId}
+                    onChange={(e) => setGasDriverId(e.target.value)}
+                  >
+                    <option value="">General / All Drivers</option>
+                    {driversList.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="reports-form-group">
+                  <label className="reports-form-label">Trip Notes / Delivery Run (Optional)</label>
+                  <input
+                    type="text"
+                    className="reports-input-text"
+                    placeholder="e.g. 3 trips to Poblacion, full tank replenishment"
+                    value={gasNote}
+                    onChange={(e) => setGasNote(e.target.value)}
+                  />
+                </div>
+
+                {gasError && (
+                  <div className="reports-date-range-error" role="alert">
+                    {gasError}
+                  </div>
+                )}
+              </div>
+
+              <div className="reports-modal-footer">
+                <button
+                  type="button"
+                  className="reports-btn-secondary"
+                  onClick={() => setGasModalOpen(false)}
+                  disabled={gasSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="reports-btn-primary"
+                  disabled={gasSubmitting}
+                >
+                  {gasSubmitting ? 'Saving...' : 'Save Gas Expense'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Gas Expense History Modal */}
+      {gasHistoryOpen && (
+        <div
+          className="reports-modal-overlay"
+          onClick={() => setGasHistoryOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="reports-modal-container large"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gas-history-title"
+          >
+            <div className="reports-modal-header">
+              <div>
+                <h3 id="gas-history-title" className="reports-modal-title">
+                  Gas Expense Log
+                </h3>
+                <p className="reports-modal-subtitle">
+                  Review and manage fuel cost entries recorded by staff.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="reports-modal-close-btn"
+                onClick={() => setGasHistoryOpen(false)}
+                aria-label="Close"
+              >
+                <IconClose />
+              </button>
+            </div>
+
+            <div className="reports-modal-body">
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '16px',
+                  padding: '12px 16px',
+                  background: '#FFF7ED',
+                  borderRadius: '10px',
+                  border: '1px solid #FFEDD5',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '13px', color: '#9A3412', fontWeight: 600 }}>
+                    Total Gas Expenses: {peso(deliveryFinanceCalculated.totalGasExpense)}
+                  </span>
+                  <span style={{ fontSize: '12px', color: '#C2410C', marginLeft: '8px' }}>
+                    ({deliveryFinanceCalculated.expenseCount} entries {startDate || endDate ? 'in selected range' : 'all-time'})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="reports-btn-gas-add"
+                  style={{ padding: '6px 14px', fontSize: '12.5px' }}
+                  onClick={() => {
+                    setGasModalOpen(true)
+                  }}
+                >
+                  <LuPlus size={14} /> Log Gas Expense
+                </button>
+              </div>
+
+              {deliveryFinanceCalculated.filteredGasExpenses.length === 0 ? (
+                <EmptyState
+                  icon="receipt"
+                  title="No gas expenses recorded"
+                  subtitle="Gas expenses logged for deliveries will appear here."
+                />
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="reports-gas-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Driver / Rider</th>
+                        <th>Notes / Trip</th>
+                        <th>Logged By</th>
+                        <th style={{ textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deliveryFinanceCalculated.filteredGasExpenses.map((e) => (
+                        <tr key={e.id}>
+                          <td>{e.expense_date}</td>
+                          <td style={{ fontWeight: 700, color: '#C2410C' }}>{peso(e.amount)}</td>
+                          <td>{e.driver_name || 'General / All'}</td>
+                          <td>{e.note || 'Fuel / Gas Expense'}</td>
+                          <td>{e.logged_by_name || 'Staff'}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              className="reports-btn-gas-delete"
+                              title="Delete entry"
+                              aria-label={`Delete gas expense on ${e.expense_date}`}
+                              onClick={() => handleDeleteGasExpense(e.id)}
+                            >
+                              <LuTrash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="reports-modal-footer">
+              <button
+                type="button"
+                className="reports-btn-secondary"
+                onClick={() => setGasHistoryOpen(false)}
               >
                 Close
               </button>
