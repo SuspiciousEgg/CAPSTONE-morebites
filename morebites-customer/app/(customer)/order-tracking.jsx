@@ -200,6 +200,7 @@ export default function OrderTrackingScreen() {
               0,
           ),
           riderName: tracking?.driver || "Your delivery rider",
+          riderPhoto: tracking?.driver_photo || tracking?.rider_photo || "",
         },
       });
     }

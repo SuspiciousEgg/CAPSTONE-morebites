@@ -394,6 +394,7 @@ class OrderController extends Controller
             'address' => $o->delivery_address,
             'loyalty_customer_id' => $o->loyalty_customer_id,
             'created_at' => $o->created_at?->toIso8601String(),
+            'reported_issues' => $o->reportedIssues(),
         ];
     }
 }

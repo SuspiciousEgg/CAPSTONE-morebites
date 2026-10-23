@@ -9,6 +9,7 @@ import {
   LuMaximize2,
   LuChevronLeft,
   LuChevronRight,
+  LuTriangleAlert,
 } from 'react-icons/lu'
 import { dispatchApi } from '../api/client'
 import FleetMap from './FleetMap'

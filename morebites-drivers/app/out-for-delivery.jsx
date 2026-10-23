@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,6 +40,7 @@ function regionFromPoints(points) {
 }
 
 export default function OutForDeliveryScreen() {
+  const [issueModalVisible, setIssueModalVisible] = useState(false);
   const params = useLocalSearchParams();
   const orderId = Array.isArray(params.id) ? params.id[0] : params.id || "";
   const dbId = Array.isArray(params.dbId) ? params.dbId[0] : params.dbId;
@@ -257,27 +260,7 @@ export default function OutForDeliveryScreen() {
   };
 
   const reportIssue = () => {
-    const issueOrderCode = order?.id || orderId;
-    const formattedOrderCode = String(issueOrderCode || '').startsWith('#') ? issueOrderCode : `#${issueOrderCode}`;
-    Alert.alert(
-      "Report Issue",
-      `Select the issue for Order ${formattedOrderCode}.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Customer Unreachable",
-          onPress: () => submitIssue("Customer Unreachable"),
-        },
-        {
-          text: "Wrong Address",
-          onPress: () => submitIssue("Wrong Address"),
-        },
-        {
-          text: "Other",
-          onPress: () => submitIssue("Other delivery issue"),
-        },
-      ],
-    );
+    setIssueModalVisible(true);
   };
 
   const completeDelivery = () => {
@@ -476,6 +459,57 @@ export default function OutForDeliveryScreen() {
           <Text style={styles.completeButtonText}>Complete Delivery</Text>
         </TouchableOpacity>
       </View>
+      {/* Report Issue Modal */}
+      <Modal
+        visible={issueModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIssueModalVisible(false)}
+      >
+        <Pressable
+          style={styles.issueModalBackdrop}
+          onPress={() => setIssueModalVisible(false)}
+        >
+          <Pressable style={styles.issueModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.issueModalTitle}>Report Issue</Text>
+            <Text style={styles.issueModalSubtitle}>
+              Select the issue encountered for Order {String(order?.id || orderId || '').startsWith('#') ? (order?.id || orderId) : `#${order?.id || orderId}`}.
+            </Text>
+
+            <View style={styles.issueOptionsList}>
+              {[
+                "Customer Unreachable",
+                "Wrong Address",
+                "Vehicle Breakdown / Flat Tire",
+                "Road Blockage / Severe Weather",
+                "Accident / Emergency",
+                "Other delivery issue",
+              ].map((issueText) => (
+                <TouchableOpacity
+                  key={issueText}
+                  style={styles.issueOptionButton}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setIssueModalVisible(false);
+                    submitIssue(issueText);
+                  }}
+                >
+                  <Text style={styles.issueOptionText}>{issueText}</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={styles.issueCancelButton}
+              activeOpacity={0.7}
+              onPress={() => setIssueModalVisible(false)}
+            >
+              <Text style={styles.issueCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -820,5 +854,67 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 17,
     fontWeight: "700",
+  },
+  issueModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "flex-end",
+  },
+  issueModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === "ios" ? 38 : 24,
+  },
+  issueModalTitle: {
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1C1B18",
+    marginBottom: 4,
+  },
+  issueModalSubtitle: {
+    fontFamily: FONT,
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 16,
+  },
+  issueOptionsList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  issueOptionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#EDEDED",
+  },
+  issueOptionText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1C1B18",
+  },
+  issueCancelButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  issueCancelButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4B5563",
   },
 });

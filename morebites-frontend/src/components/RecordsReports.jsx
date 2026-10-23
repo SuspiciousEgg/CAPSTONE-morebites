@@ -1278,27 +1278,6 @@ export default function RecordsReports({ user: propUser }) {
               Generate Report
             </button>
           )}
-
-          {tab === 'delivery' && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="reports-btn-gas-add"
-                onClick={() => setGasModalOpen(true)}
-              >
-                <LuPlus size={16} />
-                Log Gas Expense
-              </button>
-              <button
-                type="button"
-                className="reports-btn-gas-history"
-                onClick={() => setGasHistoryOpen(true)}
-              >
-                <LuFuel size={16} />
-                Gas Log ({deliveryFinanceCalculated.expenseCount})
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="reports-table-wrapper">
@@ -1359,53 +1338,38 @@ export default function RecordsReports({ user: propUser }) {
               {/* Delivery Finance Side-by-Side Comparison Banner */}
               <div className="reports-delivery-finance-banner">
                 <div className="reports-finance-metrics">
-                  <div className="reports-finance-card income">
-                    <div className="reports-finance-icon">
-                      <LuFuel size={18} style={{ transform: 'rotate(180deg)' }} />
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Delivery Fees Collected</span>
-                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.feesCollected)}</span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.completedDeliveries} completed {deliveryFinanceCalculated.completedDeliveries === 1 ? 'delivery' : 'deliveries'}
-                      </span>
-                    </div>
+                  <div className="reports-finance-card">
+                    <span className="reports-finance-label">Delivery Fees Collected</span>
+                    <span className="reports-finance-value">{peso(deliveryFinanceCalculated.feesCollected)}</span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.completedDeliveries} completed {deliveryFinanceCalculated.completedDeliveries === 1 ? 'delivery' : 'deliveries'}
+                    </span>
                   </div>
 
                   <div className="reports-finance-operator">−</div>
 
-                  <div className="reports-finance-card expense">
-                    <div className="reports-finance-icon">
-                      <LuFuel size={18} />
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Gas / Fuel Expenses</span>
-                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.totalGasExpense)}</span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.expenseCount} {deliveryFinanceCalculated.expenseCount === 1 ? 'entry' : 'entries'} logged
-                      </span>
-                    </div>
+                  <div className="reports-finance-card">
+                    <span className="reports-finance-label">Gas / Fuel Expenses</span>
+                    <span className="reports-finance-value">{peso(deliveryFinanceCalculated.totalGasExpense)}</span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.expenseCount} {deliveryFinanceCalculated.expenseCount === 1 ? 'entry' : 'entries'} logged
+                    </span>
                   </div>
 
                   <div className="reports-finance-operator">=</div>
 
                   <div className={`reports-finance-card margin ${deliveryFinanceCalculated.netMargin >= 0 ? 'positive' : 'negative'}`}>
-                    <div className="reports-finance-icon">
-                      {deliveryFinanceCalculated.netMargin >= 0 ? '📈' : '📉'}
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Net Delivery Margin</span>
-                      <span className="reports-finance-value">
-                        {deliveryFinanceCalculated.netMargin >= 0
-                          ? `+${peso(deliveryFinanceCalculated.netMargin)}`
-                          : `-${peso(Math.abs(deliveryFinanceCalculated.netMargin))}`}
-                      </span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.feesCollected > 0
-                          ? `${Math.round((deliveryFinanceCalculated.netMargin / deliveryFinanceCalculated.feesCollected) * 100)}% margin`
-                          : 'Inflow vs gas cost'}
-                      </span>
-                    </div>
+                    <span className="reports-finance-label">Net Delivery Margin</span>
+                    <span className="reports-finance-value">
+                      {deliveryFinanceCalculated.netMargin >= 0
+                        ? `+${peso(deliveryFinanceCalculated.netMargin)}`
+                        : `-${peso(Math.abs(deliveryFinanceCalculated.netMargin))}`}
+                    </span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.feesCollected > 0
+                        ? `${Math.round((deliveryFinanceCalculated.netMargin / deliveryFinanceCalculated.feesCollected) * 100)}% margin`
+                        : 'Inflow vs gas cost'}
+                    </span>
                   </div>
                 </div>
 
@@ -2114,15 +2078,6 @@ export default function RecordsReports({ user: propUser }) {
                   Record fuel or gas expense for delivery runs.
                 </p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setGasModalOpen(false)}
-                disabled={gasSubmitting}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <form onSubmit={handleSaveGasExpense}>
@@ -2234,47 +2189,18 @@ export default function RecordsReports({ user: propUser }) {
                   Review and manage fuel cost entries recorded by staff.
                 </p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setGasHistoryOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '16px',
-                  padding: '12px 16px',
-                  background: '#FFF7ED',
-                  borderRadius: '10px',
-                  border: '1px solid #FFEDD5',
-                }}
-              >
+              <div className="reports-gas-summary-card">
                 <div>
-                  <span style={{ fontSize: '13px', color: '#9A3412', fontWeight: 600 }}>
+                  <span className="reports-gas-summary-title">
                     Total Gas Expenses: {peso(deliveryFinanceCalculated.totalGasExpense)}
                   </span>
-                  <span style={{ fontSize: '12px', color: '#C2410C', marginLeft: '8px' }}>
+                  <span className="reports-gas-summary-count">
                     ({deliveryFinanceCalculated.expenseCount} entries {startDate || endDate ? 'in selected range' : 'all-time'})
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="reports-btn-gas-add"
-                  style={{ padding: '6px 14px', fontSize: '12.5px' }}
-                  onClick={() => {
-                    setGasModalOpen(true)
-                  }}
-                >
-                  <LuPlus size={14} /> Log Gas Expense
-                </button>
               </div>
 
               {deliveryFinanceCalculated.filteredGasExpenses.length === 0 ? (

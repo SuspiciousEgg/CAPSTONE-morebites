@@ -10,7 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-class LoyaltyPrompt87Test extends TestCase
+class LoyaltyBalanceHistoryTest extends TestCase
 {
     use RefreshDatabase;
 

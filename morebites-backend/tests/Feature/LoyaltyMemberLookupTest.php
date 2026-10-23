@@ -12,7 +12,7 @@ use App\Services\LoyaltyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-class LoyaltyPrompt89Test extends TestCase
+class LoyaltyMemberLookupTest extends TestCase
 {
     use RefreshDatabase;
 

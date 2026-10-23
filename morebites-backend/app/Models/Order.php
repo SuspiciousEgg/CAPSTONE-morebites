@@ -133,5 +133,31 @@ class Order extends Model
 
         return $entry ? (int) $entry->points : 0;
     }
+
+    /**
+     * Get staff-visible issue reports logged by the rider for this delivery order.
+     */
+    public function reportedIssues(): array
+    {
+        return Notification::query()
+            ->where('type', 'rider_issue')
+            ->where(function ($q) {
+                $q->where('data->order_id', $this->id)
+                    ->orWhere('data->order_id', (string) $this->id)
+                    ->orWhere('data->order_code', $this->order_code);
+            })
+            ->latest('id')
+            ->get()
+            ->map(fn ($n) => [
+                'id' => $n->id,
+                'issue' => $n->data['issue'] ?? 'Delivery Issue',
+                'notes' => $n->data['notes'] ?? null,
+                'driver_name' => $n->data['driver_name'] ?? ($this->driver?->name ?? 'Rider'),
+                'created_at' => $n->created_at?->toIso8601String(),
+                'time_label' => $n->created_at?->format('M j, Y · g:i A'),
+            ])
+            ->values()
+            ->all();
+    }
 }
 
