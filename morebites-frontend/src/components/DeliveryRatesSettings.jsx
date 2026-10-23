@@ -4,6 +4,7 @@ import { IconClose, IconEdit } from './Icons'
 import { deliveryRatesApi } from '../api/client'
 import EmptyState from './EmptyState'
 import LoyaltySettingsSection from './LoyaltySettingsSection'
+import PrepTimeSettingsSection from './PrepTimeSettingsSection'
 import './DeliveryRatesSettings.css'
 
 const EMPTY = {
@@ -197,6 +198,8 @@ export default function DeliveryRatesSettings() {
           </div>
         ) : null}
       </section>
+
+      <PrepTimeSettingsSection />
 
       <LoyaltySettingsSection />
 

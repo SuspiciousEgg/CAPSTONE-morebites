@@ -166,12 +166,23 @@ export const loyaltySettingsApi = {
   history: (params) => api.get('/loyalty-settings/history', { params }),
 }
 
+export const storeSettingsApi = {
+  getPrepTime: () => api.get('/store-settings/prep-time'),
+  updatePrepTime: (payload) => api.put('/store-settings/prep-time', payload),
+}
+
 export const reportsApi = {
   get: (params) => api.get('/reports', { params }),
   customers: (params) => api.get('/reports/customers', { params }),
   generate: (payload) => api.post('/reports/generate', payload),
   logExport: (payload) => api.post('/reports/log-export', payload),
   delete: (id) => api.delete(`/reports/${id}`),
+}
+
+export const gasExpensesApi = {
+  list: (params) => api.get('/gas-expenses', { params }),
+  create: (payload) => api.post('/gas-expenses', payload),
+  delete: (id) => api.delete(`/gas-expenses/${id}`),
 }
 
 export const customersApi = {

@@ -87,7 +87,10 @@ export default function OrderConfirmedScreen() {
         </View>
 
         <View style={styles.detailsCard}>
-          <DetailRow label="Estimated Time" value="10 - 15 mins" />
+          <DetailRow
+            label="Estimated Ready"
+            value={order.prep_time_label ? `${order.prep_time_label} (Kitchen Estimate)` : "about 15–20 mins (Kitchen Estimate)"}
+          />
           <DetailRow label="Delivery Address" value={address} />
           <DetailRow label="Payment Method" value="Cash on Delivery" />
         </View>
