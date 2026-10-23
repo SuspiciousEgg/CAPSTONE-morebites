@@ -1785,3 +1785,64 @@
 }
 
 
+
+/* Reported Issues Log in Order Details */
+.om-issue-section {
+  margin-top: 18px;
+  border-top: 1px solid #EDEDED;
+  padding-top: 16px;
+}
+
+.om-issue-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1C1B18;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.om-issue-heading svg {
+  color: #DC2626;
+}
+
+.om-issue-card {
+  background: #F9FAFB;
+  border: 1px solid #EDEDED;
+  border-left: 3px solid #DC2626;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+.om-issue-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.om-issue-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #DC2626;
+}
+
+.om-issue-time {
+  font-size: 11px;
+  color: #6B7280;
+}
+
+.om-issue-notes {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #374151;
+  line-height: 1.4;
+}
+
+.om-issue-reporter {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #9CA3AF;
+}

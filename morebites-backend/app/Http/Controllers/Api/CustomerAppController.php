@@ -893,7 +893,7 @@ class CustomerAppController extends Controller
         $customer = $this->ensureCustomerRecord($user);
 
         $orders = Order::query()
-            ->with(['items', 'driver'])
+            ->with(['items.menuItem', 'driver'])
             ->where('customer_id', $customer->id)
             ->latest()
             ->get()
@@ -909,7 +909,7 @@ class CustomerAppController extends Controller
         abort_unless((int) $order->customer_id === (int) $customer->id, 403);
 
         return response()->json([
-            'data' => $this->orderPayload($order->load(['items', 'driver'])),
+            'data' => $this->orderPayload($order->load(['items.menuItem', 'driver'])),
         ]);
     }
 
@@ -921,7 +921,7 @@ class CustomerAppController extends Controller
         $order = Order::query()
             ->where('customer_id', $customer->id)
             ->where('idempotency_key', $key)
-            ->with(['items', 'driver'])
+            ->with(['items.menuItem', 'driver'])
             ->first();
 
         if (! $order) {
@@ -1361,6 +1361,7 @@ class CustomerAppController extends Controller
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $firstItem?->name ?: 'Your order',
             'food_price' => (float) ($firstItem?->unit_price ?? $o->total),
@@ -1370,6 +1371,9 @@ class CustomerAppController extends Controller
             'customer' => $o->customer_name,
             'driver' => $o->driver?->name,
             'driver_phone' => $o->driver?->phone,
+            'driver_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
+            'rider_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
+            'reported_issues' => $o->reportedIssues(),
             'eta_mins' => (int) ($o->delivery_minutes ?: 25),
             'distance' => number_format((float) ($o->delivery_distance_km ?: 2.5), 1).'km',
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,

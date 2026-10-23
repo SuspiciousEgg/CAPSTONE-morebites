@@ -237,9 +237,13 @@ function OrderDetailsModal({ visible, order, onClose }) {
             <View style={styles.sectionCard}>
               {(order.items || []).map((item, index) => (
                 <View key={`${item.id || item.name}-${index}`} style={styles.detailItemRow}>
-                  <View style={styles.foodPlaceholder}>
-                    <Ionicons name="fast-food-outline" size={25} color="#8A8A8A" />
-                  </View>
+                  {item.image ? (
+                    <Image source={{ uri: item.image }} style={styles.detailFoodImage} />
+                  ) : (
+                    <View style={styles.foodPlaceholder}>
+                      <Ionicons name="fast-food-outline" size={25} color="#8A8A8A" />
+                    </View>
+                  )}
                   <View style={styles.detailItemInfo}>
                     <Text style={styles.detailItemName}>{item.name}</Text>
                     {item.size ? <Text style={styles.detailItemSize}>Size: {item.size}</Text> : null}
@@ -916,6 +920,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   detailItemRow: { alignItems: "center", flexDirection: "row", gap: 10, marginBottom: 10 },
+  detailFoodImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+  },
   foodPlaceholder: {
     alignItems: "center",
     backgroundColor: "#F3F4F6",

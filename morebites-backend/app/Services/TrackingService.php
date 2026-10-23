@@ -270,7 +270,7 @@ class TrackingService
 
     public function trackingPayload(Order $order): array
     {
-        $order = $this->ensureDestination($order->loadMissing(['driver', 'items', 'customer']));
+        $order = $this->ensureDestination($order->loadMissing(['driver', 'items.menuItem', 'customer']));
         $destination = [
             'latitude' => (float) $order->dest_lat,
             'longitude' => (float) $order->dest_lng,
@@ -324,6 +324,9 @@ class TrackingService
             'address' => $order->delivery_address,
             'driver' => $order->driver?->name,
             'driver_phone' => $order->driver?->phone,
+            'driver_photo' => $order->driver?->photo ? Media::url($order->driver->photo) : null,
+            'rider_photo' => $order->driver?->photo ? Media::url($order->driver->photo) : null,
+            'reported_issues' => $order->reportedIssues(),
             'eta_mins' => $etaMins,
             'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
             'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : '—',
@@ -339,6 +342,7 @@ class TrackingService
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'total' => (float) $order->total,
             'delivery_fee' => (float) ($order->delivery_fee ?? $rates->defaultFee()),
@@ -363,7 +367,7 @@ class TrackingService
     public function activeDeliveriesPayload(): array
     {
         return Order::query()
-            ->with(['driver', 'items', 'customer'])
+            ->with(['driver', 'items.menuItem', 'customer'])
             ->whereNotNull('driver_id')
             ->where('order_type', 'Online Order')
             ->whereIn('status', self::ACTIVE_DELIVERY_STATUSES)
@@ -389,6 +393,9 @@ class TrackingService
                     'name' => $order->driver?->name ?? 'Unknown',
                     'driver' => $payload['driver'] ?? ($order->driver?->name ?? 'Unknown'),
                     'phone' => $order->driver?->phone ?: '+63 912 345 6789',
+                    'driver_photo' => $order->driver?->photo ? Media::url($order->driver->photo) : null,
+                    'rider_photo' => $order->driver?->photo ? Media::url($order->driver->photo) : null,
+                    'reported_issues' => $order->reportedIssues(),
                     'customer' => $payload['customer'],
                     'customer_phone' => $order->customer?->phone ?: '',
                     'address' => $order->delivery_address ?: 'N/A',

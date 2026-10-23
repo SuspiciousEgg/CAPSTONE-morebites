@@ -1556,7 +1556,30 @@ export default function OrderManagement() {
                     : '—'}
                 </dd>
               </div>
-            </dl>
+            </dl>            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
+              <div className="om-issue-section">
+                <h4 className="om-issue-heading">
+                  <LuTriangleAlert size={15} /> Reported Issues Log ({viewOrder.reported_issues.length})
+                </h4>
+                <div>
+                  {viewOrder.reported_issues.map((iss) => (
+                    <div key={iss.id} className="om-issue-card">
+                      <div className="om-issue-card-head">
+                        <span className="om-issue-title">{iss.issue}</span>
+                        <span className="om-issue-time">{iss.time_label || iss.created_at}</span>
+                      </div>
+                      {iss.notes ? (
+                        <p className="om-issue-notes">{iss.notes}</p>
+                      ) : null}
+                      <div className="om-issue-reporter">
+                        Reported by: {iss.driver_name || 'Rider'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="om-detail-foot">
               <button
                 type="button"

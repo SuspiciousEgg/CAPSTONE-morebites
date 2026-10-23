@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuClock, LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
+import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
 import { storeSettingsApi } from '../api/client'
 
 export default function PrepTimeSettingsSection() {
@@ -65,6 +65,7 @@ export default function PrepTimeSettingsSection() {
       if (data.updated_by) setUpdatedBy(data.updated_by)
       if (data.updated_at) setUpdatedAt(data.updated_at)
       setMessage(res.data?.message || 'Preparation time updated successfully.')
+      setTimeout(() => setMessage(null), 5000)
     } catch (err) {
       console.error('Failed to update prep settings:', err)
       setError(err.response?.data?.message || 'Failed to update preparation time settings.')
@@ -79,207 +80,92 @@ export default function PrepTimeSettingsSection() {
       : `about ${minTime}–${maxTime} mins`
 
   return (
-    <section className="dr-card sa-card" style={{ marginTop: '24px' }}>
+    <section className="dr-card sa-card prep-time-card">
       <div className="dr-card-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#FFF7ED',
-              color: '#EA580C',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <LuClock size={20} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#1C1B18' }}>
-              Average Kitchen Preparation Time
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6B7280' }}>
-              Configurable time estimate shown to customers during <strong>Preparing</strong> status. When dispatched to a rider, this is automatically replaced by live GPS routing.
-            </p>
-          </div>
-        </div>
+        <h2>Average Kitchen Preparation Time</h2>
+        <p>
+          Configurable time estimate shown to customers during <strong>Preparing</strong> status. When dispatched to a rider, this is automatically replaced by live GPS routing.
+        </p>
       </div>
 
       {message && (
-        <div
-          style={{
-            margin: '16px 0',
-            padding: '12px 16px',
-            borderRadius: '10px',
-            background: '#F0FDF4',
-            border: '1px solid #BBF7D0',
-            color: '#15803D',
-            fontSize: '13.5px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
+        <div className="loyalty-alert success" role="alert">
           <LuCircleCheck size={18} />
           <span>{message}</span>
         </div>
       )}
 
       {error && (
-        <div
-          style={{
-            margin: '16px 0',
-            padding: '12px 16px',
-            borderRadius: '10px',
-            background: '#FEF2F2',
-            border: '1px solid #FECACA',
-            color: '#DC2626',
-            fontSize: '13.5px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
+        <div className="loyalty-alert error" role="alert">
           <LuTriangleAlert size={18} />
           <span>{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSave} style={{ marginTop: '16px' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            marginBottom: '20px',
-          }}
-        >
-          <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#374151',
-                marginBottom: '6px',
-              }}
-            >
+      <form onSubmit={handleSave} className="prep-time-form">
+        <div className="prep-time-grid">
+          <div className="loyalty-field">
+            <label htmlFor="min-prep-time">
               Minimum Prep Time (minutes)
+              <span className="loyalty-help">Lower bound of kitchen prep estimate</span>
             </label>
             <input
+              id="min-prep-time"
               type="number"
               min="1"
               max="180"
-              style={{
-                width: '100%',
-                height: '42px',
-                padding: '0 14px',
-                borderRadius: '8px',
-                border: '1px solid #D1D5DB',
-                fontSize: '14px',
-                color: '#1C1B18',
-                backgroundColor: '#FFFFFF',
-                boxSizing: 'border-box',
-              }}
               value={minTime}
               onChange={(e) => setMinTime(e.target.value)}
               disabled={loading || saving}
               required
             />
-            <span style={{ fontSize: '11.5px', color: '#888888', marginTop: '4px', display: 'block' }}>
-              Lower bound of kitchen prep estimate
-            </span>
           </div>
 
-          <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#374151',
-                marginBottom: '6px',
-              }}
-            >
+          <div className="loyalty-field">
+            <label htmlFor="max-prep-time">
               Maximum Prep Time (minutes)
+              <span className="loyalty-help">Upper bound of kitchen prep estimate</span>
             </label>
             <input
+              id="max-prep-time"
               type="number"
               min="1"
               max="180"
-              style={{
-                width: '100%',
-                height: '42px',
-                padding: '0 14px',
-                borderRadius: '8px',
-                border: '1px solid #D1D5DB',
-                fontSize: '14px',
-                color: '#1C1B18',
-                backgroundColor: '#FFFFFF',
-                boxSizing: 'border-box',
-              }}
               value={maxTime}
               onChange={(e) => setMaxTime(e.target.value)}
               disabled={loading || saving}
               required
             />
-            <span style={{ fontSize: '11.5px', color: '#888888', marginTop: '4px', display: 'block' }}>
-              Upper bound of kitchen prep estimate
-            </span>
           </div>
         </div>
 
         {/* Live Customer Preview */}
-        <div
-          style={{
-            padding: '16px 20px',
-            borderRadius: '12px',
-            background: '#FFFBF5',
-            border: '1px dashed #FDBA74',
-            marginBottom: '20px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#C2410C' }}>
-              Customer Order Tracking Preview
-            </span>
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '2px 8px',
-                borderRadius: '6px',
-                background: '#FED7AA',
-                color: '#9A3412',
-                fontWeight: 600,
-              }}
-            >
-              Estimate (Non-GPS)
-            </span>
+        <div className="prep-preview-card">
+          <div className="prep-preview-header">
+            <span className="prep-preview-title">Customer Order Tracking Preview</span>
+            <span className="prep-preview-pill">Estimate (Non-GPS)</span>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 700, color: '#1C1B18', marginBottom: '4px' }}>
-            Preparing — ready in {previewLabel}
+          <div className="prep-preview-main">
+            Preparing — ready in <strong>{previewLabel}</strong>
           </div>
-          <p style={{ margin: 0, fontSize: '12px', color: '#6B7280' }}>
+          <p className="prep-preview-sub">
             Shown on the customer app during kitchen preparation. The moment rider pickup is confirmed, this estimate disappears and live GPS route ETA takes over.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            {updatedBy && (
-              <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
-                Last updated by {updatedBy}
+        <div className="prep-time-footer">
+          <div className="prep-time-updated">
+            {updatedBy ? (
+              <span>
+                Last updated by <strong>{updatedBy}</strong>
                 {updatedAt ? ` on ${new Date(updatedAt).toLocaleDateString()}` : ''}
               </span>
-            )}
+            ) : null}
           </div>
           <button
             type="submit"
             className="dr-btn-primary"
             disabled={loading || saving}
-            style={{ minWidth: '150px' }}
           >
             {saving ? 'Saving…' : 'Save Prep Time'}
           </button>
@@ -288,4 +174,3 @@ export default function PrepTimeSettingsSection() {
     </section>
   )
 }
-
