@@ -649,6 +649,7 @@ export default function RecordsReports({ user: propUser }) {
     const selectedFormat = format
     const selectedExportAs = exportAs
     const rangeLabel = `${selectedFrom} to ${selectedTo}`
+    const ext = selectedExportAs.toLowerCase() === 'csv' ? 'csv' : selectedExportAs.toLowerCase() === 'xlsx' || selectedExportAs.toLowerCase() === 'excel' ? 'xlsx' : 'pdf'
     const statusSlug = salesStatus !== 'All Statuses' ? `_${salesStatus.replace(/\s+/g, '_')}` : ''
     const fileName = `${selectedFormat.replace(/\s+/g, '_')}${statusSlug}_${selectedFrom}_to_${selectedTo}.${ext}`
 
