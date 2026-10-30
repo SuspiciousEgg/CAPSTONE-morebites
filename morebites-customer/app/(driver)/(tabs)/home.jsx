@@ -455,69 +455,74 @@ export default function HomeScreen() {
           style={styles.modalOverlay}
           onPress={() => setNotificationsVisible(false)}
         >
-          <Pressable style={styles.notificationsPanel} onPress={() => {}}>
+          <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.notificationsHeader}>
               <Text style={styles.notificationsTitle}>Notifications</Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                {notifications.some((n) => n.unread || !n.is_read) ? (
-                  <TouchableOpacity activeOpacity={0.7} onPress={handleMarkAllAsRead}>
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: "#F97000", fontFamily: FONT }}>
-                      Mark all as read
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  activeOpacity={0.7}
-                  onPress={() => setNotificationsVisible(false)}
-                >
-                  <Ionicons name="close" size={22} color="#121212" />
-                </TouchableOpacity>
-              </View>
+              <Pressable
+                style={styles.modalCloseButton}
+                hitSlop={8}
+                onPress={() => setNotificationsVisible(false)}
+              >
+                <Ionicons name="close" size={22} color="#121212" />
+              </Pressable>
             </View>
+
             {notificationsLoading ? (
-              <View style={styles.notificationEmpty}>
+              <View style={styles.notificationLoading}>
                 <ActivityIndicator size="small" color="#F97000" />
-                <Text style={[styles.notificationEmptyText, { marginTop: 8 }]}>Loading notifications...</Text>
+                <Text style={styles.notificationLoadingText}>Loading notifications...</Text>
               </View>
-            ) : notifications.length > 0 ? (
-              notifications.map((notification) => {
-                const isUnread = notification.unread || !notification.is_read;
-                return (
-                  <TouchableOpacity
-                    key={notification.id}
-                    activeOpacity={0.7}
-                    onPress={() => handleNotificationPress(notification)}
-                    style={[
-                      styles.notificationItem,
-                      isUnread && styles.notificationItemHighlighted,
-                    ]}
-                  >
-                    <View style={[styles.notificationDot, !isUnread && { backgroundColor: "#D1D5DB" }]} />
-                    <View style={styles.notificationContent}>
-                      <Text style={[styles.notificationText, isUnread && { fontWeight: "700" }]}>
-                        {notification.title}
-                      </Text>
-                      {notification.message || notification.detail ? (
-                        <Text style={styles.notificationDetail}>
-                          {notification.message || notification.detail}
-                        </Text>
-                      ) : null}
-                      <Text style={styles.notificationTime}>
-                        {notification.time || notification.timestamp || "Just now"}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            ) : (
+            ) : notifications.length === 0 ? (
               <View style={styles.notificationEmpty}>
-                <Ionicons name="notifications-off-outline" size={32} color="#D1D5DB" style={{ marginBottom: 6 }} />
-                <Text style={styles.notificationEmptyText}>
-                  No new notifications
-                </Text>
+                <Ionicons name="notifications-off-outline" size={38} color="#D1D5DB" />
+                <Text style={styles.notificationEmptyText}>No new notifications</Text>
               </View>
+            ) : (
+              <ScrollView
+                style={styles.notificationsList}
+                contentContainerStyle={styles.notificationsListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {notifications.map((item, index) => {
+                  const isUnread = Boolean(item.unread || (!item.is_read && item.is_read !== undefined));
+                  return (
+                    <Pressable
+                      key={`${item.id}-${index}`}
+                      style={[styles.notificationItem, isUnread && styles.notificationItemUnread]}
+                      onPress={() => handleNotificationPress(item)}
+                    >
+                      <View style={styles.notificationBulletWrap}>
+                        {isUnread ? (
+                          <View style={styles.notificationDotUnread} />
+                        ) : (
+                          <View style={styles.notificationDotRead} />
+                        )}
+                      </View>
+                      <View style={styles.notificationContent}>
+                        <Text style={[styles.notificationText, isUnread && styles.notificationTextUnread]}>
+                          {item.message || item.detail || item.title}
+                        </Text>
+                        <Text style={styles.notificationTime}>
+                          {item.time ||
+                            (item.created_at
+                              ? new Date(item.created_at).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : item.timestamp || "Just now")}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             )}
+
+            {notifications.some((n) => n.unread || !n.is_read) ? (
+              <Pressable style={styles.markAllButton} onPress={handleMarkAllAsRead}>
+                <Text style={styles.markAllButtonText}>Mark all as read</Text>
+              </Pressable>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
@@ -811,90 +816,130 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   modalOverlay: {
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     flex: 1,
-    paddingHorizontal: 10,
-    paddingTop: 46,
+    paddingHorizontal: 16,
+    paddingTop: 56,
   },
   notificationsPanel: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    elevation: 8,
+    elevation: 10,
+    maxHeight: "82%",
     overflow: "hidden",
-    paddingBottom: 6,
-    shadowColor: "#121212",
+    shadowColor: "#000000",
     shadowOffset: { height: 4, width: 0 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.15,
     shadowRadius: 12,
-  },
-  notificationEmpty: {
-    paddingHorizontal: 18,
-    paddingVertical: 28,
-  },
-  notificationEmptyText: {
-    color: "#9CA3AF",
-    fontFamily: FONT,
-    fontSize: 13,
-    textAlign: "center",
   },
   notificationsHeader: {
     alignItems: "center",
+    borderBottomColor: "#F3F4F6",
+    borderBottomWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
   notificationsTitle: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 21,
+    fontSize: 19,
     fontWeight: "700",
   },
-  closeButton: {
+  modalCloseButton: {
     alignItems: "center",
     height: 32,
     justifyContent: "center",
     width: 32,
   },
+  notificationLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 36,
+  },
+  notificationLoadingText: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 13,
+    marginTop: 8,
+  },
+  notificationsList: {
+    maxHeight: 380,
+  },
+  notificationsListContent: {
+    paddingHorizontal: 18,
+    paddingVertical: 4,
+  },
   notificationItem: {
     borderBottomColor: "#F3F4F6",
     borderBottomWidth: 1,
     flexDirection: "row",
-    paddingHorizontal: 20,
     paddingVertical: 14,
   },
-  notificationItemHighlighted: {
-    backgroundColor: "#FDECD8",
+  notificationItemUnread: {
+    backgroundColor: "#FFFDF9",
   },
-  notificationDot: {
-    backgroundColor: "red",
-    borderRadius: 4,
-    height: 8,
-    marginRight: 10,
-    marginTop: 6,
-    width: 8,
+  notificationBulletWrap: {
+    alignItems: "center",
+    marginRight: 12,
+    marginTop: 5,
+    width: 14,
+  },
+  notificationDotUnread: {
+    backgroundColor: "#F97000",
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  notificationDotRead: {
+    borderColor: "#9CA3AF",
+    borderRadius: 5,
+    borderWidth: 1.5,
+    height: 10,
+    width: 10,
   },
   notificationContent: {
     flex: 1,
   },
   notificationText: {
-    color: "#121212",
+    color: "#374151",
     fontFamily: FONT,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "500",
     lineHeight: 18,
   },
-  notificationDetail: {
-    color: "#9CA3AF",
-    fontFamily: FONT,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
+  notificationTextUnread: {
+    color: "#121212",
+    fontWeight: "700",
   },
   notificationTime: {
     color: "#9CA3AF",
     fontFamily: FONT,
     fontSize: 11,
-    marginTop: 6,
+    marginTop: 4,
+  },
+  notificationEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 42,
+  },
+  notificationEmptyText: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 14,
+    marginTop: 10,
+  },
+  markAllButton: {
+    alignItems: "center",
+    borderTopColor: "#F3F4F6",
+    borderTopWidth: 1,
+    paddingVertical: 13,
+  },
+  markAllButtonText: {
+    color: "#F97000",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

@@ -972,6 +972,7 @@ export default function OrderManagement() {
   const [viewOrder, setViewOrder] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelling, setCancelling] = useState(false)
+  const [updatingOrderId, setUpdatingOrderId] = useState(null)
   const [orderError, setOrderError] = useState('')
 
   const statusRef = useRef(null)
@@ -1154,7 +1155,8 @@ export default function OrderManagement() {
           : order.action === 'Complete'
             ? 'Completed'
             : null
-    if (!next || !order.db_id) return
+    if (!next || !order.db_id || updatingOrderId === order.db_id) return
+    setUpdatingOrderId(order.db_id)
     try {
       const { data } = await ordersApi.updateStatus(order.db_id, next)
       const updated = data?.data || data
@@ -1162,6 +1164,8 @@ export default function OrderManagement() {
       await loadOrders()
     } catch (err) {
       console.error(err)
+    } finally {
+      setUpdatingOrderId(null)
     }
   }
 
@@ -1347,9 +1351,10 @@ export default function OrderManagement() {
                             <button
                               type="button"
                               className="om-primary-action-btn"
+                              disabled={updatingOrderId === o.db_id}
                               onClick={() => handleAction(o)}
                             >
-                              {o.action}
+                              {updatingOrderId === o.db_id ? 'Updating...' : o.action}
                             </button>
                           )}
                           <button
@@ -1558,22 +1563,25 @@ export default function OrderManagement() {
               </div>
             </dl>            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
               <div className="om-issue-section">
-                <h4 className="om-issue-heading">
-                  <LuTriangleAlert size={15} /> Reported Issues Log ({viewOrder.reported_issues.length})
-                </h4>
-                <div>
+                <div className="om-issue-heading">
+                  <LuTriangleAlert size={14} /> Reported Issues ({viewOrder.reported_issues.length})
+                </div>
+                <div className="om-issue-list">
                   {viewOrder.reported_issues.map((iss) => (
                     <div key={iss.id} className="om-issue-card">
                       <div className="om-issue-card-head">
-                        <span className="om-issue-title">{iss.issue}</span>
+                        <div className="om-issue-title-group">
+                          <span className="om-issue-title">{iss.issue}</span>
+                          <span className="om-issue-dot">•</span>
+                          <span className="om-issue-reporter">
+                            Reported by: {iss.driver_name || 'Rider'}
+                          </span>
+                        </div>
                         <span className="om-issue-time">{iss.time_label || iss.created_at}</span>
                       </div>
                       {iss.notes ? (
                         <p className="om-issue-notes">{iss.notes}</p>
                       ) : null}
-                      <div className="om-issue-reporter">
-                        Reported by: {iss.driver_name || 'Rider'}
-                      </div>
                     </div>
                   ))}
                 </div>

@@ -48,7 +48,7 @@ export default function ConfirmDeliveryScreen() {
   };
 
   const confirmAndComplete = async () => {
-    if (!isReadyToComplete || !dbId) return;
+    if (!isReadyToComplete || !dbId || saving) return;
     setSaving(true);
     try {
       const res = await driverApi.updateStatus(dbId, "Delivered", photo);
@@ -215,8 +215,8 @@ export default function ConfirmDeliveryScreen() {
             styles.completeButton,
             isReadyToComplete && styles.completeButtonActive,
           ]}
-          activeOpacity={isReadyToComplete ? 0.85 : 1}
-          disabled={!isReadyToComplete}
+          activeOpacity={isReadyToComplete && !saving ? 0.85 : 1}
+          disabled={!isReadyToComplete || saving}
           onPress={confirmAndComplete}
         >
           <Text style={styles.completeButtonText}>

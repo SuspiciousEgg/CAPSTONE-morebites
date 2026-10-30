@@ -38,6 +38,7 @@ export default function BlacklistDrivers({ embedded = false }) {
   const [selected, setSelected] = useState(null)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [downloadingAttachment, setDownloadingAttachment] = useState(false)
   const [unblacklistTarget, setUnblacklistTarget] = useState(null)
   const [unblacklisting, setUnblacklisting] = useState(false)
   const pageSize = 5
@@ -61,6 +62,51 @@ export default function BlacklistDrivers({ embedded = false }) {
   function openDetails(driver) {
     setSelected(driver)
     setNotes(driver.notes || '')
+  }
+
+  function handleDownloadAttachment(driver) {
+    if (!driver?.attachment?.name || driver.attachment.name === 'No attachment' || downloadingAttachment) {
+      return
+    }
+    setDownloadingAttachment(true)
+    try {
+      if (driver.attachment.url) {
+        const link = document.createElement('a')
+        link.href = driver.attachment.url
+        link.download = driver.attachment.name
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        return
+      }
+      const reportLines = [
+        'MoreBites Blocklisted Driver Attachment Record',
+        '==============================================',
+        `Driver ID: ${driver.id || '—'}`,
+        `Driver Name: ${driver.name || '—'}`,
+        `Phone Number: ${driver.phone || '—'}`,
+        `License Number: ${driver.license || '—'}`,
+        `Reason for Blocklist: ${driver.reason || '—'}`,
+        `Date Blocklisted: ${driver.date || '—'}`,
+        `Attachment File: ${driver.attachment.name}`,
+        `Attachment Details: ${driver.attachment.meta || '—'}`,
+        `Notes: ${notes || driver.notes || '—'}`,
+      ]
+      const blob = new Blob([reportLines.join('\n')], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const baseName = String(driver.attachment.name).replace(/\.[^/.]+$/, '')
+      link.href = url
+      link.download = `${baseName}_record.txt`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } finally {
+      setTimeout(() => setDownloadingAttachment(false), 300)
+    }
   }
 
   async function saveNotes() {
@@ -296,7 +342,8 @@ export default function BlacklistDrivers({ embedded = false }) {
                   className="bl-icon-btn"
                   aria-label="Download Attachment"
                   title="Download Attachment"
-                  onClick={() => alert(`Downloading ${selected.attachment.name}...`)}
+                  disabled={downloadingAttachment}
+                  onClick={() => handleDownloadAttachment(selected)}
                 >
                   <IconDownload />
                 </button>

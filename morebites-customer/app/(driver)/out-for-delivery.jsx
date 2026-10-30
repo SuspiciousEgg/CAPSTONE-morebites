@@ -41,6 +41,7 @@ function regionFromPoints(points) {
 
 export default function OutForDeliveryScreen() {
   const [issueModalVisible, setIssueModalVisible] = useState(false);
+  const [reportingIssue, setReportingIssue] = useState(false);
   const params = useLocalSearchParams();
   const orderId = Array.isArray(params.id) ? params.id[0] : params.id || "";
   const dbId = Array.isArray(params.dbId) ? params.dbId[0] : params.dbId;
@@ -76,7 +77,7 @@ export default function OutForDeliveryScreen() {
     if (!dbId) return undefined;
     const timer = setInterval(() => {
       if (!cancelled) loadTracking();
-    }, 5000);
+    }, 3000);
     const unsub = onSessionTerminated(() => {
       cancelled = true;
       clearInterval(timer);
@@ -177,7 +178,7 @@ export default function OutForDeliveryScreen() {
             {
               accuracy: Location.Accuracy.High,
               distanceInterval: 5,
-              timeInterval: 4000,
+              timeInterval: 3000,
             },
             (pos) => {
               if (pos?.coords) {
@@ -187,7 +188,7 @@ export default function OutForDeliveryScreen() {
           );
         } catch {
           if (!cancelled && !isCompletedRef.current) {
-            timer = setInterval(captureSingleFix, 6000);
+            timer = setInterval(captureSingleFix, 3000);
           }
         }
       } catch {
@@ -250,12 +251,15 @@ export default function OutForDeliveryScreen() {
   };
 
   const submitIssue = async (issue) => {
-    if (!dbId) return;
+    if (!dbId || reportingIssue) return;
+    setReportingIssue(true);
     try {
       await driverApi.reportIssue(dbId, issue);
       Alert.alert("Reported", `${issue} was sent to the admin.`);
     } catch (err) {
       Alert.alert("Report failed", err.message || "Could not report issue.");
+    } finally {
+      setReportingIssue(false);
     }
   };
 
@@ -439,12 +443,15 @@ export default function OutForDeliveryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.actionOutlineButton}
+            style={[styles.actionOutlineButton, reportingIssue && { opacity: 0.6 }]}
             activeOpacity={0.8}
+            disabled={reportingIssue}
             onPress={reportIssue}
           >
             <Ionicons name="alert-circle-outline" size={18} color="#F97000" />
-            <Text style={styles.actionOutlineButtonText}>Report issue</Text>
+            <Text style={styles.actionOutlineButtonText}>
+              {reportingIssue ? "Reporting..." : "Report issue"}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -489,6 +496,7 @@ export default function OutForDeliveryScreen() {
                   key={issueText}
                   style={styles.issueOptionButton}
                   activeOpacity={0.7}
+                  disabled={reportingIssue}
                   onPress={() => {
                     setIssueModalVisible(false);
                     submitIssue(issueText);

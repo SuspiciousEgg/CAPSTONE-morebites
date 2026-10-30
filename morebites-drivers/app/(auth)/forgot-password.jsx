@@ -90,8 +90,13 @@ export default function ForgotPasswordScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity style={styles.button} onPress={sendRequest} activeOpacity={0.85}>
-          <Text style={styles.buttonText}>Reset Password</Text>
+        <TouchableOpacity
+          style={[styles.button, submitted && { opacity: 0.7 }]}
+          onPress={sendRequest}
+          disabled={submitted}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.buttonText}>{submitted ? "Request Submitted" : "Reset Password"}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

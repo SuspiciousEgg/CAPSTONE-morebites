@@ -399,6 +399,8 @@ export default function RecordsReports({ user: propUser }) {
   const [gasDriverId, setGasDriverId] = useState('')
   const [gasNote, setGasNote] = useState('')
   const [gasSubmitting, setGasSubmitting] = useState(false)
+  const [deletingGasId, setDeletingGasId] = useState(null)
+  const [exportingTop, setExportingTop] = useState(false)
   const [gasError, setGasError] = useState('')
   const [salesSearch, setSalesSearch] = useState('')
   const [salesStatus, setSalesStatus] = useState('Completed')
@@ -960,15 +962,19 @@ export default function RecordsReports({ user: propUser }) {
   }
 
   const handleDeleteGasExpense = async (id) => {
+    if (deletingGasId === id) return
     if (!window.confirm('Are you sure you want to remove this gas expense entry?')) {
       return
     }
+    setDeletingGasId(id)
     try {
       await gasExpensesApi.delete(id)
       setGasExpenses((prev) => prev.filter((item) => item.id !== id))
     } catch (err) {
       console.error('Failed to delete gas expense:', err)
       alert(err.response?.data?.message || 'Failed to delete gas expense.')
+    } finally {
+      setDeletingGasId(null)
     }
   }
 
@@ -1881,7 +1887,10 @@ export default function RecordsReports({ user: propUser }) {
               <button
                 type="button"
                 className="reports-btn-primary"
+                disabled={exportingTop}
                 onClick={async () => {
+                  if (exportingTop) return
+                  setExportingTop(true)
                   const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
                   const reportRows = topItems.slice(0, 10).map((item, i) => [
                     `#${i + 1}`,
@@ -1923,10 +1932,12 @@ export default function RecordsReports({ user: propUser }) {
                     ])
                   } catch (e) {
                     console.warn('Failed to log top selling items export:', e)
+                  } finally {
+                    setExportingTop(false)
                   }
                 }}
               >
-                Export This List
+                {exportingTop ? 'Exporting...' : 'Export This List'}
               </button>
             </div>
           </div>
@@ -2236,6 +2247,7 @@ export default function RecordsReports({ user: propUser }) {
                               className="reports-btn-gas-delete"
                               title="Delete entry"
                               aria-label={`Delete gas expense on ${e.expense_date}`}
+                              disabled={deletingGasId === e.id}
                               onClick={() => handleDeleteGasExpense(e.id)}
                             >
                               <LuTrash2 size={16} />

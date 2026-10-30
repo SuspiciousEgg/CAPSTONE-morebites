@@ -753,9 +753,9 @@
   font-size: 13px;
   font-weight: 500;
   background: #FEF2F2;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border-left: 3px solid #EF4444;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
 }
 
 .ac-modal-foot {

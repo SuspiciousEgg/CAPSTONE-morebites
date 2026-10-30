@@ -31,6 +31,8 @@ const PRIMARY = "#F97000";
 export default function SavedAddressesScreen() {
   const [addresses, setAddresses] = useState([]);
   const [addressToDelete, setAddressToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [updatingDefaultId, setUpdatingDefaultId] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -86,6 +88,8 @@ export default function SavedAddressesScreen() {
   );
 
   const setDefaultAddress = async (id) => {
+    if (updatingDefaultId != null) return;
+    setUpdatingDefaultId(id);
     const optimistic = addresses.map((address) => ({
       ...address,
       isDefault: String(address.id) === String(id),
@@ -100,12 +104,15 @@ export default function SavedAddressesScreen() {
       setAddresses(nextAddresses);
     } catch (err) {
       Alert.alert("Unable to update default address", err?.message || "Please try again.");
+    } finally {
+      setUpdatingDefaultId(null);
     }
   };
 
   const confirmDelete = async () => {
-    if (!addressToDelete) return;
+    if (!addressToDelete || deleting) return;
     const target = addressToDelete;
+    setDeleting(true);
 
     const wasDefault = Boolean(target.isDefault ?? target.is_default);
     const remaining = addresses.filter((address) => String(address.id) !== String(target.id));
@@ -128,6 +135,8 @@ export default function SavedAddressesScreen() {
       setAddresses(nextAddresses);
     } catch (err) {
       Alert.alert("Unable to delete address", err?.message || "Please try again.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -203,8 +212,9 @@ export default function SavedAddressesScreen() {
                 {!address.isDefault ? (
                   <>
                     <Pressable
-                      style={styles.actionBtnDefault}
+                      style={[styles.actionBtnDefault, updatingDefaultId === address.id && { opacity: 0.6 }]}
                       onPress={() => setDefaultAddress(address.id)}
+                      disabled={updatingDefaultId != null}
                       hitSlop={4}
                     >
                       <Ionicons name="checkmark-circle-outline" size={13} color="#EA580C" />
@@ -244,10 +254,18 @@ export default function SavedAddressesScreen() {
               Are you sure want to remove {addressToDelete?.label} from your saved addresses?
             </Text>
             <View style={styles.modalActions}>
-              <Pressable style={styles.modalDeleteButton} onPress={confirmDelete}>
-                <Text style={styles.modalDeleteText}>Yes, Remove</Text>
+              <Pressable
+                style={[styles.modalDeleteButton, deleting && { opacity: 0.7 }]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                <Text style={styles.modalDeleteText}>{deleting ? "Removing..." : "Yes, Remove"}</Text>
               </Pressable>
-              <Pressable style={styles.modalCancelButton} onPress={() => setAddressToDelete(null)}>
+              <Pressable
+                style={styles.modalCancelButton}
+                onPress={() => setAddressToDelete(null)}
+                disabled={deleting}
+              >
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
             </View>
