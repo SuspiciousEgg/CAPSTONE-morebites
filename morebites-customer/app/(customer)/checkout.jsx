@@ -700,7 +700,6 @@ export default function CheckoutScreen() {
 
         <View style={styles.feeCard}>
           <View style={styles.feeHeader}>
-            <Ionicons name="receipt-outline" size={18} color={PRIMARY} />
             <Text style={styles.feeTitle}>Delivery & Order Summary</Text>
           </View>
           {quoting ? (

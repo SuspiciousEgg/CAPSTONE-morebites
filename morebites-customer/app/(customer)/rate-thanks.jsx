@@ -1,10 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
+
+function firstParam(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 function getRatingLabel(rating) {
   return ["Not rated", "Bad", "Poor", "Okay", "Good", "Excellent"][rating] || "Not rated";
@@ -25,18 +30,23 @@ function StarSummary({ rating }) {
   );
 }
 
-function RatingCard({ type, name, subtitle, rating }) {
+function RatingCard({ type, name, subtitle, rating, image }) {
   const isFood = type === "food";
+  const resolvedImage = mediaUrl(image);
 
   return (
     <View style={styles.ratingCard}>
-      <View style={styles.cardImage}>
-        <Ionicons
-          name={isFood ? "pizza-outline" : "bicycle"}
-          size={26}
-          color={isFood ? PRIMARY : "#121212"}
-        />
-      </View>
+      {resolvedImage ? (
+        <Image source={{ uri: resolvedImage }} style={styles.cardThumb} />
+      ) : (
+        <View style={styles.cardImage}>
+          <Ionicons
+            name={isFood ? "fast-food-outline" : "bicycle"}
+            size={26}
+            color={isFood ? PRIMARY : "#121212"}
+          />
+        </View>
+      )}
       <View style={styles.cardInfo}>
         <Text style={styles.cardName}>{name}</Text>
         <Text style={styles.cardSubtitle}>{subtitle}</Text>
@@ -51,11 +61,13 @@ function RatingCard({ type, name, subtitle, rating }) {
 
 export default function RateThanksScreen() {
   const params = useLocalSearchParams();
-  const foodName = params.foodName || "Supreme Pizza";
-  const foodPrice = Number(params.foodPrice) || 480;
-  const foodRating = Number(params.foodRating) || 0;
-  const riderRating = Number(params.riderRating) || 0;
-  const riderName = params.riderName || "Delivery Rider";
+  const foodName = firstParam(params.foodName) || "Your order";
+  const foodPrice = Number(firstParam(params.foodPrice)) || 0;
+  const foodImage = firstParam(params.foodImage) || "";
+  const foodRating = Number(firstParam(params.foodRating)) || 0;
+  const riderRating = Number(firstParam(params.riderRating)) || 0;
+  const riderName = firstParam(params.riderName) || "Delivery Rider";
+  const riderPhoto = firstParam(params.riderPhoto) || "";
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -72,14 +84,16 @@ export default function RateThanksScreen() {
           <RatingCard
             type="food"
             name={foodName}
-            subtitle={`₱${foodPrice}`}
+            subtitle={`₱${Number(foodPrice).toLocaleString()}`}
             rating={foodRating}
+            image={foodImage}
           />
           <RatingCard
             type="rider"
             name={riderName}
             subtitle="Delivery Rider"
             rating={riderRating}
+            image={riderPhoto}
           />
         </View>
 
@@ -134,6 +148,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#FFFFFF",
     padding: 12,
+  },
+  cardThumb: {
+    width: 50,
+    height: 50,
+    borderRadius: 9,
+    backgroundColor: "#F3F4F6",
   },
   cardImage: {
     width: 50,

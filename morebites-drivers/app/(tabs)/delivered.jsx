@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   countText: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
     width: 8,
   },
   pillText: {
-    color: "#15803D",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 12,
     fontWeight: "700",

@@ -188,16 +188,14 @@ export default function VerifyOtpScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {isEmail ? (
-          <View style={[styles.icon, { justifyContent: "center", alignItems: "center" }]}>
-            <Ionicons name="mail-open-outline" size={72} color="#F97000" />
-          </View>
-        ) : (
-          <Image
-            source={require("../../assets/images/telephone.png")}
-            style={styles.icon}
-          />
-        )}
+        <Image
+          source={
+            isEmail
+              ? require("../../assets/images/email.png")
+              : require("../../assets/images/telephone.png")
+          }
+          style={styles.icon}
+        />
         <Text style={styles.title}>{isEmail ? "Verify your email" : "Verify your number"}</Text>
         <Text style={styles.subtitle}>
           {isEmail
@@ -259,7 +257,7 @@ export default function VerifyOtpScreen() {
           </Text>
         ) : (
           <View style={styles.resendRow}>
-            <Text style={styles.timerText}>Didn&apos;t receive any code? </Text>
+            <Text style={styles.resendPromptText}>Didn&apos;t receive any code? </Text>
             <TouchableOpacity onPress={resend} disabled={resending}>
               <Text style={styles.resendText}>
                 {resending ? "Sending..." : "Resend Code"}
@@ -400,11 +398,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 12,
   },
+  resendPromptText: {
+    color: "#8F8F8F",
+    fontFamily: FONT,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   resendText: {
     color: "#F97000",
     fontFamily: FONT,
     fontSize: 12,
     fontWeight: "700",
+    lineHeight: 18,
   },
   back: {
     alignItems: "center",

@@ -847,10 +847,39 @@ function CreateOrderModal({
   )
 }
 
+const CANCEL_REASON_OPTIONS = [
+  'Bad weather',
+  'Out of stock',
+  'Customer unreachable',
+  'Customer request',
+  'Other',
+]
+
 function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   const [reason, setReason] = useState('')
   const [otherReason, setOtherReason] = useState('')
+  const [reasonOpen, setReasonOpen] = useState(false)
   const [error, setError] = useState('')
+  const reasonRef = useRef(null)
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (reasonRef.current && !reasonRef.current.contains(e.target)) {
+        setReasonOpen(false)
+      }
+    }
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        setReasonOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
 
   const isAssignedOrEnRoute =
     order.type === 'Online Order' &&
@@ -895,25 +924,45 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
 
         <form onSubmit={handleSubmit} className="om-cancel-form">
           <div className="om-cancel-field-group">
-            <label className="om-cancel-field-label">
+            <label className="om-cancel-field-label" id="om-cancel-reason-label">
               Cancellation Reason <span style={{ color: '#EF4444' }}>*</span>
             </label>
-            <select
-              className="om-cancel-select"
-              value={reason}
-              onChange={(e) => {
-                setReason(e.target.value)
-                setError('')
-              }}
-              required
-            >
-              <option value="">Select a reason...</option>
-              <option value="Bad weather">Bad weather</option>
-              <option value="Out of stock">Out of stock</option>
-              <option value="Customer unreachable">Customer unreachable</option>
-              <option value="Customer request">Customer request</option>
-              <option value="Other">Other</option>
-            </select>
+            <div className="om-cancel-select-wrap" ref={reasonRef}>
+              <button
+                type="button"
+                className={`om-cancel-select-btn${reasonOpen ? ' open' : ''}${!reason ? ' placeholder' : ''}`}
+                aria-labelledby="om-cancel-reason-label"
+                aria-haspopup="listbox"
+                aria-expanded={reasonOpen}
+                onClick={() => setReasonOpen((v) => !v)}
+              >
+                <span>{reason || 'Select a reason...'}</span>
+                <LuChevronDown
+                  className={`om-cancel-select-chevron${reasonOpen ? ' open' : ''}`}
+                  size={16}
+                />
+              </button>
+              {reasonOpen && (
+                <div className="om-cancel-select-menu" role="listbox" aria-labelledby="om-cancel-reason-label">
+                  {CANCEL_REASON_OPTIONS.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="option"
+                      aria-selected={reason === opt}
+                      className={`om-cancel-select-option${reason === opt ? ' selected' : ''}`}
+                      onClick={() => {
+                        setReason(opt)
+                        setError('')
+                        setReasonOpen(false)
+                      }}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {reason === 'Other' && (

@@ -1365,6 +1365,7 @@ class CustomerAppController extends Controller
             ])->values(),
             'food_name' => $firstItem?->name ?: 'Your order',
             'food_price' => (float) ($firstItem?->unit_price ?? $o->total),
+            'food_image' => $firstItem?->menuItem?->image ? Media::url($firstItem->menuItem->image) : null,
             'address' => $o->delivery_address,
             'payment_method' => $o->payment_method ?: 'COD',
             'payment_status' => $isCompleted ? 'Paid' : ($o->payment_status ?: 'Unpaid'),

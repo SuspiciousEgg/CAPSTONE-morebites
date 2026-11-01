@@ -52,32 +52,23 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ForgotPasswordScreen() {
   const params = useLocalSearchParams();
-  const initialValue = params?.identifier ?? params?.email ?? params?.phone ?? "";
-  const [identifier, setIdentifier] = useState(String(initialValue));
+  const initialValue = params?.email ?? params?.identifier ?? "";
+  const [email, setEmail] = useState(String(initialValue));
   const [focused, setFocused] = useState(false);
   const [error, setError] = useState("");
   const [bannerError, setBannerError] = useState("");
   const [sending, setSending] = useState(false);
 
   const sendCode = async () => {
-    const clean = identifier.trim();
-    if (!clean) {
-      setError("Please enter your registered email address or phone number.");
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setError("Please enter your registered email address.");
       return;
     }
 
-    const isEmail = clean.includes("@");
-    if (isEmail) {
-      if (!EMAIL_PATTERN.test(clean)) {
-        setError("Please enter a valid email address (e.g. name@gmail.com).");
-        return;
-      }
-    } else {
-      const cleanPhone = clean.replace(/[\s-]/g, "");
-      if (!PHONE_PATTERN.test(cleanPhone)) {
-        setError("Enter a valid 11-digit mobile number starting with 09 or your email address.");
-        return;
-      }
+    if (!EMAIL_PATTERN.test(cleanEmail)) {
+      setError("Please enter a valid email address (e.g. name@gmail.com).");
+      return;
     }
 
     setError("");
@@ -88,17 +79,15 @@ export default function ForgotPasswordScreen() {
 
     setSending(true);
     try {
-      const cleanTarget = isEmail ? clean.toLowerCase() : clean.replace(/[\s-]/g, "");
-      const res = await customerApi.requestPasswordResetOtp(cleanTarget);
+      const res = await customerApi.requestPasswordResetOtp(cleanEmail);
       const cooldown = Number(res?.cooldown_seconds) || 20;
 
       router.push({
         pathname: "/(auth)/verify-otp",
         params: {
-          identifier: cleanTarget,
-          phone: res?.phone || cleanTarget,
-          email: res?.email || (isEmail ? cleanTarget : ""),
-          channel: res?.delivery_channel || (isEmail ? "email" : "sms"),
+          identifier: cleanEmail,
+          email: res?.email || cleanEmail,
+          channel: "email",
           cooldown: String(cooldown),
         },
       });
@@ -121,8 +110,8 @@ export default function ForgotPasswordScreen() {
           source={require("../../assets/images/lock-padlock-symbol-for-security-interface.png")}
           style={styles.icon}
         />
-        <Text style={styles.title}>Forget password</Text>
-        <Text style={styles.subtitle}>Enter your email or phone number to receive an OTP</Text>
+        <Text style={styles.title}>Forgot Password</Text>
+        <Text style={styles.subtitle}>Enter your email address to receive an OTP</Text>
         <View style={styles.divider} />
 
         {bannerError ? (
@@ -137,18 +126,18 @@ export default function ForgotPasswordScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.label}>EMAIL ADDRESS OR PHONE NUMBER</Text>
+        <Text style={styles.label}>EMAIL ADDRESS</Text>
         <View style={[styles.inputWrap, focused && styles.focusedInput, error && styles.errorInput]}>
           <TextInput
             style={styles.input}
-            placeholder="e.g. name@gmail.com or 09XX XXX XXXX"
+            placeholder="e.g. name@gmail.com"
             placeholderTextColor="#9CA3AF"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
-            value={identifier}
+            value={email}
             onChangeText={(val) => {
-              setIdentifier(val);
+              setEmail(val);
               if (error) setError("");
               if (bannerError) setBannerError("");
             }}

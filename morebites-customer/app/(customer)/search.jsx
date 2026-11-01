@@ -92,9 +92,35 @@ export default function SearchScreen() {
   }, [trimmedSearch, menuItems]);
 
   const popularSearches = useMemo(() => {
-    const cats = Array.from(new Set(menuItems.map((i) => i.category).filter(Boolean)));
-    return cats.slice(0, 5);
-  }, [menuItems]);
+    // PROMPT 110: Dynamically derive popular search terms from topSellingItems
+    // (populated from GET /api/menu/top-selling which uses rolling 30-day order items data)
+    const topItemNames = (topSellingItems || [])
+      .map((i) => i.name?.trim())
+      .filter(Boolean);
+
+    const uniqueTopItems = Array.from(new Set(topItemNames));
+
+    if (uniqueTopItems.length >= 5) {
+      return uniqueTopItems.slice(0, 5);
+    }
+
+    // If fewer than 5 top-selling items exist, supplement with top-selling categories or menu item categories
+    const topCategories = Array.from(
+      new Set(
+        [...(topSellingItems || []), ...(menuItems || [])]
+          .map((i) => i.category?.trim())
+          .filter(Boolean)
+      )
+    ).filter((cat) => !uniqueTopItems.some((name) => name.toLowerCase() === cat.toLowerCase()));
+
+    const combined = [...uniqueTopItems, ...topCategories];
+    if (combined.length > 0) {
+      return combined.slice(0, 5);
+    }
+
+    // Fallback: active menu item names
+    return Array.from(new Set((menuItems || []).map((i) => i.name?.trim()).filter(Boolean))).slice(0, 5);
+  }, [topSellingItems, menuItems]);
 
   useEffect(() => {
     const load = async () => {
@@ -300,7 +326,7 @@ export default function SearchScreen() {
                 </Pressable>
               ))
             ) : (
-              <Text style={styles.noRecentText}>No categories yet</Text>
+              <Text style={styles.noRecentText}>No popular searches yet</Text>
             )}
 
             <Text style={styles.suggestionsTitle}>You Might Like</Text>
