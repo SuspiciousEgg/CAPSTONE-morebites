@@ -1025,7 +1025,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 }
 
-function ConfirmModal({ type, item, onClose, onConfirm }) {
+function ConfirmModal({ type, item, onClose, onConfirm, saving = false }) {
   const [step, setStep] = useState(1)
   const name = item?.name || 'this item'
 
@@ -1063,7 +1063,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               : `Are you sure you really want to restore "${name}" back to the active menu?`}
         </p>
         <div className="menu-confirm-actions">
-          <button type="button" className="menu-modal-btn cancel" onClick={onClose}>
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
             Cancel
           </button>
           {step === 1 ? (
@@ -1071,6 +1071,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={() => setStep(2)}
+              disabled={saving}
             >
               {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
             </button>
@@ -1079,8 +1080,15 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={onConfirm}
+              disabled={saving}
             >
-              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+              {saving
+                ? type === 'archive'
+                  ? 'Archiving…'
+                  : 'Restoring…'
+                : type === 'archive'
+                  ? 'Confirm Archive'
+                  : 'Confirm Restore'}
             </button>
           )}
         </div>
@@ -1099,6 +1107,8 @@ export default function MenuManagement() {
   const [page, setPage] = useState(1)
   const [formState, setFormState] = useState(null)
   const [confirm, setConfirm] = useState(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
 
   const reloadMenu = useCallback(() => {
     menuApi
@@ -1165,6 +1175,8 @@ export default function MenuManagement() {
   async function toggleAvailable(item) {
     if (item.archived) return
     if (item.stockOk === false) return
+    if (togglingId === item.id) return
+    setTogglingId(item.id)
     try {
       const { data } = await menuApi.toggleAvailability(item.id)
       const updated = data?.data || data
@@ -1172,6 +1184,8 @@ export default function MenuManagement() {
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Could not update availability.')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -1216,7 +1230,8 @@ export default function MenuManagement() {
   }
 
   async function runConfirm() {
-    if (!confirm) return
+    if (!confirm || confirmSaving) return
+    setConfirmSaving(true)
     try {
       if (confirm.type === 'archive') {
         const { data } = await menuApi.archive(confirm.item.id)
@@ -1231,6 +1246,8 @@ export default function MenuManagement() {
       setConfirm(null)
     } catch (err) {
       console.error(err)
+    } finally {
+      setConfirmSaving(false)
     }
   }
 
@@ -1482,7 +1499,7 @@ export default function MenuManagement() {
                           className={`menu-toggle-switch ${
                             item.available && !isArchived ? 'on' : 'off'
                           }`}
-                          disabled={isArchived || item.stockOk === false}
+                          disabled={isArchived || item.stockOk === false || togglingId === item.id}
                           onClick={() => toggleAvailable(item)}
                           aria-label={`Toggle availability for ${item.name}`}
                           title={
@@ -1624,7 +1641,10 @@ export default function MenuManagement() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}
-          onClose={() => setConfirm(null)}
+          saving={confirmSaving}
+          onClose={() => {
+            if (!confirmSaving) setConfirm(null)
+          }}
           onConfirm={runConfirm}
         />
       )}

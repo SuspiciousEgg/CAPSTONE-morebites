@@ -26,6 +26,7 @@ const EMPTY_USER = {
 export default function ProfileScreen() {
   const [user, setUser] = useState(EMPTY_USER);
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,9 +52,15 @@ export default function ProfileScreen() {
   );
 
   const logOut = async () => {
-    await driverApi.logout();
-    setLogoutVisible(false);
-    router.replace("/(auth)/login");
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await driverApi.logout();
+    } finally {
+      setLoggingOut(false);
+      setLogoutVisible(false);
+      router.replace("/(auth)/login");
+    }
   };
 
   return (
@@ -146,12 +153,19 @@ export default function ProfileScreen() {
             <Text style={styles.logoutModalText}>
               Are you sure want to log out of your account?
             </Text>
-            <TouchableOpacity style={styles.confirmButton} onPress={logOut}>
-              <Text style={styles.confirmButtonText}>Yes, Log Out</Text>
+            <TouchableOpacity
+              style={[styles.confirmButton, loggingOut && { opacity: 0.7 }]}
+              onPress={logOut}
+              disabled={loggingOut}
+            >
+              <Text style={styles.confirmButtonText}>
+                {loggingOut ? "Logging Out..." : "Yes, Log Out"}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setLogoutVisible(false)}
+              disabled={loggingOut}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>

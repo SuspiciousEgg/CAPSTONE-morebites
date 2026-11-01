@@ -1635,7 +1635,7 @@ export default function AccountManagement() {
                 <span className="ac-status-dot">Active</span>
               </div>
               <div className="ac-drawer-actions">
-                <button type="button" className="ac-modal-close-circle" onClick={() => (editing ? saveProfileEdits() : setEditing(true))} aria-label="Edit">
+                <button type="button" className="ac-modal-close-circle" disabled={saving} onClick={() => (editing ? saveProfileEdits() : setEditing(true))} aria-label="Edit">
                   <LuPencil size={15} />
                 </button>
                 <button type="button" className="ac-modal-close-circle" onClick={() => setProfile(null)} aria-label="Close">
@@ -1805,7 +1805,7 @@ export default function AccountManagement() {
                   </div>
                 </div>
                 <div className="ac-modal-foot">
-                  <button type="button" className="ac-btn-cancel" onClick={() => setBlockStep(1)}>← Go Back</button>
+                  <button type="button" className="ac-btn-cancel" disabled={saving} onClick={() => setBlockStep(1)}>← Go Back</button>
                   <button
                     type="button"
                     className="ac-btn-primary"

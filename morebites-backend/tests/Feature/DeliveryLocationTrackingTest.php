@@ -129,4 +129,49 @@ class DeliveryLocationTrackingTest extends TestCase
 
         $response->assertStatus(403);
     }
+
+    public function test_live_dispatch_map_receives_driver_real_gps_when_out_for_delivery_even_in_cdo(): void
+    {
+        $driver = User::factory()->create([
+            'role' => 'driver',
+            'status' => 'Active',
+            'current_lat' => 8.4772,
+            'current_lng' => 124.6487,
+        ]);
+
+        $order = Order::query()->create([
+            'order_code' => Order::generateOrderCode(),
+            'customer_name' => 'CDO Customer',
+            'order_type' => 'Online Order',
+            'status' => 'Out for Delivery',
+            'driver_id' => $driver->id,
+            'dest_lat' => 7.6150,
+            'dest_lng' => 124.9950,
+        ]);
+
+        // Driver reports their real GPS coordinates (Cagayan de Oro)
+        $this->actingAs($driver)->patchJson("/api/deliveries/{$order->id}/location", [
+            'latitude' => 8.4772,
+            'longitude' => 124.6487,
+        ])->assertOk();
+
+        $order->refresh();
+        $this->assertEquals(8.4772, (float) $order->current_lat);
+        $this->assertEquals(124.6487, (float) $order->current_lng);
+
+        // Staff views dispatch live fleet
+        $admin = User::factory()->create(['role' => 'superadmin', 'allowed_pages' => ['Dispatch']]);
+        $dispatchRes = $this->actingAs($admin)->getJson('/api/dispatch');
+        $dispatchRes->assertOk();
+
+        $deliveries = collect($dispatchRes->json('data.deliveries'));
+        $targetDelivery = $deliveries->firstWhere('id', $order->order_code);
+        $this->assertNotNull($targetDelivery);
+
+        // Web map rider coordinate matches driver real GPS, not store fallback
+        $this->assertEquals(8.4772, (float) $targetDelivery['rider']['latitude']);
+        $this->assertEquals(124.6487, (float) $targetDelivery['rider']['longitude']);
+        $this->assertEquals(8.4772, (float) $targetDelivery['rider_lat']);
+        $this->assertEquals(124.6487, (float) $targetDelivery['rider_lng']);
+    }
 }

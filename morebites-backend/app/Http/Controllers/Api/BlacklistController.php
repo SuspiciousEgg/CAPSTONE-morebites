@@ -97,6 +97,7 @@ class BlacklistController extends Controller
             'attachment' => [
                 'name' => $d->attachment_name ?: 'No attachment',
                 'meta' => $d->attachment_meta ?: '-',
+                'url' => $d->driver?->license_document ? \App\Support\Media::url($d->driver->license_document) : null,
             ],
             'notes' => $d->notes,
         ];

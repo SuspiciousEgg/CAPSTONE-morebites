@@ -120,9 +120,6 @@ export default function OrderTrackingScreen() {
 
   useEffect(() => {
     loadTracking();
-    if (!dbId) return undefined;
-    const timer = setInterval(loadTracking, 5000);
-    return () => clearInterval(timer);
   }, [dbId, loadTracking]);
 
   const currentStatus = tracking?.status || orderParam.status || "";
@@ -131,11 +128,11 @@ export default function OrderTrackingScreen() {
     !["Out for Delivery", "Delivered", "Completed", "Cancelled"].includes(currentStatus) &&
     tracking?.eta_mins == null;
 
-  // Live driver location polling (every 4.5 seconds while delivery is active)
+  // Live driver location polling (every 3000ms while order is active)
   useEffect(() => {
     if (!dbId) return undefined;
-    const isDeliveryActive = ["Assigned", "Picked Up", "Out for Delivery"].includes(currentStatus);
-    if (!isDeliveryActive) return undefined;
+    const isCompleted = ["Delivered", "Completed", "Cancelled"].includes(currentStatus);
+    if (isCompleted) return undefined;
 
     let cancelled = false;
 
@@ -158,17 +155,20 @@ export default function OrderTrackingScreen() {
             );
           }
         }
+        if (!cancelled && loc?.status && loc.status !== currentStatus) {
+          loadTracking();
+        }
       } catch {
         // Retry next cycle
       }
     };
 
-    const interval = setInterval(pollLocation, 4500);
+    const interval = setInterval(pollLocation, 3000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [dbId, currentStatus]);
+  }, [dbId, currentStatus, loadTracking]);
 
   const items = Array.isArray(tracking?.items)
     ? tracking.items

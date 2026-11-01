@@ -57,10 +57,6 @@ class TrackingService
     {
         $order = $this->ensureDestination($order);
         $storeOrigin = $this->storePoint();
-        $from = ['latitude' => $lat, 'longitude' => $lng];
-        if ($this->haversineKm($storeOrigin, $from) > DeliveryRateService::MAX_DELIVERY_KM) {
-            $from = $storeOrigin;
-        }
         $dest = ['latitude' => (float) $order->dest_lat, 'longitude' => (float) $order->dest_lng];
 
         $distanceKm = $this->haversineKm($storeOrigin, $dest);
@@ -69,14 +65,14 @@ class TrackingService
         $hasExistingRoute = is_array($order->route_coordinates) && count($order->route_coordinates) >= 2;
 
         $updates = [
-            'current_lat' => $from['latitude'],
-            'current_lng' => $from['longitude'],
+            'current_lat' => $lat,
+            'current_lng' => $lng,
             'delivery_distance_km' => $distanceKm,
             'delivery_minutes' => $etaMins,
         ];
 
         if (! $hasExistingRoute) {
-            $route = $this->directions($from, $dest);
+            $route = $this->directions($storeOrigin, $dest);
             $updates['route_coordinates'] = $route['coordinates'];
         }
 
@@ -230,17 +226,12 @@ class TrackingService
 
     public function riderPoint(Order $order): ?array
     {
-        $storeOrigin = $this->storePoint();
-
         if ($order->current_lat && $order->current_lng) {
-            $candidate = [
+            return [
                 'latitude' => (float) $order->current_lat,
                 'longitude' => (float) $order->current_lng,
                 'updated_at' => $order->updated_at?->toIso8601String(),
             ];
-            if ($this->haversineKm($storeOrigin, $candidate) <= DeliveryRateService::MAX_DELIVERY_KM) {
-                return $candidate;
-            }
         }
 
         $driver = $order->relationLoaded('driver') ? $order->driver : $order->driver()->first();
@@ -248,17 +239,11 @@ class TrackingService
             return null;
         }
 
-        $candidate = [
+        return [
             'latitude' => (float) $driver->current_lat,
             'longitude' => (float) $driver->current_lng,
             'updated_at' => $driver->location_updated_at?->toIso8601String(),
         ];
-
-        if ($this->haversineKm($storeOrigin, $candidate) > DeliveryRateService::MAX_DELIVERY_KM) {
-            return null;
-        }
-
-        return $candidate;
     }
 
     public const ACTIVE_DELIVERY_STATUSES = [
@@ -289,7 +274,7 @@ class TrackingService
                 $order = $this->ensureRoute($order, $rider);
                 $coords = $order->route_coordinates;
             }
-            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
+            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($this->storePoint(), $destination));
             $etaMins = (int) ($order->delivery_minutes ?: max(1, (int) round($distanceKm * 3.5)));
         }
 

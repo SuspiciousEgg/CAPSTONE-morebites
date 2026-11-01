@@ -1788,61 +1788,82 @@
 
 /* Reported Issues Log in Order Details */
 .om-issue-section {
-  margin-top: 18px;
+  padding: 0 24px 14px;
   border-top: 1px solid #EDEDED;
-  padding-top: 16px;
+  padding-top: 14px;
 }
 
 .om-issue-heading {
-  margin: 0 0 10px;
-  font-size: 13px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
   font-weight: 700;
-  color: #1C1B18;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .om-issue-heading svg {
   color: #DC2626;
 }
 
+.om-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .om-issue-card {
-  background: #F9FAFB;
-  border: 1px solid #EDEDED;
-  border-left: 3px solid #DC2626;
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 8px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  padding: 7px 12px;
 }
 
 .om-issue-card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.om-issue-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .om-issue-title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12.5px;
   color: #DC2626;
+}
+
+.om-issue-dot {
+  font-size: 11px;
+  color: #F87171;
+}
+
+.om-issue-reporter {
+  font-size: 11.5px;
+  color: #991B1B;
+  opacity: 0.9;
 }
 
 .om-issue-time {
   font-size: 11px;
-  color: #6B7280;
+  color: #991B1B;
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .om-issue-notes {
-  margin: 4px 0 0;
-  font-size: 12.5px;
-  color: #374151;
-  line-height: 1.4;
-}
-
-.om-issue-reporter {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #9CA3AF;
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #7F1D1D;
+  line-height: 1.35;
 }

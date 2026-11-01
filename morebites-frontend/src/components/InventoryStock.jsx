@@ -308,6 +308,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   const [logRange, setLogRange] = useState('today')
   const [logPage, setLogPage] = useState(1)
   const [saving, setSaving] = useState(false)
+  const [exportingLogs, setExportingLogs] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [customCategories, setCustomCategories] = useState(() => getCustomCategories())
   const [showNewCatInput, setShowNewCatInput] = useState(false)
@@ -458,7 +459,9 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     setSelectedLog(null)
   }
 
-  function exportLogs() {
+  async function exportLogs() {
+    if (exportingLogs) return
+    setExportingLogs(true)
     const header = [
       'Date & Time',
       'Item',
@@ -496,7 +499,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
 
     try {
       const sizeKB = `${(blob.size / 1024).toFixed(1)} KB`
-      reportsApi.logExport({
+      await reportsApi.logExport({
         name: filename,
         format: 'CSV',
         size: sizeKB,
@@ -504,6 +507,8 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       }).catch(console.error)
     } catch (e) {
       console.warn('Failed to log inventory export:', e)
+    } finally {
+      setExportingLogs(false)
     }
   }
 
@@ -1097,6 +1102,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
           onClick={() => {
             setPage(1)
             setOpenFilter(null)
+            reload().catch(console.error)
           }}
         >
           <LuFilter size={15} /> Filter
@@ -1512,6 +1518,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   onClick={() => {
                     setLogPage(1)
                     setOpenFilter(null)
+                    reload().catch(console.error)
                   }}
                 >
                   <IconFilter /> Filter
@@ -1635,8 +1642,8 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     <LuChevronRight size={16} />
                   </button>
                 </div>
-                <button type="button" className="inv-btn-outline inv-btn-export" onClick={exportLogs}>
-                  <LuUpload size={15} /> Export
+                <button type="button" className="inv-btn-outline inv-btn-export" disabled={exportingLogs} onClick={exportLogs}>
+                  <LuUpload size={15} /> {exportingLogs ? 'Exporting…' : 'Export'}
                 </button>
               </div>
             </div>

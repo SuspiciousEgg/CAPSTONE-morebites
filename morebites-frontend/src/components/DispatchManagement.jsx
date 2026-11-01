@@ -100,6 +100,7 @@ export default function DispatchManagement() {
   const [monitorPage, setMonitorPage] = useState(1)
   const [assignOrder, setAssignOrder] = useState(null)
   const [selectedRider, setSelectedRider] = useState(null)
+  const [assigning, setAssigning] = useState(false)
   const [viewDelivery, setViewDelivery] = useState(null)
   const [focusId, setFocusId] = useState(null)
   const [showMapModal, setShowMapModal] = useState(false)
@@ -214,7 +215,7 @@ export default function DispatchManagement() {
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadDispatch().catch(() => {})
-    }, 10000)
+    }, 3000)
     return () => clearInterval(timer)
   }, [])
 
@@ -236,9 +237,10 @@ export default function DispatchManagement() {
   const monitorRows = monitoring.slice((currentMonitorPage - 1) * pageSize, currentMonitorPage * pageSize)
 
   async function assignDelivery() {
-    if (!assignOrder || !selectedRider) return
+    if (!assignOrder || !selectedRider || assigning) return
     const orderId = assignOrder.db_id || assignOrder.id
     const riderParam = selectedRider.name || selectedRider.label || selectedRider
+    setAssigning(true)
     try {
       await dispatchApi.assign(orderId, riderParam)
       await loadDispatch()
@@ -248,6 +250,8 @@ export default function DispatchManagement() {
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Failed to assign rider.')
+    } finally {
+      setAssigning(false)
     }
   }
 
@@ -632,6 +636,7 @@ export default function DispatchManagement() {
               <button
                 type="button"
                 className="dp-btn-ghost"
+                disabled={assigning}
                 onClick={() => setAssignOrder(null)}
               >
                 Cancel
@@ -639,10 +644,10 @@ export default function DispatchManagement() {
               <button
                 type="button"
                 className="dp-btn-confirm-assign"
-                disabled={!selectedRider}
+                disabled={!selectedRider || assigning}
                 onClick={assignDelivery}
               >
-                Confirm Assignment
+                {assigning ? 'Assigning...' : 'Confirm Assignment'}
               </button>
             </div>
           </div>
