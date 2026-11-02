@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -39,6 +41,48 @@ export default function RegisterScreen() {
   const [errors, setErrors] = useState({});
   const [generalError, setGeneralError] = useState("");
   const [saving, setSaving] = useState(false);
+  const scrollViewRef = useRef(null);
+  const fieldPositions = useRef({});
+  const focusedFieldRef = useRef("");
+
+  const scrollToField = (fieldName, delay = 120) => {
+    if (fieldName === "fullName" || fieldName === "phone") return;
+    setTimeout(() => {
+      const y = fieldPositions.current[fieldName];
+      if (typeof y === "number" && scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({
+          y: Math.max(0, y - 180),
+          animated: true,
+        });
+      }
+    }, delay);
+  };
+
+  const handleFieldFocus = (fieldName) => {
+    focusedFieldRef.current = fieldName;
+    setFocusedField(fieldName);
+    scrollToField(fieldName, 100);
+  };
+
+  const handleFieldBlur = (fieldName) => {
+    if (focusedFieldRef.current === fieldName) {
+      focusedFieldRef.current = "";
+    }
+    setFocusedField((prev) => (prev === fieldName ? "" : prev));
+  };
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const showSub = Keyboard.addListener(showEvent, () => {
+      if (focusedFieldRef.current) {
+        scrollToField(focusedFieldRef.current, 60);
+      }
+    });
+
+    return () => {
+      showSub.remove();
+    };
+  }, []);
 
   const strength =
     password.length < 6
@@ -128,12 +172,19 @@ export default function RegisterScreen() {
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
         <TouchableOpacity
           onPress={() => router.replace("/(auth)/login")}
           hitSlop={12}
@@ -153,21 +204,31 @@ export default function RegisterScreen() {
         ) : null}
 
         <Text style={styles.label}>FULL NAME</Text>
-        <View style={inputStyle("fullName")}>
+        <View
+          style={inputStyle("fullName")}
+          onLayout={(e) => {
+            fieldPositions.current.fullName = e.nativeEvent.layout.y;
+          }}
+        >
           <TextInput
             style={styles.input}
             placeholder="John Doe"
             placeholderTextColor="#9CA3AF"
             value={fullName}
             onChangeText={setFullName}
-            onFocus={() => setFocusedField("fullName")}
-            onBlur={() => setFocusedField("")}
+            onFocus={() => handleFieldFocus("fullName")}
+            onBlur={() => handleFieldBlur("fullName")}
           />
         </View>
         <FieldError message={errors.fullName} />
 
         <Text style={styles.label}>PHONE NUMBER</Text>
-        <View style={inputStyle("phone")}>
+        <View
+          style={inputStyle("phone")}
+          onLayout={(e) => {
+            fieldPositions.current.phone = e.nativeEvent.layout.y;
+          }}
+        >
           <TextInput
             style={styles.input}
             placeholder="09XX XXX XXXX"
@@ -176,14 +237,19 @@ export default function RegisterScreen() {
             maxLength={11}
             value={phone}
             onChangeText={(val) => setPhone(val.replace(/\D/g, "").slice(0, 11))}
-            onFocus={() => setFocusedField("phone")}
-            onBlur={() => setFocusedField("")}
+            onFocus={() => handleFieldFocus("phone")}
+            onBlur={() => handleFieldBlur("phone")}
           />
         </View>
         <FieldError message={errors.phone} />
 
         <Text style={styles.label}>EMAIL ADDRESS (FOR OTP & RECOVERY)</Text>
-        <View style={inputStyle("email")}>
+        <View
+          style={inputStyle("email")}
+          onLayout={(e) => {
+            fieldPositions.current.email = e.nativeEvent.layout.y;
+          }}
+        >
           <TextInput
             style={styles.input}
             placeholder="yourname@gmail.com"
@@ -193,14 +259,19 @@ export default function RegisterScreen() {
             autoCorrect={false}
             value={email}
             onChangeText={setEmail}
-            onFocus={() => setFocusedField("email")}
-            onBlur={() => setFocusedField("")}
+            onFocus={() => handleFieldFocus("email")}
+            onBlur={() => handleFieldBlur("email")}
           />
         </View>
         <FieldError message={errors.email} />
 
         <Text style={styles.label}>PASSWORD</Text>
-        <View style={inputStyle("password")}>
+        <View
+          style={inputStyle("password")}
+          onLayout={(e) => {
+            fieldPositions.current.password = e.nativeEvent.layout.y;
+          }}
+        >
           <TextInput
             style={styles.input}
             secureTextEntry={!visible}
@@ -208,8 +279,8 @@ export default function RegisterScreen() {
             placeholderTextColor="#9CA3AF"
             value={password}
             onChangeText={setPassword}
-            onFocus={() => setFocusedField("password")}
-            onBlur={() => setFocusedField("")}
+            onFocus={() => handleFieldFocus("password")}
+            onBlur={() => handleFieldBlur("password")}
           />
           <TouchableOpacity onPress={() => setVisible(!visible)}>
             <Ionicons name={visible ? "eye-outline" : "eye-off-outline"} size={20} color="#9CA3AF" />
@@ -235,7 +306,12 @@ export default function RegisterScreen() {
         ) : null}
 
         <Text style={styles.label}>CONFIRM PASSWORD</Text>
-        <View style={inputStyle("confirmPassword")}>
+        <View
+          style={inputStyle("confirmPassword")}
+          onLayout={(e) => {
+            fieldPositions.current.confirmPassword = e.nativeEvent.layout.y;
+          }}
+        >
           <TextInput
             style={styles.input}
             secureTextEntry={!confirmVisible}
@@ -243,8 +319,8 @@ export default function RegisterScreen() {
             placeholderTextColor="#9CA3AF"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            onFocus={() => setFocusedField("confirmPassword")}
-            onBlur={() => setFocusedField("")}
+            onFocus={() => handleFieldFocus("confirmPassword")}
+            onBlur={() => handleFieldBlur("confirmPassword")}
           />
           <TouchableOpacity onPress={() => setConfirmVisible(!confirmVisible)}>
             <Ionicons name={confirmVisible ? "eye-outline" : "eye-off-outline"} size={20} color="#9CA3AF" />
@@ -268,6 +344,7 @@ export default function RegisterScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -277,11 +354,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#ECECEC",
   },
+  keyboardView: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 28,
     paddingTop: 30,
-    paddingBottom: 28,
+    paddingBottom: 24,
   },
   backButton: {
     marginBottom: 16,

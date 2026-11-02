@@ -575,12 +575,7 @@ export default function ReceiptScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View ref={receiptCaptureRef} collapsable={false} style={styles.receiptCaptureWrap}>
           <View style={styles.topSection}>
-            <View style={styles.receiptIconCircle}>
-              <Ionicons name="receipt-outline" size={40} color={PRIMARY} />
-              <View style={styles.paidCheckBadge}>
-                <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-              </View>
-            </View>
+            <Ionicons name="checkmark-circle" size={52} color="#22C55E" />
             <Text style={styles.title}>Digital Receipt</Text>
             <Text style={styles.subtitle}>Payment confirmed & delivery completed</Text>
           </View>

@@ -569,22 +569,91 @@ export default function OrdersScreen() {
       }
     }
 
-    const orderData = item.data || {};
-    const orderStatus = orderData.status;
+    let orderData = item.data || {};
+    if (typeof orderData === "string") {
+      try {
+        orderData = JSON.parse(orderData);
+      } catch {
+        orderData = {};
+      }
+    }
 
-    if (
-      TRACKABLE_STATUSES.includes(orderStatus) ||
+    const orderDbId = orderData.order_id ? String(orderData.order_id) : "";
+    const orderCode = orderData.order_code ? String(orderData.order_code) : "";
+    const isOutForDeliveryOrTrackable =
+      TRACKABLE_STATUSES.includes(orderData.status) ||
       item.message?.toLowerCase().includes("out for delivery") ||
-      item.message?.toLowerCase().includes("track")
-    ) {
-      setNotificationsVisible(false);
-      router.push({
-        pathname: "/(customer)/order-tracking",
-        params: {
-          orderId: orderData.order_code || String(orderData.order_id || ""),
-          dbId: String(orderData.order_id || ""),
-        },
-      });
+      item.message?.toLowerCase().includes("track");
+
+    if (orderDbId || orderCode || isOutForDeliveryOrTrackable) {
+      let liveOrder = orders.find(
+        (o) =>
+          (orderDbId && String(o.db_id || o.id) === orderDbId) ||
+          (orderCode && (String(o.id) === orderCode || String(o.order_code) === orderCode))
+      );
+
+      // Verify fresh status from backend to handle orders finished since last poll
+      if (orderDbId && (!liveOrder || ["Out for Delivery", "Picked Up", "Assigned"].includes(liveOrder.status))) {
+        try {
+          const res = await customerApi.order(orderDbId);
+          const fresh = res?.data || res;
+          if (fresh && typeof fresh === "object" && (fresh.id || fresh.db_id)) {
+            liveOrder = fresh;
+          }
+        } catch (err) {
+          console.warn("Could not fetch fresh order status on notification tap:", err);
+        }
+      }
+
+      const currentStatus = liveOrder?.status || liveOrder?.raw_status || orderData.status;
+
+      // 1. If the order has finished delivery (Delivered or Completed), open digital receipt
+      if (["Delivered", "Completed"].includes(currentStatus)) {
+        setNotificationsVisible(false);
+        router.push({
+          pathname: "/(customer)/receipt",
+          params: {
+            orderId: String(liveOrder?.id || orderCode || orderDbId || ""),
+            dbId: String(liveOrder?.db_id || orderDbId || ""),
+            order: liveOrder ? JSON.stringify(liveOrder) : undefined,
+          },
+        });
+        return;
+      }
+
+      // 2. If the order was cancelled, open the order details modal with cancellation reason
+      if (currentStatus === "Cancelled") {
+        setNotificationsVisible(false);
+        if (liveOrder) {
+          openDetails(liveOrder);
+        } else {
+          router.push({
+            pathname: "/(customer)/receipt",
+            params: {
+              orderId: String(orderCode || orderDbId || ""),
+              dbId: String(orderDbId || ""),
+            },
+          });
+        }
+        return;
+      }
+
+      // 3. If the order is still Out for Delivery / Trackable, open Live Tracking as before
+      if (
+        TRACKABLE_STATUSES.includes(currentStatus) ||
+        isOutForDeliveryOrTrackable
+      ) {
+        setNotificationsVisible(false);
+        router.push({
+          pathname: "/(customer)/order-tracking",
+          params: {
+            orderId: orderCode || String(orderDbId || ""),
+            dbId: String(orderDbId || ""),
+            order: liveOrder ? JSON.stringify(liveOrder) : undefined,
+          },
+        });
+        return;
+      }
     }
   };
 

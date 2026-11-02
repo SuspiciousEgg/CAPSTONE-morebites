@@ -356,6 +356,7 @@ export default function OutForDeliveryScreen() {
               initialRegion={mapRegion}
               region={mapRegion}
               routeCoordinates={routeCoordinates}
+              storeCoord={tracking?.store}
               riderCoord={riderCoord}
               destinationCoord={destinationCoord}
             />
@@ -389,7 +390,7 @@ export default function OutForDeliveryScreen() {
                 <Text style={styles.liveText}>Live</Text>
               </View>
               <View style={styles.etaGroup}>
-                <Ionicons name="time-outline" size={16} color="#0284C7" />
+                <Ionicons name="time-outline" size={16} color="#F97000" />
                 <Text style={styles.etaText}>{etaLabel}</Text>
               </View>
             </View>
@@ -408,7 +409,6 @@ export default function OutForDeliveryScreen() {
         {/* Order Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
-            <Ionicons name="cube-outline" size={20} color="#F97000" />
             <Text style={styles.summaryTitle}>Order Summary</Text>
           </View>
 
@@ -423,7 +423,7 @@ export default function OutForDeliveryScreen() {
               Total: {formatPeso(order?.amount || 0)}
             </Text>
             <View style={styles.paymentBadge}>
-              <Ionicons name="cash-outline" size={16} color="#16A34A" />
+              <Ionicons name="cash-outline" size={16} color="#22C55E" />
               <Text style={styles.paymentText}>
                 Payment: {order?.payment_method || "COD"}
               </Text>
@@ -716,21 +716,23 @@ const styles = StyleSheet.create({
   },
   liveBadge: {
     alignItems: "center",
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "#F0FDF4",
+    borderColor: "#BBF7D0",
     borderRadius: 12,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   liveDot: {
-    backgroundColor: "#EF4444",
+    backgroundColor: "#22C55E",
     borderRadius: 4,
     height: 7,
     width: 7,
   },
   liveText: {
-    color: "#EF4444",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 11,
     fontWeight: "700",
@@ -741,7 +743,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   etaText: {
-    color: "#0284C7",
+    color: "#F97000",
     fontFamily: FONT,
     fontSize: 14,
     fontWeight: "700",
@@ -814,7 +816,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   paymentText: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",

@@ -174,17 +174,18 @@
 }
 
 .om-filter-option:hover {
-  background-color: #2563EB;
-  color: #FFFFFF;
+  background-color: #FFF4E5;
+  color: #FFA500;
 }
 
 .om-filter-option.selected {
-  background-color: #F3F4F6;
-  color: #1C1B18;
+  background-color: #FFF4E5;
+  color: #FFA500;
+  font-weight: 600;
 }
 
 .om-filter-option.selected:hover {
-  background-color: #2563EB;
+  background-color: #FFA500;
   color: #FFFFFF;
 }
 
@@ -1609,7 +1610,12 @@
   color: #374151;
 }
 
-.om-cancel-select,
+.om-cancel-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.om-cancel-select-btn,
 .om-cancel-input {
   width: 100%;
   height: 40px;
@@ -1618,17 +1624,96 @@
   border-radius: 8px;
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  color: #1F2937;
+  color: #1C1B18;
   background-color: #FFFFFF;
   box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.om-cancel-select:focus,
+.om-cancel-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+
+.om-cancel-select-btn.placeholder {
+  color: #6B7280;
+  font-weight: 400;
+}
+
+.om-cancel-select-btn:hover {
+  border-color: #9CA3AF;
+}
+
+.om-cancel-select-btn:focus,
+.om-cancel-select-btn.open,
 .om-cancel-input:focus {
   outline: none;
   border-color: #DC2626;
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.om-cancel-select-chevron {
+  color: #6B7280;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.om-cancel-select-chevron.open {
+  transform: rotate(180deg);
+}
+
+.om-cancel-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  background: #FFFFFF;
+  border: 1px solid #EDEDED;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  z-index: 60;
+  overflow: hidden;
+  padding: 6px;
+  box-sizing: border-box;
+  animation: omFadeIn 0.12s ease;
+}
+
+.om-cancel-select-option {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1C1B18;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.om-cancel-select-option:hover {
+  background-color: #FFF4E5;
+  color: #FFA500;
+}
+
+.om-cancel-select-option.selected {
+  background-color: #FFF4E5;
+  color: #FFA500;
+  font-weight: 600;
+}
+
+.om-cancel-select-option.selected:hover {
+  background-color: #FFA500;
+  color: #FFFFFF;
 }
 
 .om-cancel-error {

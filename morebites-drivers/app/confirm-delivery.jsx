@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   Alert,
+  Animated,
   Image,
   ScrollView,
   StyleSheet,
@@ -27,6 +28,9 @@ export default function ConfirmDeliveryScreen() {
   const currentStep = statusStep(order?.status || "Delivered");
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [showUploadBadge, setShowUploadBadge] = useState(false);
+  const badgeOpacity = useRef(new Animated.Value(0)).current;
+  const badgeTimerRef = useRef(null);
   const [rating, setRating] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -36,6 +40,27 @@ export default function ConfirmDeliveryScreen() {
 
   const isReadyToComplete = paymentConfirmed && Boolean(photo);
 
+  useEffect(() => {
+    return () => {
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
+  }, []);
+
+  const triggerUploadBadge = () => {
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    badgeOpacity.setValue(1);
+    setShowUploadBadge(true);
+    badgeTimerRef.current = setTimeout(() => {
+      Animated.timing(badgeOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setShowUploadBadge(false);
+      });
+    }, 2000);
+  };
+
   const takeOrPickPhoto = async () => {
     const selected = await pickImage({
       aspect: [4, 3],
@@ -44,6 +69,7 @@ export default function ConfirmDeliveryScreen() {
     });
     if (selected?.uri) {
       setPhoto(selected);
+      triggerUploadBadge();
     }
   };
 
@@ -171,10 +197,18 @@ export default function ConfirmDeliveryScreen() {
           onPress={takeOrPickPhoto}
         >
           {photo ? (
-            <View style={styles.photoUploadedContainer}>
+            <>
               <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-              <Text style={styles.photoUploadedText}>Photo attached · tap to change</Text>
-            </View>
+              {showUploadBadge ? (
+                <Animated.View
+                  style={[styles.photoUploadedBadge, { opacity: badgeOpacity }]}
+                  pointerEvents="none"
+                >
+                  <Text style={styles.photoUploadedText}>Photo attached</Text>
+                  <Ionicons name="checkmark" size={20} color="#22C55E" />
+                </Animated.View>
+              ) : null}
+            </>
           ) : (
             <View style={styles.photoPlaceholder}>
               <Ionicons name="camera" size={44} color="#9CA3AF" />
@@ -184,6 +218,11 @@ export default function ConfirmDeliveryScreen() {
             </View>
           )}
         </TouchableOpacity>
+        {photo ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={takeOrPickPhoto}>
+            <Text style={styles.photoTapToChangeText}>Tap to change</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Customer Rating Section */}
         <Text style={styles.sectionTitle}>Customer Rating</Text>
@@ -356,7 +395,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   paymentAmount: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 28,
     fontWeight: "800",
@@ -364,7 +403,9 @@ const styles = StyleSheet.create({
   },
   confirmPaymentBtn: {
     alignItems: "center",
-    backgroundColor: "#A7F3D0",
+    backgroundColor: "#E8F5E9",
+    borderColor: "#22C55E",
+    borderWidth: 1,
     borderRadius: 8,
     flexDirection: "row",
     gap: 4,
@@ -376,7 +417,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
   },
   confirmPaymentBtnText: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
@@ -394,14 +435,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderStyle: "dashed",
     borderWidth: 1,
-    height: 150,
+    height: 185,
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 8,
     overflow: "hidden",
+    position: "relative",
   },
   photoBoxUploaded: {
     backgroundColor: "#E8F5E9",
     borderColor: "#22C55E",
+    borderStyle: "solid",
   },
   photoPlaceholder: {
     alignItems: "center",
@@ -413,22 +456,37 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 8,
   },
-  photoUploadedContainer: {
-    alignItems: "center",
-    gap: 8,
-    width: "100%",
-  },
   photoPreview: {
-    borderRadius: 10,
-    height: 140,
+    height: "100%",
     resizeMode: "cover",
     width: "100%",
+  },
+  photoUploadedBadge: {
+    alignItems: "center",
+    backgroundColor: "#E8F5E9",
+    borderColor: "#22C55E",
+    borderRadius: 9,
+    borderWidth: 1,
+    bottom: 12,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: "absolute",
   },
   photoUploadedText: {
     color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
+  },
+  photoTapToChangeText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 12,
+    textAlign: "right",
   },
   ratingRow: {
     flexDirection: "row",

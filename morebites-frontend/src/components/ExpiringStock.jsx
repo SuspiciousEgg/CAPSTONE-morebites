@@ -378,7 +378,7 @@ export default function ExpiringStock() {
                               isOverdue
                                 ? 'This item is expired and can only be marked as Waste.'
                                 : row.linked_menus?.length
-                                ? 'Create promo'
+                                ? 'Flag for promo review'
                                 : 'No linked menu items'
                             }
                           >
@@ -480,13 +480,15 @@ export default function ExpiringStock() {
         <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">
           <div className="exp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="exp-modal-head">
-              <h2>Create Use-It-Up Promo</h2>
+              <h2>Flag Item for Promo Review</h2>
             </div>
             <div className="exp-modal-body">
               <p className="exp-modal-lead">
-                Feature a menu item that uses <strong>{promoRow.name}</strong> on the customer app with a limited-time
-                discount.
+                Flag a menu item that uses <strong>{promoRow.name}</strong> for promo consideration.
               </p>
+              <div className="exp-promo-notice">
+                This records a staff decision to discount this item — it does not yet apply automatically anywhere. Price changes must be set manually in Menu Management if you choose to discount this item.
+              </div>
               <label>
                 Menu item
                 <select value={promoMenuId} onChange={(e) => setPromoMenuId(e.target.value)}>
@@ -499,7 +501,8 @@ export default function ExpiringStock() {
                 </select>
               </label>
               <label>
-                Discount (%)
+                Target Discount (%)
+                <span className="exp-input-hint">For staff recordkeeping only; does not change prices automatically.</span>
                 <input
                   type="number"
                   min="1"
@@ -514,7 +517,7 @@ export default function ExpiringStock() {
                 Cancel
               </button>
               <button type="button" className="exp-btn-primary" onClick={savePromo} disabled={saving}>
-                {saving ? 'Saving…' : 'Activate Promo'}
+                {saving ? 'Saving…' : 'Flag for Promo'}
               </button>
             </div>
           </div>

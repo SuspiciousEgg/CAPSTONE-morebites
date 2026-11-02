@@ -199,8 +199,19 @@ export default function OrderTrackingScreen() {
               orderParam.total ||
               0,
           ),
-          riderName: tracking?.driver || "Your delivery rider",
-          riderPhoto: tracking?.driver_photo || tracking?.rider_photo || "",
+          foodImage:
+            tracking?.food_image ||
+            tracking?.items?.[0]?.image ||
+            orderParam.food_image ||
+            orderParam.items?.[0]?.image ||
+            "",
+          riderName: tracking?.driver || orderParam.driver || "Your delivery rider",
+          riderPhoto:
+            tracking?.driver_photo ||
+            tracking?.rider_photo ||
+            orderParam.driver_photo ||
+            orderParam.rider_photo ||
+            "",
         },
       });
     }
@@ -255,16 +266,6 @@ export default function OrderTrackingScreen() {
             rider={rider}
             route={route}
           >
-            {destination ? (
-              <Marker coordinate={destination} title="Delivery Location" />
-            ) : null}
-            {rider ? (
-              <Marker coordinate={rider} title="Rider">
-                <View style={styles.riderMarker}>
-                  <Ionicons name="bicycle" size={18} color="#FFFFFF" />
-                </View>
-              </Marker>
-            ) : null}
             {route.length >= 2 ? (
               <Polyline coordinates={route} strokeColor={PRIMARY} strokeWidth={4} />
             ) : destination && rider ? (
@@ -273,6 +274,39 @@ export default function OrderTrackingScreen() {
                 strokeColor={PRIMARY}
                 strokeWidth={4}
               />
+            ) : null}
+            {store || (route.length >= 2 ? route[0] : null) ? (
+              <Marker
+                coordinate={store || route[0]}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title="MoreBites Store"
+              >
+                <View style={styles.originMarker}>
+                  <Ionicons name="storefront" size={14} color="#FFFFFF" />
+                </View>
+              </Marker>
+            ) : null}
+            {destination ? (
+              <Marker
+                coordinate={destination}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title="Delivery Location"
+              >
+                <View style={styles.destMarkerOuter}>
+                  <View style={styles.destMarkerInner}>
+                    <Ionicons name="location" size={15} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
+            ) : null}
+            {rider ? (
+              <Marker coordinate={rider} anchor={{ x: 0.5, y: 0.5 }} title="Rider">
+                <View style={styles.riderMarkerOuter}>
+                  <View style={styles.riderMarkerInner}>
+                    <Ionicons name="bicycle" size={16} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
             ) : null}
           </MapView>
         ) : (
@@ -492,15 +526,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  riderMarker: {
-    width: 34,
-    height: 34,
+  originMarker: {
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#2563EB",
-    borderWidth: 2,
+    backgroundColor: "#F97000",
     borderColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 2,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  riderMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(34, 197, 94, 0.22)",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  riderMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#22C55E",
+    borderColor: "#FFFFFF",
+    borderRadius: 15,
+    borderWidth: 2,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  destMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.22)",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  destMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#EF4444",
+    borderColor: "#FFFFFF",
+    borderRadius: 15,
+    borderWidth: 2,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   content: {
     paddingHorizontal: 16,
