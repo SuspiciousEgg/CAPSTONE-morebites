@@ -12,8 +12,20 @@ export function AuthProvider({ children }) {
       clearSession()
       setUser(null)
     }
+    function onUserUpdated(e) {
+      if (e?.detail) {
+        setUser(e.detail)
+      } else {
+        const stored = getStoredUser()
+        if (stored) setUser(stored)
+      }
+    }
     window.addEventListener('mb:logout', onLogout)
-    return () => window.removeEventListener('mb:logout', onLogout)
+    window.addEventListener('mb:user-updated', onUserUpdated)
+    return () => {
+      window.removeEventListener('mb:logout', onLogout)
+      window.removeEventListener('mb:user-updated', onUserUpdated)
+    }
   }, [])
 
   useEffect(() => {

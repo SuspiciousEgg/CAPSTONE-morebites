@@ -26,7 +26,7 @@ import {
   IconUser,
   IconWarning,
 } from './Icons'
-import { accountsApi, getStoredUser } from '../api/client'
+import { accountsApi, getStoredUser, mediaUrl } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { MoreButton, RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import ArchivePage from './ArchivePage'
@@ -193,7 +193,7 @@ function PhotoUploader({ photo, onChange, disabled = false }) {
       >
         {photo ? (
           <div className="ac-avatar-preview">
-            <img src={photo} alt="Avatar Preview" className="ac-avatar-img" />
+            <img src={mediaUrl(photo)} alt="Avatar Preview" className="ac-avatar-img" />
             <div className="ac-avatar-overlay">
               <LuCamera size={18} />
               <span>Change</span>
@@ -815,7 +815,7 @@ export default function AccountManagement() {
     }
     setSaving(true)
     try {
-      await accountsApi.update(item.db_id, {
+      const res = await accountsApi.update(item.db_id, {
         first_name: item.firstName,
         last_name: item.lastName,
         email: item.email,
@@ -825,15 +825,46 @@ export default function AccountManagement() {
         birthday: item.birthday || null,
         license_number: item.license || null,
         license_expiry: item.expiry || null,
+        photo: item.photo !== undefined ? item.photo : null,
       })
       await loadAccounts()
+      const updatedUser = res.data?.data
+      if (updatedUser) {
+        setProfile((prev) => (prev ? { ...prev, item: { ...prev.item, ...updatedUser } } : null))
+      }
+      const stored = getStoredUser()
+      if (stored && (Number(stored.id) === Number(item.db_id) || String(stored.admin_id) === String(item.id))) {
+        if (updatedUser?.photo !== undefined) stored.photo = updatedUser.photo
+        if (updatedUser?.firstName) stored.first_name = updatedUser.firstName
+        if (updatedUser?.lastName) stored.last_name = updatedUser.lastName
+        if (updatedUser?.name) stored.name = updatedUser.name
+        localStorage.setItem('mb_user', JSON.stringify(stored))
+        window.dispatchEvent(new CustomEvent('mb:user-updated', { detail: stored }))
+      }
       setEditing(false)
-      setProfile(null)
     } catch (err) {
       console.error(err)
+      const msg =
+        err.response?.data?.message ||
+        Object.values(err.response?.data?.errors || {})?.[0]?.[0] ||
+        'Failed to save profile edits.'
+      alert(msg)
     } finally {
       setSaving(false)
     }
+  }
+
+  function cancelProfileEdits() {
+    if (!profile?.item?.db_id) {
+      setEditing(false)
+      return
+    }
+    const all = [...admins, ...drivers, ...cashiers]
+    const orig = all.find((u) => u.db_id === profile.item.db_id)
+    if (orig) {
+      setProfile((prev) => ({ ...prev, item: { ...orig } }))
+    }
+    setEditing(false)
   }
 
   async function saveRoleAccess() {
@@ -1245,7 +1276,29 @@ export default function AccountManagement() {
             >
               Edit Admin
             </button>
-          ) : null}
+          ) : menu.type === 'driver' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setProfile({ type: 'driver', item: menu.item })
+                setEditing(true)
+                closeMenu()
+              }}
+            >
+              Edit Driver
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setProfile({ type: 'cashier', item: menu.item })
+                setEditing(true)
+                closeMenu()
+              }}
+            >
+              Edit Cashier
+            </button>
+          )}
           {!isSelfAccount(menu.item, currentUser) ? (
             <>
               <button
@@ -1635,21 +1688,51 @@ export default function AccountManagement() {
                 <span className="ac-status-dot">Active</span>
               </div>
               <div className="ac-drawer-actions">
-                <button type="button" className="ac-modal-close-circle" disabled={saving} onClick={() => (editing ? saveProfileEdits() : setEditing(true))} aria-label="Edit">
-                  <LuPencil size={15} />
-                </button>
-                <button type="button" className="ac-modal-close-circle" onClick={() => setProfile(null)} aria-label="Close">
+                {!editing && (
+                  <button
+                    type="button"
+                    className="ac-modal-close-circle"
+                    disabled={saving}
+                    onClick={() => setEditing(true)}
+                    aria-label="Edit Profile"
+                    title="Edit Profile"
+                  >
+                    <LuPencil size={15} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ac-modal-close-circle"
+                  onClick={() => { setProfile(null); setEditing(false) }}
+                  aria-label="Close"
+                >
                   <LuX size={18} />
                 </button>
               </div>
             </div>
-            <div className="ac-drawer-photo">
-              {profile.item.photo ? (
-                <img src={profile.item.photo} alt={profile.item.firstName} className="ac-drawer-img" />
-              ) : (
-                <LuUser size={40} />
-              )}
-            </div>
+            {editing ? (
+              <div className="ac-drawer-photo-uploader">
+                <PhotoUploader
+                  photo={profile.item.photo}
+                  onChange={(photo) => updateProfileField('photo', photo)}
+                  disabled={saving}
+                />
+              </div>
+            ) : (
+              <div
+                className="ac-drawer-photo editable"
+                onClick={() => setEditing(true)}
+                title="Click to edit profile photo"
+                role="button"
+                tabIndex={0}
+              >
+                {profile.item.photo ? (
+                  <img src={mediaUrl(profile.item.photo)} alt={profile.item.firstName} className="ac-drawer-img" />
+                ) : (
+                  <LuUser size={40} />
+                )}
+              </div>
+            )}
             <dl className="ac-profile-list">
               {[
                 ['Full Name', `${profile.item.firstName} ${profile.item.lastName}`, 'name'],
@@ -1714,6 +1797,28 @@ export default function AccountManagement() {
                 </div>
               )}
             </dl>
+            {editing && (
+              <div style={{ display: 'flex', gap: 10, margin: '14px 0 20px' }}>
+                <button
+                  type="button"
+                  className="ac-btn-primary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={saveProfileEdits}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving Changes...' : 'Save Profile Changes'}
+                </button>
+                <button
+                  type="button"
+                  className="ac-btn-cancel"
+                  style={{ justifyContent: 'center' }}
+                  onClick={cancelProfileEdits}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             <div className="ac-drawer-access">
               <PageAccessEditor
                 value={profile.item.allowedPages || []}

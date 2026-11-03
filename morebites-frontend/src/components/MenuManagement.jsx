@@ -161,6 +161,10 @@ function mapIngredientRows(list) {
       row.qty_per_serving != null && row.qty_per_serving !== ''
         ? String(Number(row.qty_per_serving))
         : '1',
+    price:
+      row.price != null && row.price !== ''
+        ? String(row.price)
+        : '0',
     name: row.name || '',
     unit: row.unit || row.inventory_unit || '',
     inventory_unit: row.inventory_unit || row.unit || '',
@@ -328,7 +332,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           if (sIdx !== safeActiveSizeIndex) return size
           const nextIngs = [
             ...(size.ingredients || []),
-            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
           ]
           return { ...size, ingredients: nextIngs }
         })
@@ -339,7 +343,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...prev,
         ingredients: [
           ...prev.ingredients,
-          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
         ],
       }))
     }

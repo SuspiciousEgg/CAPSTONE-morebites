@@ -1228,6 +1228,45 @@
   font-weight: 600;
 }
 
+.menu-recipe-price-wrapper {
+  width: 82px;
+  flex: 0 0 82px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border: 1px solid #D0D0D0;
+  border-radius: 6px;
+  background-color: #FAFAFA;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.menu-recipe-price-wrapper:focus-within {
+  border-color: #FFA500;
+  background-color: #FFFFFF;
+}
+
+.menu-recipe-currency {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  user-select: none;
+}
+
+.menu-recipe-price-input {
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #1C1B18;
+  outline: none;
+  box-sizing: border-box;
+}
+
 /* Modal Footer Buttons */
 .menu-modal-footer {
   display: flex;

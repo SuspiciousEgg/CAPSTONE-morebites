@@ -81,7 +81,7 @@ class ReportController extends Controller
         })->values();
 
         $deliveryQuery = Order::query()
-            ->with(['driver', 'customer'])
+            ->with(['driver', 'customer', 'items'])
             ->where('order_type', 'Online Order')
             ->latest();
         if ($from) {
@@ -99,19 +99,63 @@ class ReportController extends Controller
 
         $delivery = $deliveryQuery
             ->get()
-            ->map(fn (Order $o) => [
-                'id' => $o->order_code,
-                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
-                'driver' => $o->driver?->name ?? 'Unassigned',
-                'rider' => $o->driver?->name ?? 'Unassigned',
-                'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
-                'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
-                'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
-                'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
-                'status' => $o->status ?: 'Preparing',
-                'type' => $o->order_type,
-                'order_type' => $o->order_type,
-            ])->values();
+            ->map(function (Order $o) {
+                $issues = $o->reportedIssues();
+                $incidentText = collect($issues)
+                    ->map(function (array $iss) {
+                        $label = trim((string) ($iss['issue'] ?? 'Delivery Issue'));
+                        $notes = trim((string) ($iss['notes'] ?? ''));
+                        if ($notes !== '') {
+                            return strtolower($label) === 'other'
+                                ? "Other: {$notes}"
+                                : "{$label} ({$notes})";
+                        }
+
+                        return $label;
+                    })
+                    ->filter()
+                    ->implode('; ');
+
+                $remarks = $incidentText !== ''
+                    ? $incidentText
+                    : 'Delivery completed successfully without any incidents.';
+
+                $deliveryDate = ($o->delivered_at ?? $o->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d');
+                $deliveryTime = $o->delivered_at
+                    ? $o->delivered_at->format('g:i A')
+                    : ($o->delivery_minutes
+                        ? $o->delivery_minutes.' mins'
+                        : ($o->created_at?->format('g:i A') ?? '--'));
+
+                $quantity = (int) ($o->items->sum('qty') ?: 1);
+                $drNumber = preg_replace('/^#ORD-/', '', (string) $o->order_code);
+                if (! $drNumber) {
+                    $drNumber = (string) $o->order_code;
+                }
+
+                return [
+                    'id' => $o->order_code,
+                    'dr_number' => $drNumber,
+                    'quantity' => $quantity,
+                    'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
+                    'address' => $o->delivery_address ?: ($o->customer?->delivery_address ?: 'N/A'),
+                    'driver' => $o->driver?->name ?? 'Unassigned',
+                    'rider' => $o->driver?->name ?? 'Unassigned',
+                    'vehicle_name' => $o->driver?->vehicle_type ?: 'Motorcycle',
+                    'plate_number' => $o->driver?->plate_no ?: 'N/A',
+                    'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                    'delivery_date' => $deliveryDate,
+                    'delivery_time' => $deliveryTime,
+                    'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
+                    'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
+                    'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
+                    'status' => $o->status ?: 'Preparing',
+                    'type' => $o->order_type,
+                    'order_type' => $o->order_type,
+                    'reported_issues' => $issues,
+                    'remarks' => $remarks,
+                ];
+            })->values();
 
         $orderRangeFilter = function ($q) use ($from, $to) {
             $q->whereIn('status', ['Completed', 'Delivered']);

@@ -360,6 +360,7 @@ export default function CheckoutScreen() {
           size: item.size || null,
           qty: item.quantity,
           unit_price: item.price,
+          removed_ingredients: item.removed_ingredients || [],
         })),
       });
 
@@ -839,6 +840,11 @@ export default function CheckoutScreen() {
                       </Text>
                       {item.size ? (
                         <Text style={styles.sheetItemSize}>Size: {item.size}</Text>
+                      ) : null}
+                      {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
+                        <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2, fontWeight: '500' }}>
+                          Without: {item.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+                        </Text>
                       ) : null}
                     </View>
                   </View>

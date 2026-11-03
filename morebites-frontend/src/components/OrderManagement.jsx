@@ -146,6 +146,7 @@ function CreateOrderModal({
   const [activeItem, setActiveItem] = useState(null)
   const [activeSizedItem, setActiveSizedItem] = useState(null)
   const [selectedSize, setSelectedSize] = useState(null)
+  const [removedIngredientIds, setRemovedIngredientIds] = useState([])
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
   const typeRef = useRef(null)
@@ -285,11 +286,16 @@ function CreateOrderModal({
     if (onClearError) onClearError()
 
     const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
-    if (hasSizes) {
+    const hasIngredients =
+      (Array.isArray(item.ingredients) && item.ingredients.length > 0) ||
+      (hasSizes && item.sizes.some((s) => Array.isArray(s.ingredients) && s.ingredients.length > 0))
+
+    if (hasSizes || hasIngredients) {
       setActiveItem(null)
       setActiveSizedItem(item)
-      const firstAvailableSize = item.sizes.find((s) => s.available !== false)
+      const firstAvailableSize = item.sizes?.find((s) => s.available !== false)
       setSelectedSize(firstAvailableSize?.name || null)
+      setRemovedIngredientIds([])
       setQty(1)
     } else {
       setActiveSizedItem(null)
@@ -297,12 +303,13 @@ function CreateOrderModal({
         setActiveItem(null)
       } else {
         setActiveItem(item.id)
+        setRemovedIngredientIds([])
         setQty(1)
       }
     }
   }
 
-  function addToCart(item, sizeName, unitPrice) {
+  function addToCart(item, sizeName, unitPrice, removedIngredients = []) {
     if (!isMenuItemAvailable(item)) return
     if (sizeName && Array.isArray(item.sizes)) {
       const sizeObj = item.sizes.find((s) => s.name === sizeName)
@@ -310,7 +317,11 @@ function CreateOrderModal({
     }
     if (onClearError) onClearError()
 
-    const lineKey = sizeName ? `${item.id}-${sizeName}` : String(item.id)
+    const removedKey = (removedIngredients || [])
+      .map((r) => r.inventory_item_id ?? r.id ?? r.name)
+      .sort()
+      .join(',')
+    const lineKey = `${item.id}-${sizeName || 'base'}-${removedKey || 'all'}`
     const displayName = sizeName ? `${item.name} (${sizeName})` : item.name
     const price = unitPrice !== undefined ? unitPrice : Number(item.price || 0)
 
@@ -331,12 +342,14 @@ function CreateOrderModal({
           size: sizeName || null,
           price,
           qty,
+          removed_ingredients: removedIngredients,
         },
       ]
     })
     setActiveItem(null)
     setActiveSizedItem(null)
     setSelectedSize(null)
+    setRemovedIngredientIds([])
     setQty(1)
   }
 
@@ -377,6 +390,7 @@ function CreateOrderModal({
           size: c.size || null,
           qty: c.qty,
           unit_price: c.price,
+          removed_ingredients: c.removed_ingredients || [],
         })),
       })
       idempotencyKeyRef.current = generateIdempotencyKey()
@@ -666,6 +680,11 @@ function CreateOrderModal({
                         <strong>
                           {line.qty}x {line.name}
                         </strong>
+                        {line.removed_ingredients?.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#D97706', marginTop: '2px', fontWeight: 500 }}>
+                            Without: {line.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+                          </div>
+                        )}
                         <span>{peso(line.price * line.qty)}.00</span>
                       </div>
                       <div className="om-cart-actions">
@@ -723,14 +742,30 @@ function CreateOrderModal({
           </section>
         </div>
 
-        {/* Floating Popover for Sized Items */}
+        {/* Floating Popover for Sized or Ingredient-Customizable Items */}
         {activeSizedItem && (() => {
-          const selectedSizeObj =
-            activeSizedItem.sizes?.find((s) => s.name === selectedSize && s.available !== false) ||
-            activeSizedItem.sizes?.find((s) => s.available !== false) ||
-            null
-          const sizeUnitPrice = selectedSizeObj ? Number(selectedSizeObj.price) : 0
-          const sizeSubtotal = sizeUnitPrice * qty
+          const hasSizes = Array.isArray(activeSizedItem.sizes) && activeSizedItem.sizes.length > 0
+          const selectedSizeObj = hasSizes
+            ? (activeSizedItem.sizes?.find((s) => s.name === selectedSize && s.available !== false) ||
+               activeSizedItem.sizes?.find((s) => s.available !== false) ||
+               null)
+            : null
+
+          const currentIngredients = (hasSizes
+            ? (selectedSizeObj?.ingredients?.length ? selectedSizeObj.ingredients : activeSizedItem.ingredients)
+            : activeSizedItem.ingredients) || []
+
+          const basePrice = hasSizes
+            ? (selectedSizeObj ? Number(selectedSizeObj.price) : 0)
+            : Number(activeSizedItem.price || 0)
+
+          const removedObjs = currentIngredients.filter((ing) =>
+            removedIngredientIds.includes(ing.inventory_item_id ?? ing.id)
+          )
+          const removedDiscount = removedObjs.reduce((sum, ing) => sum + Number(ing.price || 0), 0)
+          const finalUnitPrice = Math.max(0, basePrice - removedDiscount)
+          const sizeSubtotal = finalUnitPrice * qty
+          const isSaveDisabled = hasSizes && (!selectedSizeObj || selectedSizeObj.available === false)
 
           return (
             <div
@@ -743,7 +778,7 @@ function CreateOrderModal({
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
-                aria-label={`Select size for ${activeSizedItem.name}`}
+                aria-label={`Customize ${activeSizedItem.name}`}
               >
                 <div className="om-size-popover-header">
                   <div>
@@ -752,37 +787,100 @@ function CreateOrderModal({
                       {activeSizedItem.category?.toUpperCase()}
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    className="om-size-popover-close"
+                    onClick={() => setActiveSizedItem(null)}
+                    aria-label="Close"
+                  >
+                    <LuX size={16} />
+                  </button>
                 </div>
 
                 <div className="om-size-popover-body">
-                  <div>
-                    <label className="om-size-popover-label">Select Size</label>
-                    <div className="om-size-option-grid">
-                      {activeSizedItem.sizes?.map((s) => {
-                        const sizeAvailable = s.available !== false
-                        const isSel = sizeAvailable && selectedSizeObj?.name === s.name
-                        return (
-                          <button
-                            key={s.name}
-                            type="button"
-                            disabled={!sizeAvailable}
-                            className={`om-size-option-card${isSel ? ' selected' : ''}${!sizeAvailable ? ' unavailable' : ''}`}
-                            onClick={() => {
-                              if (sizeAvailable) setSelectedSize(s.name)
-                            }}
-                          >
-                            <span className="om-size-option-name">{s.name}</span>
-                            <span className={`om-size-option-price${!sizeAvailable ? ' unavailable' : ''}`}>
-                              {peso(s.price)}.00
-                            </span>
-                            {!sizeAvailable && (
-                              <span className="om-size-option-unavail">Unavailable</span>
-                            )}
-                          </button>
-                        )
-                      })}
+                  {hasSizes && (
+                    <div>
+                      <label className="om-size-popover-label">Select Size</label>
+                      <div className="om-size-option-grid">
+                        {activeSizedItem.sizes?.map((s) => {
+                          const sizeAvailable = s.available !== false
+                          const isSel = sizeAvailable && selectedSizeObj?.name === s.name
+                          return (
+                            <button
+                              key={s.name}
+                              type="button"
+                              disabled={!sizeAvailable}
+                              className={`om-size-option-card${isSel ? ' selected' : ''}${!sizeAvailable ? ' unavailable' : ''}`}
+                              onClick={() => {
+                                if (sizeAvailable) {
+                                  setSelectedSize(s.name)
+                                  setRemovedIngredientIds([])
+                                }
+                              }}
+                            >
+                              <span className="om-size-option-name">{s.name}</span>
+                              <span className={`om-size-option-price${!sizeAvailable ? ' unavailable' : ''}`}>
+                                {peso(s.price)}.00
+                              </span>
+                              {!sizeAvailable && (
+                                <span className="om-size-option-unavail">Unavailable</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {currentIngredients.length > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <label className="om-size-popover-label" style={{ margin: 0 }}>
+                          Ingredients
+                        </label>
+                        <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                          Tap to remove / omit from order
+                        </span>
+                      </div>
+                      <div className="om-ingredients-grid">
+                        {currentIngredients.map((ing) => {
+                          const ingKey = ing.inventory_item_id ?? ing.id
+                          const isRemoved = removedIngredientIds.includes(ingKey)
+                          const ingPrice = Number(ing.price || 0)
+
+                          return (
+                            <button
+                              key={ingKey}
+                              type="button"
+                              className={`om-ingredient-toggle-card ${isRemoved ? 'removed' : ''}`}
+                              onClick={() => {
+                                setRemovedIngredientIds((prev) =>
+                                  prev.includes(ingKey)
+                                    ? prev.filter((id) => id !== ingKey)
+                                    : [...prev, ingKey]
+                                )
+                              }}
+                              title={isRemoved ? `Restore ${ing.name}` : `Remove ${ing.name}`}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 13, color: isRemoved ? '#EF4444' : '#10B981', fontWeight: 700 }}>
+                                  {isRemoved ? '✕' : '✓'}
+                                </span>
+                                <span className="ing-name">{ing.name}</span>
+                              </div>
+                              {ingPrice > 0 ? (
+                                <span className="ing-price-tag">
+                                  {isRemoved ? `-₱${peso(ingPrice)}` : `₱${peso(ingPrice)}`}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: '#9CA3AF' }}>Included</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="om-size-popover-footer-row">
                     <div>
@@ -828,10 +926,21 @@ function CreateOrderModal({
                   <button
                     type="button"
                     className="om-btn-primary"
-                    disabled={!selectedSizeObj || selectedSizeObj.available === false}
+                    disabled={isSaveDisabled}
                     onClick={() => {
-                      if (selectedSizeObj && selectedSizeObj.available !== false) {
-                        addToCart(activeSizedItem, selectedSizeObj.name, sizeUnitPrice)
+                      if (!isSaveDisabled) {
+                        const removedPayload = removedObjs.map((ing) => ({
+                          id: ing.id,
+                          inventory_item_id: ing.inventory_item_id,
+                          name: ing.name,
+                          price: Number(ing.price || 0),
+                        }))
+                        addToCart(
+                          activeSizedItem,
+                          hasSizes ? selectedSizeObj?.name : null,
+                          finalUnitPrice,
+                          removedPayload
+                        )
                       }
                     }}
                   >

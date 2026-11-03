@@ -48,7 +48,7 @@ class CustomerOtpPasswordResetTest extends TestCase
 
         $res->assertStatus(200);
         $res->assertJsonFragment([
-            'message' => 'If this phone number is registered, a 6-digit verification code has been sent.',
+            'message' => 'If an account exists with this phone number, we’ve sent a verification code.',
         ]);
 
         $otpRecord = PasswordResetOtp::query()->where('phone', '09171234567')->first();
@@ -130,7 +130,7 @@ class CustomerOtpPasswordResetTest extends TestCase
 
         $res->assertStatus(200);
         $res->assertJsonFragment([
-            'message' => 'If this email address is registered, a 6-digit verification code has been sent.',
+            'message' => 'If an account exists with this email, we’ve sent a verification code.',
             'delivery_channel' => 'email',
         ]);
 
@@ -155,6 +155,39 @@ class CustomerOtpPasswordResetTest extends TestCase
 
         $verifyRes->assertStatus(200);
         $this->assertNotEmpty($verifyRes->json('reset_token'));
+    }
+
+    public function test_non_existent_email_prevents_enumeration(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        // 1. Request OTP for unregistered email
+        $res = $this->postJson('/api/customer/forgot-password', [
+            'identifier' => 'unknown.ghost@example.com',
+        ]);
+
+        $res->assertStatus(200);
+        $res->assertJsonFragment([
+            'message' => 'If an account exists with this email, we’ve sent a verification code.',
+            'delivery_channel' => 'email',
+            'email' => 'unknown.ghost@example.com',
+            'phone' => null,
+        ]);
+
+        // Email was not sent because the user does not exist
+        \Illuminate\Support\Facades\Mail::assertNothingSent();
+
+        // 2. Verify OTP with any code fails with generic incorrect code error
+        $badVerify = $this->postJson('/api/customer/verify-otp', [
+            'identifier' => 'unknown.ghost@example.com',
+            'code' => '123456',
+        ]);
+        $badVerify->assertStatus(422);
+        $badVerify->assertJsonValidationErrors(['code']);
+        $this->assertEquals(
+            'Incorrect OTP. Please try again.',
+            $badVerify->json('errors.code.0')
+        );
     }
 }
 

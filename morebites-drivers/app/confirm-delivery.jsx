@@ -5,6 +5,8 @@ import {
   Alert,
   Animated,
   Image,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -33,6 +35,16 @@ export default function ConfirmDeliveryScreen() {
   const badgeTimerRef = useRef(null);
   const [rating, setRating] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  const incidentAcknowledgedParam = params.incidentAcknowledged === "1";
+  const [ackModalVisible, setAckModalVisible] = useState(false);
+  const [hasAcknowledged, setHasAcknowledged] = useState(incidentAcknowledgedParam);
+
+  const reportedList = Array.isArray(order?.reported_issues) ? order.reported_issues : [];
+  const hasIncident =
+    Boolean(order?.has_reported_issue) ||
+    reportedList.length > 0 ||
+    params.hasIncident === "1";
 
   useEffect(() => {
     reload();
@@ -73,7 +85,7 @@ export default function ConfirmDeliveryScreen() {
     }
   };
 
-  const confirmAndComplete = async () => {
+  const executeCompleteDelivery = async () => {
     if (!isReadyToComplete || !dbId || saving) return;
     setSaving(true);
     try {
@@ -95,6 +107,21 @@ export default function ConfirmDeliveryScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const confirmAndComplete = () => {
+    if (!isReadyToComplete || !dbId || saving) return;
+    if (hasIncident && !hasAcknowledged) {
+      setAckModalVisible(true);
+      return;
+    }
+    executeCompleteDelivery();
+  };
+
+  const handleConfirmAck = () => {
+    setHasAcknowledged(true);
+    setAckModalVisible(false);
+    executeCompleteDelivery();
   };
 
   return (
@@ -269,6 +296,60 @@ export default function ConfirmDeliveryScreen() {
           </Text>
         ) : null}
       </View>
+
+      {/* Soft Acknowledgment Modal Before Completing Delivery After Incident (Prompt 123) */}
+      <Modal
+        visible={ackModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAckModalVisible(false)}
+      >
+        <Pressable
+          style={styles.ackModalBackdrop}
+          onPress={() => setAckModalVisible(false)}
+        >
+          <Pressable style={styles.ackModalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.ackIconWrap}>
+              <Ionicons name="warning-outline" size={32} color="#D97706" />
+            </View>
+            <Text style={styles.ackModalTitle}>Issue Reported</Text>
+            <Text style={styles.ackModalBody}>
+              An issue was reported for this order. Confirm you’d like to complete delivery anyway.
+            </Text>
+
+            {reportedList.length > 0 ? (
+              <View style={styles.ackIncidentSummary}>
+                <Text style={styles.ackIncidentLabel}>Reported Incident:</Text>
+                <Text style={styles.ackIncidentText}>
+                  {reportedList[0]?.issue || "Delivery issue reported during transit"}
+                  {reportedList[0]?.notes ? ` — "${reportedList[0].notes}"` : ""}
+                </Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.ackNoticeSubtext}>
+              This will not block delivery. Management will review the reported incident afterward.
+            </Text>
+
+            <View style={styles.ackActionsRow}>
+              <TouchableOpacity
+                style={styles.ackCancelButton}
+                activeOpacity={0.7}
+                onPress={() => setAckModalVisible(false)}
+              >
+                <Text style={styles.ackCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.ackConfirmButton}
+                activeOpacity={0.85}
+                onPress={handleConfirmAck}
+              >
+                <Text style={styles.ackConfirmButtonText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -530,5 +611,116 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 8,
     textAlign: "center",
+  },
+  ackModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  ackModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 22,
+    width: "100%",
+    maxWidth: 380,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  ackIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  ackModalTitle: {
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  ackModalBody: {
+    fontFamily: FONT,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 14,
+  },
+  ackIncidentSummary: {
+    width: "100%",
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  ackIncidentLabel: {
+    fontFamily: FONT,
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#B45309",
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  ackIncidentText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  ackNoticeSubtext: {
+    fontFamily: FONT,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#64748B",
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  ackActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  ackCancelButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackCancelButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  ackConfirmButton: {
+    flex: 1.3,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F97000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackConfirmButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

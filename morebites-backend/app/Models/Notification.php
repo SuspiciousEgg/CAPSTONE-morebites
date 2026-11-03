@@ -354,11 +354,7 @@ class Notification extends Model
             ->latest('id')
             ->first();
 
-        if ($existing) {
-            return $existing;
-        }
-
-        return self::create([
+        $adminNotification = $existing ?: self::create([
             'user_id' => null,
             'title' => $title,
             'message' => $message,
@@ -375,6 +371,31 @@ class Notification extends Model
                 'notes' => $notes,
             ],
         ]);
+
+        // Notify the customer with a short, non-alarming update (without exposing internal rider reason/notes)
+        $customerUserId = $order->customer?->user_id;
+        if (! $customerUserId && $order->customer_id) {
+            $customerUserId = Customer::query()->where('id', $order->customer_id)->value('user_id');
+        }
+
+        if ($customerUserId && ! $existing) {
+            self::create([
+                'user_id' => $customerUserId,
+                'title' => "Delivery update for Order {$code}",
+                'message' => "There’s a delivery update for your order {$code} — our team is looking into it.",
+                'type' => 'customer_order_status',
+                'tab' => 'Orders',
+                'nav' => 'Orders',
+                'is_read' => false,
+                'data' => [
+                    'order_id' => $order->id,
+                    'order_code' => $code,
+                    'status' => $order->status,
+                ],
+            ]);
+        }
+
+        return $adminNotification;
     }
 
     public static function createMenuUnavailableNotification(MenuItem $item, string $ingredientName, ?string $reason = null): self

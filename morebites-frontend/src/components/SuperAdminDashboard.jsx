@@ -63,7 +63,7 @@ import AccountManagement from './AccountManagement'
 import DeliveryRatesSettings from './DeliveryRatesSettings'
 import DriverManagement from './DriverManagement'
 import EmptyState from './EmptyState'
-import { dashboardApi, notificationsApi } from '../api/client'
+import { dashboardApi, mediaUrl, notificationsApi } from '../api/client'
 import './SuperAdminDashboard.css'
 
 const PERIODS = ['Daily', 'Weekly', 'Monthly', 'Yearly']
@@ -430,6 +430,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
    *      `Echo.private('admin-notifications').listen('NotificationCreated', (e) => { ... })`.
    */
   const [unreadCount, setUnreadCount] = useState(0)
+  const [dispatchFocusOrder, setDispatchFocusOrder] = useState(null)
 
   // Load per-user notifications and unread count from backend
   const loadNotifications = useCallback(async () => {
@@ -502,6 +503,14 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       }
     }
     if (n.nav) {
+      if (n.nav === 'Dispatch' && (n.data?.order_id || n.data?.order_code)) {
+        setDispatchFocusOrder({
+          orderId: n.data?.order_id ?? null,
+          orderCode: n.data?.order_code ?? null,
+          openDetails: true,
+          ts: Date.now(),
+        })
+      }
       setActiveNav(n.nav)
       setNotifOpen(false)
       setShowAllNotifsModal(false)
@@ -717,7 +726,17 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         <div className="sa-sidebar-footer">
           <div className="sa-sidebar-divider" />
           <div className="sa-profile">
-            <div className="sa-avatar">{initials}</div>
+            <div className="sa-avatar">
+              {user?.photo ? (
+                <img
+                  src={mediaUrl(user.photo)}
+                  alt={displayName}
+                  className="sa-avatar-img"
+                />
+              ) : (
+                <span>{initials}</span>
+              )}
+            </div>
             <div className="sa-profile-text">
               <div className="sa-profile-name" title={displayName}>{displayName}</div>
               <div className="sa-profile-role" title={displayRole}>{displayRole}</div>
@@ -999,7 +1018,10 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         ) : activeNav === 'Inventory' && visibleNavItems.some((i) => i.label === 'Inventory') ? (
           <InventoryPage />
         ) : activeNav === 'Dispatch' && visibleNavItems.some((i) => i.label === 'Dispatch') ? (
-          <DispatchManagement />
+          <DispatchManagement
+            focusOrder={dispatchFocusOrder}
+            onFocusOrderHandled={() => setDispatchFocusOrder(null)}
+          />
         ) : activeNav === 'Reports' && visibleNavItems.some((i) => i.label === 'Reports') ? (
           <RecordsReports user={user} />
         ) : activeNav === 'Driver' && visibleNavItems.some((i) => i.label === 'Driver') ? (

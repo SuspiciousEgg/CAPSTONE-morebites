@@ -162,6 +162,12 @@ function buildReceiptPdfBlob(receiptData) {
     }),
     "------------------------------------------------------------",
     `Subtotal: PHP ${Number(receiptData.subtotal).toLocaleString()}`,
+    ...(receiptData.pointsUsed > 0
+      ? [`Points Discount (${receiptData.pointsUsed} pts): -PHP ${Number(receiptData.pointsDiscount).toLocaleString()}`]
+      : []),
+    ...(receiptData.lateDiscount > 0
+      ? [`Late Delivery Discount (${receiptData.lateDiscountPercent}%): -PHP ${Number(receiptData.lateDiscount).toLocaleString()}`]
+      : []),
     `Delivery Fee: PHP ${Number(receiptData.deliveryFee).toLocaleString()}`,
     `Service Fee: PHP ${Number(receiptData.serviceFee).toLocaleString()}`,
     `TOTAL AMOUNT PAID: PHP ${Number(receiptData.total).toLocaleString()}`,
@@ -298,6 +304,11 @@ function buildReceiptHtml(receiptData) {
               <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600;">Points Discount (${receiptData.pointsUsed} pts)</td>
               <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600; text-align: right;">-&#8369;${Number(receiptData.pointsDiscount).toLocaleString()}</td>
             </tr>` : ""}
+            ${receiptData.lateDiscount > 0 ? `
+            <tr>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600;">Late Delivery Discount (${receiptData.lateDiscountPercent}%${receiptData.lateMinutes > 0 ? ` &middot; ${receiptData.lateMinutes}m late` : ""})</td>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600; text-align: right;">-&#8369;${Number(receiptData.lateDiscount).toLocaleString()}</td>
+            </tr>` : ""}
             <tr>
               <td style="padding: 5px 0; color: #6B7280; font-size: 13px;">Delivery Fee</td>
               <td style="padding: 5px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">&#8369;${Number(receiptData.deliveryFee).toLocaleString()}</td>
@@ -393,8 +404,18 @@ export default function ReceiptScreen() {
     (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
     0
   );
+  // Points credited and redeemed for this order from backend loyalty ledger
+  const pointsEarned = Number(orderData?.points_earned ?? 0);
+  const pointsUsed = Number(orderData?.points_used ?? 0);
+  const pointsDiscount = Number(orderData?.points_discount ?? 0);
+  const lateMinutes = Number(orderData?.late_minutes ?? 0);
+  const lateDiscountPercent = Number(orderData?.late_discount_percent ?? 0);
+  const lateDiscount = Number(orderData?.late_discount ?? 0);
+
   const subtotal =
-    itemsSubtotal > 0 ? itemsSubtotal : Math.max(total - deliveryFee - serviceFee, 0);
+    itemsSubtotal > 0
+      ? itemsSubtotal
+      : Math.max(total + pointsDiscount + lateDiscount - deliveryFee - serviceFee, 0);
 
   const orderPlacedLabel = formatDateTimeLabel(
     orderData?.ordered_at || orderData?.date || orderData?.created_at,
@@ -418,11 +439,6 @@ export default function ReceiptScreen() {
     [orderData?.street, orderData?.barangay, orderData?.city].filter(Boolean).join(", ") ||
     "Delivery address unavailable";
 
-  // Points credited and redeemed for this order from backend loyalty ledger
-  const pointsEarned = Number(orderData?.points_earned ?? 0);
-  const pointsUsed = Number(orderData?.points_used ?? 0);
-  const pointsDiscount = Number(orderData?.points_discount ?? 0);
-
   const shareReceipt = async () => {
     if (sharing) return;
     setSharing(true);
@@ -438,6 +454,9 @@ export default function ReceiptScreen() {
       pointsEarned,
       pointsUsed,
       pointsDiscount,
+      lateMinutes,
+      lateDiscountPercent,
+      lateDiscount,
       items,
       subtotal,
       deliveryFee,
@@ -464,6 +483,7 @@ export default function ReceiptScreen() {
       ),
       `Subtotal: ₱${subtotal.toLocaleString()}`,
       ...(pointsUsed > 0 ? [`Points Discount: -₱${pointsDiscount.toLocaleString()}`] : []),
+      ...(lateDiscount > 0 ? [`Late Delivery Discount (${lateDiscountPercent}%): -₱${lateDiscount.toLocaleString()}`] : []),
       `Delivery Fee: ₱${deliveryFee.toLocaleString()}`,
       `Service Fee: ₱${serviceFee.toLocaleString()}`,
       `Total Amount Paid: ₱${total.toLocaleString()}`,
@@ -642,6 +662,16 @@ export default function ReceiptScreen() {
                 </Text>
                 <Text style={[styles.summaryValue, { color: "#16A34A" }]}>
                   -₱{Number(pointsDiscount || 0).toLocaleString()}
+                </Text>
+              </View>
+            ) : null}
+            {lateDiscount > 0 ? (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: "#16A34A" }]}>
+                  Late Delivery Discount ({lateDiscountPercent}%{lateMinutes > 0 ? ` · ${lateMinutes}m late` : ""})
+                </Text>
+                <Text style={[styles.summaryValue, { color: "#16A34A" }]}>
+                  -₱{Number(lateDiscount || 0).toLocaleString()}
                 </Text>
               </View>
             ) : null}

@@ -150,6 +150,7 @@ class OrderController extends Controller
             'items.*.name' => ['required', 'string'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.size' => ['nullable', 'string'],
+            'items.*.removed_ingredients' => ['nullable', 'array'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'delivery_address' => ['nullable', 'string'],
@@ -216,6 +217,7 @@ class OrderController extends Controller
                         'menu_item_id' => $item['menu_item_id'] ?? null,
                         'name' => $name,
                         'size' => $item['size'] ?? null,
+                        'removed_ingredients' => $item['removed_ingredients'] ?? null,
                         'qty' => $item['qty'],
                         'unit_price' => $item['unit_price'],
                         'line_total' => $item['qty'] * $item['unit_price'],
@@ -282,7 +284,9 @@ class OrderController extends Controller
 
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
             if ($order->order_type === 'Online Order') {
-                $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+                $deliveredAt = $order->delivered_at ?? now();
+                $updatePayload['delivered_at'] = $deliveredAt;
+                $updatePayload = array_merge($updatePayload, $order->calculateLateDeliveryPayload($deliveredAt));
             }
             $updatePayload['payment_status'] = 'Paid';
         }
@@ -315,7 +319,7 @@ class OrderController extends Controller
         $service->syncMenuAvailability();
 
         $items = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->orderBy('name')
             ->get()
@@ -331,8 +335,26 @@ class OrderController extends Controller
                         'price' => (float) $s->price,
                         'available' => (bool) $m->available && $sizeReason === null,
                         'stockReason' => $sizeReason,
+                        'ingredients' => $s->ingredients->map(fn ($ing) => [
+                            'id' => $ing->id,
+                            'inventory_item_id' => $ing->inventory_item_id,
+                            'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                            'qty_per_serving' => (float) $ing->qty_per_serving,
+                            'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                            'price' => (float) ($ing->price ?? 0),
+                        ])->values(),
                     ];
                 })->values();
+
+                $ingredients = $m->ingredients->map(fn ($ing) => [
+                    'id' => $ing->id,
+                    'menu_item_size_id' => $ing->menu_item_size_id,
+                    'inventory_item_id' => $ing->inventory_item_id,
+                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                    'qty_per_serving' => (float) $ing->qty_per_serving,
+                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                    'price' => (float) ($ing->price ?? 0),
+                ])->values();
 
                 $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
                 $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
@@ -359,6 +381,7 @@ class OrderController extends Controller
                     'stockReason' => $stockReason,
                     'has_sizes' => (bool) $m->has_sizes,
                     'sizes' => $sizes,
+                    'ingredients' => $ingredients,
                 ];
             })
             ->values();
@@ -393,6 +416,12 @@ class OrderController extends Controller
             'action' => $action,
             'address' => $o->delivery_address,
             'loyalty_customer_id' => $o->loyalty_customer_id,
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $o->delivery_minutes ?: 0),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
             'created_at' => $o->created_at?->toIso8601String(),
             'reported_issues' => $o->reportedIssues(),
         ];

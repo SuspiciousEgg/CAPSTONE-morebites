@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -20,10 +20,13 @@ const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
 const RECENT_SEARCHES_KEY = "recent_searches";
 
-function FoodCard({ item, compact = false }) {
+function FoodCard({ item, compact = false, onSelect }) {
   const isAvailable = item.availability !== false && item.available !== false;
-  const openDetails = () => {
+  const openDetails = async () => {
     if (!isAvailable) return;
+    if (onSelect) {
+      await onSelect(item);
+    }
     router.push({ pathname: "/(customer)/food-details", params: { item: JSON.stringify(item) } });
   };
 
@@ -122,6 +125,50 @@ export default function SearchScreen() {
     return Array.from(new Set((menuItems || []).map((i) => i.name?.trim()).filter(Boolean))).slice(0, 5);
   }, [topSellingItems, menuItems]);
 
+  const searchTextRef = useRef("");
+  const recentSearchesRef = useRef([]);
+
+  useEffect(() => {
+    searchTextRef.current = searchText;
+  }, [searchText]);
+
+  useEffect(() => {
+    recentSearchesRef.current = recentSearches;
+  }, [recentSearches]);
+
+  const loadRecentSearches = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+      const searches = stored ? JSON.parse(stored) : [];
+      const valid = Array.isArray(searches) ? searches.slice(0, 5) : [];
+      recentSearchesRef.current = valid;
+      setRecentSearches(valid);
+    } catch {
+      // ignore storage read error
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRecentSearches();
+      return () => {
+        // If user navigates away (hardware back, gesture, etc.) with an active search term, save it
+        const pending = searchTextRef.current.trim();
+        if (pending) {
+          AsyncStorage.getItem(RECENT_SEARCHES_KEY)
+            .then((stored) => {
+              const existing = stored ? JSON.parse(stored) : recentSearchesRef.current;
+              const list = Array.isArray(existing) ? existing : [];
+              const withoutDup = list.filter((i) => String(i).toLowerCase() !== pending.toLowerCase());
+              const next = [pending, ...withoutDup].slice(0, 5);
+              return AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+            })
+            .catch(() => {});
+        }
+      };
+    }, [loadRecentSearches])
+  );
+
   useEffect(() => {
     const load = async () => {
       setLoadingMenu(true);
@@ -133,7 +180,9 @@ export default function SearchScreen() {
           customerApi.topSelling().catch(() => ({ data: [] })),
         ]);
         const searches = stored ? JSON.parse(stored) : [];
-        setRecentSearches(Array.isArray(searches) ? searches.slice(0, 5) : []);
+        const valid = Array.isArray(searches) ? searches.slice(0, 5) : [];
+        recentSearchesRef.current = valid;
+        setRecentSearches(valid);
         const items = res.data || [];
         setMenuItems(items);
         setPastOrders(ordersRes?.data || []);
@@ -213,29 +262,59 @@ export default function SearchScreen() {
     return fallbackTop.slice(0, 8);
   }, [menuItems, cartItems, pastOrders, topSellingItems]);
 
-  const runSearch = (term) => {
-    setSearchText(term);
-  };
-
-  const saveRecentSearch = async () => {
-    const term = searchText.trim();
+  const saveRecentSearch = useCallback(async (overrideTerm) => {
+    const raw = typeof overrideTerm === "string" ? overrideTerm : searchTextRef.current;
+    const term = String(raw || "").trim();
     if (!term) return;
 
-    const withoutDuplicate = recentSearches.filter(
-      (item) => item.toLowerCase() !== term.toLowerCase(),
-    );
-    const nextSearches = [term, ...withoutDuplicate].slice(0, 5);
-    setRecentSearches(nextSearches);
-    await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(nextSearches));
+    try {
+      const stored = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+      const parsed = stored ? JSON.parse(stored) : recentSearchesRef.current;
+      const baseList = Array.isArray(parsed) ? parsed : recentSearchesRef.current;
+      const withoutDuplicate = baseList.filter(
+        (item) => String(item).toLowerCase() !== term.toLowerCase(),
+      );
+      const nextSearches = [term, ...withoutDuplicate].slice(0, 5);
+      recentSearchesRef.current = nextSearches;
+      setRecentSearches(nextSearches);
+      await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(nextSearches));
+    } catch {
+      // fallback to in-memory state if AsyncStorage fails
+    }
+  }, []);
+
+  const runSearch = (term, shouldSave = false) => {
+    searchTextRef.current = term;
+    setSearchText(term);
+    if (shouldSave && String(term || "").trim()) {
+      saveRecentSearch(term);
+    }
+  };
+
+  const handleExitSearch = async () => {
+    if (searchTextRef.current.trim()) {
+      await saveRecentSearch(searchTextRef.current);
+    }
+    router.back();
+  };
+
+  const handleClearInput = async () => {
+    if (searchTextRef.current.trim()) {
+      await saveRecentSearch(searchTextRef.current);
+    }
+    searchTextRef.current = "";
+    setSearchText("");
   };
 
   const removeRecentSearch = async (term) => {
-    const nextSearches = recentSearches.filter((item) => item !== term);
+    const nextSearches = recentSearchesRef.current.filter((item) => item !== term);
+    recentSearchesRef.current = nextSearches;
     setRecentSearches(nextSearches);
     await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(nextSearches));
   };
 
   const clearRecentSearches = async () => {
+    recentSearchesRef.current = [];
     setRecentSearches([]);
     await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
   };
@@ -243,7 +322,7 @@ export default function SearchScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={handleExitSearch} hitSlop={8}>
           <Ionicons name="chevron-back" size={26} color={PRIMARY} />
         </Pressable>
         <View style={[styles.searchWrap, focused && styles.focusedSearchWrap]}>
@@ -251,22 +330,30 @@ export default function SearchScreen() {
           <TextInput
             style={styles.searchInput}
             value={searchText}
-            onChangeText={runSearch}
+            onChangeText={(text) => runSearch(text, false)}
             onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onSubmitEditing={saveRecentSearch}
+            onBlur={() => {
+              setFocused(false);
+              if (searchTextRef.current.trim()) {
+                saveRecentSearch(searchTextRef.current);
+              }
+            }}
+            onSubmitEditing={(e) => {
+              const submitted = e?.nativeEvent?.text ?? searchTextRef.current;
+              saveRecentSearch(submitted);
+            }}
             placeholder="Search menu..."
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
             autoFocus
           />
           {searchText.length > 0 ? (
-            <Pressable onPress={() => setSearchText("")} hitSlop={8}>
+            <Pressable onPress={handleClearInput} hitSlop={8}>
               <Ionicons name="close-circle" size={18} color="#9CA3AF" />
             </Pressable>
           ) : null}
         </View>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={handleExitSearch} hitSlop={8}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
       </View>
@@ -279,7 +366,13 @@ export default function SearchScreen() {
         {isSearching ? (
           searchResults.length ? (
             <View style={styles.resultsGrid}>
-              {searchResults.map((item) => <FoodCard key={item.id} item={item} />)}
+              {searchResults.map((item) => (
+                <FoodCard
+                  key={item.id}
+                  item={item}
+                  onSelect={() => saveRecentSearch(searchTextRef.current)}
+                />
+              ))}
             </View>
           ) : (
             <View style={styles.emptyState}>
@@ -300,7 +393,7 @@ export default function SearchScreen() {
             </View>
 
             {recentSearches.length ? recentSearches.map((term) => (
-              <Pressable key={term} style={styles.searchRow} onPress={() => runSearch(term)}>
+              <Pressable key={term} style={styles.searchRow} onPress={() => runSearch(term, true)}>
                 <Ionicons name="time-outline" size={20} color="#9CA3AF" />
                 <Text style={styles.searchTerm}>{term}</Text>
                 <Pressable
@@ -320,7 +413,7 @@ export default function SearchScreen() {
               <ActivityIndicator color={PRIMARY} style={{ marginVertical: 8 }} />
             ) : popularSearches.length ? (
               popularSearches.map((term) => (
-                <Pressable key={term} style={styles.searchRow} onPress={() => runSearch(term)}>
+                <Pressable key={term} style={styles.searchRow} onPress={() => runSearch(term, true)}>
                   <Ionicons name="flame-outline" size={20} color={PRIMARY} />
                   <Text style={styles.searchTerm}>{term}</Text>
                 </Pressable>
