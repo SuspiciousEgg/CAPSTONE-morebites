@@ -89,6 +89,7 @@ export default function ForgotPasswordScreen() {
           email: res?.email || cleanEmail,
           channel: "email",
           cooldown: String(cooldown),
+          message: res?.message || "If an account exists with this email, we’ve sent a verification code.",
         },
       });
     } catch (err) {

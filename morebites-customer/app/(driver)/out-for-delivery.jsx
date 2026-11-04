@@ -6,12 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -42,6 +44,11 @@ function regionFromPoints(points) {
 export default function OutForDeliveryScreen() {
   const [issueModalVisible, setIssueModalVisible] = useState(false);
   const [reportingIssue, setReportingIssue] = useState(false);
+  const [otherSelected, setOtherSelected] = useState(false);
+  const [otherIssueNotes, setOtherIssueNotes] = useState("");
+  const [localIncidentReported, setLocalIncidentReported] = useState(false);
+  const [ackModalVisible, setAckModalVisible] = useState(false);
+  const [incidentAcknowledged, setIncidentAcknowledged] = useState(false);
   const params = useLocalSearchParams();
   const orderId = Array.isArray(params.id) ? params.id[0] : params.id || "";
   const dbId = Array.isArray(params.dbId) ? params.dbId[0] : params.dbId;
@@ -250,11 +257,22 @@ export default function OutForDeliveryScreen() {
     Linking.openURL(`tel:${phone}`);
   };
 
-  const submitIssue = async (issue) => {
+  const closeIssueModal = () => {
+    setIssueModalVisible(false);
+    setOtherSelected(false);
+    setOtherIssueNotes("");
+  };
+
+  const submitIssue = async (issue, notes = "") => {
     if (!dbId || reportingIssue) return;
     setReportingIssue(true);
     try {
-      await driverApi.reportIssue(dbId, issue);
+      await driverApi.reportIssue(dbId, issue, notes);
+      setLocalIncidentReported(true);
+      setIncidentAcknowledged(false);
+      reload();
+      setOtherSelected(false);
+      setOtherIssueNotes("");
       Alert.alert("Reported", `${issue} was sent to the admin.`);
     } catch (err) {
       Alert.alert("Report failed", err.message || "Could not report issue.");
@@ -263,19 +281,53 @@ export default function OutForDeliveryScreen() {
     }
   };
 
+  const handleSubmitOtherIssue = () => {
+    const trimmed = otherIssueNotes.trim();
+    if (!trimmed) {
+      Alert.alert("Describe Issue", "Please describe the situation in your own words before submitting.");
+      return;
+    }
+    setIssueModalVisible(false);
+    submitIssue("Other", trimmed);
+  };
+
   const reportIssue = () => {
+    setOtherSelected(false);
+    setOtherIssueNotes("");
     setIssueModalVisible(true);
   };
 
-  const completeDelivery = () => {
+  const reportedList = Array.isArray(order?.reported_issues) ? order.reported_issues : [];
+  const hasIncident =
+    localIncidentReported ||
+    Boolean(order?.has_reported_issue) ||
+    reportedList.length > 0;
+
+  const navigateToConfirmDelivery = () => {
     isCompletedRef.current = true;
     router.push({
       pathname: "/(driver)/confirm-delivery",
       params: {
         id: String(order?.id || orderId),
         dbId: String(dbId),
+        hasIncident: hasIncident ? "1" : "0",
+        incidentAcknowledged: hasIncident ? "1" : "0",
       },
     });
+  };
+
+  const completeDelivery = () => {
+    if (hasIncident && !incidentAcknowledged) {
+      setAckModalVisible(true);
+      return;
+    }
+    navigateToConfirmDelivery();
+  };
+
+  const handleConfirmAck = () => {
+    setIncidentAcknowledged(true);
+    setAckModalVisible(false);
+    navigateToConfirmDelivery();
   };
 
   return (
@@ -471,50 +523,160 @@ export default function OutForDeliveryScreen() {
         visible={issueModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setIssueModalVisible(false)}
+        onRequestClose={closeIssueModal}
       >
-        <Pressable
-          style={styles.issueModalBackdrop}
-          onPress={() => setIssueModalVisible(false)}
+        <KeyboardAvoidingView
+          style={styles.issueModalKeyboardWrap}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <Pressable style={styles.issueModalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.issueModalTitle}>Report Issue</Text>
-            <Text style={styles.issueModalSubtitle}>
-              Select the issue encountered for Order {String(order?.id || orderId || '').startsWith('#') ? (order?.id || orderId) : `#${order?.id || orderId}`}.
-            </Text>
+          <Pressable
+            style={styles.issueModalBackdrop}
+            onPress={closeIssueModal}
+          >
+            <Pressable style={styles.issueModalCard} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.issueModalTitle}>Report Issue</Text>
+              <Text style={styles.issueModalSubtitle}>
+                Select the issue encountered for Order {String(order?.id || orderId || '').startsWith('#') ? (order?.id || orderId) : `#${order?.id || orderId}`}.
+              </Text>
 
-            <View style={styles.issueOptionsList}>
-              {[
-                "Customer Unreachable",
-                "Wrong Address",
-                "Vehicle Breakdown / Flat Tire",
-                "Road Blockage / Severe Weather",
-                "Accident / Emergency",
-                "Other delivery issue",
-              ].map((issueText) => (
+              <View style={styles.issueOptionsList}>
+                {[
+                  "Customer Unreachable",
+                  "Wrong Address",
+                  "Vehicle Breakdown / Flat Tire",
+                  "Road Blockage / Severe Weather",
+                  "Accident / Emergency",
+                ].map((issueText) => (
+                  <TouchableOpacity
+                    key={issueText}
+                    style={styles.issueOptionButton}
+                    activeOpacity={0.7}
+                    disabled={reportingIssue}
+                    onPress={() => {
+                      closeIssueModal();
+                      submitIssue(issueText);
+                    }}
+                  >
+                    <Text style={styles.issueOptionText}>{issueText}</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  </TouchableOpacity>
+                ))}
+
                 <TouchableOpacity
-                  key={issueText}
-                  style={styles.issueOptionButton}
+                  style={[
+                    styles.issueOptionButton,
+                    otherSelected && styles.issueOptionButtonActive,
+                  ]}
                   activeOpacity={0.7}
                   disabled={reportingIssue}
-                  onPress={() => {
-                    setIssueModalVisible(false);
-                    submitIssue(issueText);
-                  }}
+                  onPress={() => setOtherSelected((prev) => !prev)}
                 >
-                  <Text style={styles.issueOptionText}>{issueText}</Text>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  <Text
+                    style={[
+                      styles.issueOptionText,
+                      otherSelected && styles.issueOptionTextActive,
+                    ]}
+                  >
+                    Other
+                  </Text>
+                  <Ionicons
+                    name={otherSelected ? "chevron-down" : "chevron-forward"}
+                    size={16}
+                    color={otherSelected ? "#F97000" : "#9CA3AF"}
+                  />
                 </TouchableOpacity>
-              ))}
-            </View>
 
-            <TouchableOpacity
-              style={styles.issueCancelButton}
-              activeOpacity={0.7}
-              onPress={() => setIssueModalVisible(false)}
-            >
-              <Text style={styles.issueCancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
+                {otherSelected ? (
+                  <View style={styles.otherIssueWrap}>
+                    <TextInput
+                      style={styles.otherIssueInput}
+                      placeholder="Describe the situation in your own words..."
+                      placeholderTextColor="#9CA3AF"
+                      multiline
+                      maxLength={1000}
+                      value={otherIssueNotes}
+                      onChangeText={setOtherIssueNotes}
+                      textAlignVertical="top"
+                      autoFocus
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.otherIssueSubmitButton,
+                        (!otherIssueNotes.trim() || reportingIssue) && styles.otherIssueSubmitButtonDisabled,
+                      ]}
+                      activeOpacity={0.85}
+                      disabled={!otherIssueNotes.trim() || reportingIssue}
+                      onPress={handleSubmitOtherIssue}
+                    >
+                      <Text style={styles.otherIssueSubmitButtonText}>
+                        {reportingIssue ? "Submitting..." : "Submit Issue"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+
+              <TouchableOpacity
+                style={styles.issueCancelButton}
+                activeOpacity={0.7}
+                onPress={closeIssueModal}
+              >
+                <Text style={styles.issueCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+      {/* Soft Acknowledgment Modal Before Completing Delivery After Incident (Prompt 123) */}
+      <Modal
+        visible={ackModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAckModalVisible(false)}
+      >
+        <Pressable
+          style={styles.ackModalBackdrop}
+          onPress={() => setAckModalVisible(false)}
+        >
+          <Pressable style={styles.ackModalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.ackIconWrap}>
+              <Ionicons name="warning-outline" size={32} color="#D97706" />
+            </View>
+            <Text style={styles.ackModalTitle}>Issue Reported</Text>
+            <Text style={styles.ackModalBody}>
+              An issue was reported for this order. Confirm you’d like to complete delivery anyway.
+            </Text>
+
+            {(reportedList.length > 0 || localIncidentReported) ? (
+              <View style={styles.ackIncidentSummary}>
+                <Text style={styles.ackIncidentLabel}>Reported Incident:</Text>
+                <Text style={styles.ackIncidentText}>
+                  {reportedList[0]?.issue || "Delivery issue reported during transit"}
+                  {reportedList[0]?.notes ? ` — "${reportedList[0].notes}"` : ""}
+                </Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.ackNoticeSubtext}>
+              This will not block delivery. Management will review the reported incident afterward.
+            </Text>
+
+            <View style={styles.ackActionsRow}>
+              <TouchableOpacity
+                style={styles.ackCancelButton}
+                activeOpacity={0.7}
+                onPress={() => setAckModalVisible(false)}
+              >
+                <Text style={styles.ackCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.ackConfirmButton}
+                activeOpacity={0.85}
+                onPress={handleConfirmAck}
+              >
+                <Text style={styles.ackConfirmButtonText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -865,6 +1027,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
   },
+  issueModalKeyboardWrap: {
+    flex: 1,
+  },
   issueModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.45)",
@@ -906,11 +1071,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#EDEDED",
   },
+  issueOptionButtonActive: {
+    backgroundColor: "#FFF4E5",
+    borderColor: "#F97000",
+  },
   issueOptionText: {
     fontFamily: FONT,
     fontSize: 14,
     fontWeight: "600",
     color: "#1C1B18",
+  },
+  issueOptionTextActive: {
+    color: "#F97000",
+    fontWeight: "700",
+  },
+  otherIssueWrap: {
+    gap: 10,
+    marginTop: 2,
+  },
+  otherIssueInput: {
+    backgroundColor: "#F9FAFB",
+    borderColor: "#E5E7EB",
+    borderRadius: 10,
+    borderWidth: 1,
+    color: "#1C1B18",
+    fontFamily: FONT,
+    fontSize: 14,
+    minHeight: 84,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  otherIssueSubmitButton: {
+    alignItems: "center",
+    backgroundColor: "#F97000",
+    borderRadius: 10,
+    height: 44,
+    justifyContent: "center",
+  },
+  otherIssueSubmitButtonDisabled: {
+    backgroundColor: "#FDBA74",
+    opacity: 0.7,
+  },
+  otherIssueSubmitButtonText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
   },
   issueCancelButton: {
     alignItems: "center",
@@ -926,5 +1132,116 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#4B5563",
+  },
+  ackModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  ackModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 22,
+    width: "100%",
+    maxWidth: 380,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  ackIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  ackModalTitle: {
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  ackModalBody: {
+    fontFamily: FONT,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 14,
+  },
+  ackIncidentSummary: {
+    width: "100%",
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  ackIncidentLabel: {
+    fontFamily: FONT,
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#B45309",
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  ackIncidentText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  ackNoticeSubtext: {
+    fontFamily: FONT,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#64748B",
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  ackActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  ackCancelButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackCancelButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  ackConfirmButton: {
+    flex: 1.3,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F97000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackConfirmButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

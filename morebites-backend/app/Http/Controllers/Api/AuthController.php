@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -77,6 +78,7 @@ class AuthController extends Controller
             'email' => $user->email,
             'username' => $user->username,
             'phone' => $user->phone,
+            'photo' => $user->photo ? Media::url($user->photo) : null,
             'role' => $user->role,
             'role_access' => $user->resolvedRoleAccess(),
             'allowed_pages' => $user->resolvedAllowedPages(),

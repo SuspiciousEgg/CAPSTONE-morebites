@@ -144,11 +144,10 @@ class DriverAppController extends Controller
 
         $payload = ['status' => $status];
         if ($status === 'Completed') {
-            $payload['delivered_at'] = now();
+            $deliveredAt = now();
+            $payload['delivered_at'] = $deliveredAt;
             $payload['payment_status'] = 'Paid';
-            if ($order->assigned_at) {
-                $payload['delivery_minutes'] = max(1, $order->assigned_at->diffInMinutes(now()));
-            }
+            $payload = array_merge($payload, $order->calculateLateDeliveryPayload($deliveredAt));
             if ($request->hasFile('proof_of_delivery')) {
                 $path = $request->file('proof_of_delivery')->store('proofs', 'public');
                 $payload['proof_of_delivery'] = '/storage/'.$path;
@@ -309,7 +308,13 @@ class DriverAppController extends Controller
             $data['notes'] ?? null
         );
 
-        return response()->json(['message' => 'Issue reported']);
+        $issues = $order->reportedIssues();
+
+        return response()->json([
+            'message' => 'Issue reported',
+            'has_reported_issue' => count($issues) > 0,
+            'reported_issues' => $issues,
+        ]);
     }
 
     private function driverUser(Request $request): User
@@ -438,6 +443,14 @@ class DriverAppController extends Controller
             'delivered_at' => $o->delivered_at?->toIso8601String(),
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
             'customer_rating' => $o->customer_rating ? (int) $o->customer_rating : null,
+            'reported_issues' => $o->reportedIssues(),
+            'has_reported_issue' => count($o->reportedIssues()) > 0,
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $etaMins),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
             'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
             'route' => is_array($o->route_coordinates) ? $o->route_coordinates : [],

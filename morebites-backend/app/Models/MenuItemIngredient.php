@@ -13,12 +13,14 @@ class MenuItemIngredient extends Model
         'inventory_item_id',
         'qty_per_serving',
         'unit',
+        'price',
     ];
 
     protected function casts(): array
     {
         return [
             'qty_per_serving' => 'float',
+            'price' => 'float',
         ];
     }
 

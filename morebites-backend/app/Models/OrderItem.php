@@ -9,6 +9,7 @@ class OrderItem extends Model
 {
     protected $fillable = [
         'order_id', 'menu_item_id', 'name', 'size',
+        'removed_ingredients',
         'qty', 'unit_price', 'line_total',
     ];
 
@@ -17,6 +18,7 @@ class OrderItem extends Model
         return [
             'unit_price' => 'float',
             'line_total' => 'float',
+            'removed_ingredients' => 'array',
         ];
     }
 

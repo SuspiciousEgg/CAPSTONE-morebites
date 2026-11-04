@@ -1354,4 +1354,31 @@
   font-style: italic;
 }
 
+.inv-input-currency {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inv-input-currency input {
+  width: 100%;
+  padding-left: 26px !important;
+}
+
+.inv-currency-symbol {
+  position: absolute;
+  left: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B7280;
+  pointer-events: none;
+}
+
+.inv-price-val {
+  font-weight: 600;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+}
+
 

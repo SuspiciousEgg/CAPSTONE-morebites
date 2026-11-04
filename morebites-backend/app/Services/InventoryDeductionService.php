@@ -78,8 +78,44 @@ class InventoryDeductionService
                 }
             }
 
+            $removed = is_array($line)
+                ? ($line['removed_ingredients'] ?? [])
+                : ($line->removed_ingredients ?? []);
+
+            $removedIds = [];
+            $removedNames = [];
+            foreach ((array) $removed as $r) {
+                if (is_numeric($r)) {
+                    $removedIds[] = (int) $r;
+                } elseif (is_string($r)) {
+                    $trimmed = trim($r);
+                    if (is_numeric($trimmed)) {
+                        $removedIds[] = (int) $trimmed;
+                    } else {
+                        $removedNames[] = strtolower($trimmed);
+                    }
+                } elseif (is_array($r)) {
+                    if (! empty($r['inventory_item_id'])) {
+                        $removedIds[] = (int) $r['inventory_item_id'];
+                    }
+                    if (! empty($r['id'])) {
+                        $removedIds[] = (int) $r['id'];
+                    }
+                    if (! empty($r['name'])) {
+                        $removedNames[] = strtolower(trim((string) $r['name']));
+                    }
+                }
+            }
+
             foreach ($lineIngredients as $ingredient) {
-                $invId = $ingredient->inventory_item_id;
+                $invId = (int) $ingredient->inventory_item_id;
+                $ingId = (int) $ingredient->id;
+                $ingName = strtolower(trim((string) ($ingredient->inventoryItem?->name ?? '')));
+
+                if (in_array($invId, $removedIds, true) || in_array($ingId, $removedIds, true) || ($ingName !== '' && in_array($ingName, $removedNames, true))) {
+                    continue; // Skip deduction for customer-removed ingredients (Prompt 124)
+                }
+
                 $inventory = $ingredient->inventoryItem ?? InventoryItem::query()->find($invId);
                 if (! $inventory) {
                     continue;

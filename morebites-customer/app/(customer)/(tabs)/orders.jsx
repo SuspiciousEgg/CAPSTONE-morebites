@@ -167,17 +167,31 @@ function EmptyState() {
 }
 
 function SummaryRow({ label, value, total, discount }) {
+  const numVal = Number(value || 0);
   return (
     <View style={styles.summaryRow}>
-      <Text style={[styles.summaryLabel, total && styles.summaryTotalLabel]}>{label}</Text>
+      <Text
+        style={[
+          styles.summaryLabel,
+          total && styles.summaryTotalLabel,
+          discount && numVal > 0 && { color: "#16A34A", fontWeight: "700" },
+        ]}
+      >
+        {label}
+      </Text>
       <Text
         style={[
           styles.summaryValue,
           total && styles.summaryTotalValue,
           discount && styles.discountValue,
+          discount && numVal > 0 && { color: "#16A34A", fontWeight: "700" },
         ]}
       >
-        {discount ? "- ₱0" : `₱${Number(value).toLocaleString()}`}
+        {discount
+          ? numVal > 0
+            ? `- ₱${numVal.toLocaleString()}`
+            : "- ₱0"
+          : `₱${numVal.toLocaleString()}`}
       </Text>
     </View>
   );
@@ -187,7 +201,19 @@ function OrderDetailsModal({ visible, order, onClose }) {
   if (!order) return null;
 
   const { deliveryFee, serviceFee } = feesFromOrder(order);
-  const subtotal = Math.max(0, Number(order.total) - deliveryFee - serviceFee);
+  const pointsUsed = Number(order.points_used || 0);
+  const pointsDiscount = Number(order.points_discount || 0);
+  const lateMinutes = Number(order.late_minutes || 0);
+  const lateDiscountPercent = Number(order.late_discount_percent || 0);
+  const lateDiscount = Number(order.late_discount || 0);
+  const computedItemsSubtotal = (order.items || []).reduce(
+    (sum, item) => sum + Number(item.price || item.unit_price || 0) * Number(item.quantity || item.qty || 1),
+    0
+  );
+  const subtotal =
+    computedItemsSubtotal > 0
+      ? computedItemsSubtotal
+      : Math.max(0, Number(order.total || 0) + pointsDiscount + lateDiscount - deliveryFee - serviceFee);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -257,9 +283,27 @@ function OrderDetailsModal({ visible, order, onClose }) {
             <Text style={styles.sectionTitle}>Order Summary</Text>
             <View style={styles.sectionCard}>
               <SummaryRow label="Subtotal" value={subtotal} />
+              {pointsDiscount > 0 ? (
+                <SummaryRow
+                  label={`Points Discount (${pointsUsed} pts)`}
+                  value={pointsDiscount}
+                  discount
+                />
+              ) : null}
+              {lateDiscount > 0 ? (
+                <SummaryRow
+                  label={`Late Delivery Discount (${lateDiscountPercent}%${
+                    lateMinutes > 0 ? ` · ${lateMinutes}m late` : ""
+                  })`}
+                  value={lateDiscount}
+                  discount
+                />
+              ) : null}
+              {pointsDiscount <= 0 && lateDiscount <= 0 ? (
+                <SummaryRow label="Discount" value={0} discount />
+              ) : null}
               <SummaryRow label="Delivery Fee" value={deliveryFee} />
               <SummaryRow label="Service Fee" value={serviceFee} />
-              <SummaryRow label="Discount" value={0} discount />
               <View style={styles.summaryDivider} />
               <SummaryRow label="Total Amount" value={order.total} total />
             </View>

@@ -268,6 +268,7 @@ const EMPTY_FORM = {
   name: '',
   stock: '0',
   reorder: '',
+  price: '',
   unit: 'pcs',
   date_placed: '',
   expiry_date: '',
@@ -525,6 +526,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       stock: Number(form.stock),
       unit: form.unit || 'pcs',
       reorder_level: Number(form.reorder),
+      price: form.price !== '' && !Number.isNaN(Number(form.price)) ? Number(form.price) : 0,
       date_placed: form.date_placed || null,
       expiry_date: trackExpiry ? form.expiry_date || null : null,
     }
@@ -662,6 +664,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       name: item.name || '',
       stock: String(item.stock ?? '0'),
       reorder: String(item.reorder ?? ''),
+      price: item.price != null ? String(item.price) : '',
       unit: item.unit || config?.defaultUnit || 'pcs',
       date_placed: item.date_placed_raw || '',
       expiry_date: item.expiry_date_raw || '',
@@ -910,18 +913,34 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 </section>
 
                 <section className="inv-form-section">
-                  <h3 className="inv-form-section-title">STOCK THRESHOLD</h3>
-                  <label>
-                    Reorder Point
-                    <UnitInput
-                      value={form.reorder}
-                      unit={form.unit}
-                      onChange={(e) => setForm((f) => ({ ...f, reorder: e.target.value }))}
-                      placeholder="e.g. 10"
-                    />
-                  </label>
+                  <h3 className="inv-form-section-title">STOCK THRESHOLD & PRICING</h3>
+                  <div className="inv-form-grid">
+                    <label>
+                      Reorder Point
+                      <UnitInput
+                        value={form.reorder}
+                        unit={form.unit}
+                        onChange={(e) => setForm((f) => ({ ...f, reorder: e.target.value }))}
+                        placeholder="e.g. 10"
+                      />
+                    </label>
+                    <label>
+                      Price (₱)
+                      <div className="inv-input-currency">
+                        <span className="inv-currency-symbol">₱</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={form.price}
+                          onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </label>
+                  </div>
                   <p className="inv-field-hint">
-                    System will alert when stock falls below this number.
+                    Default ingredient price used in recipes and customer customization.
                   </p>
                 </section>
 
@@ -1117,6 +1136,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 <th>Item Name</th>
                 <th>Category</th>
                 <th>Current Stock</th>
+                <th>Price</th>
                 <th>Reorder Point</th>
                 <th>Date Placed</th>
                 <th>Expiry Date</th>
@@ -1128,7 +1148,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="inv-empty">
+                  <td colSpan={10} className="inv-empty">
                     <EmptyState
                       icon="box"
                       title={
@@ -1189,6 +1209,11 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                             })}
                           </div>
                         ) : null}
+                      </td>
+                      <td>
+                        <span className="inv-price-val">
+                          {item.price > 0 ? `₱${Number(item.price).toFixed(2)}` : '—'}
+                        </span>
                       </td>
                       <td>
                         <span className="inv-reorder-val">

@@ -44,10 +44,12 @@ class TrackingService
 
         $route = $this->directions($from, $to);
         $storeDistanceKm = $this->haversineKm($storeOrigin, $to);
+        $etaMins = max(8, (int) round($storeDistanceKm * 4));
         $order->update([
             'route_coordinates' => $route['coordinates'],
             'delivery_distance_km' => $storeDistanceKm,
-            'delivery_minutes' => max(8, (int) round($storeDistanceKm * 4)),
+            'delivery_minutes' => $etaMins,
+            'estimated_delivery_minutes' => $order->estimated_delivery_minutes ?: $etaMins,
         ]);
 
         return $order->fresh();
@@ -69,6 +71,7 @@ class TrackingService
             'current_lng' => $lng,
             'delivery_distance_km' => $distanceKm,
             'delivery_minutes' => $etaMins,
+            'estimated_delivery_minutes' => $order->estimated_delivery_minutes ?: $etaMins,
         ];
 
         if (! $hasExistingRoute) {
@@ -345,7 +348,13 @@ class TrackingService
             'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
             'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
             'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'points_used' => (int) ($order->points_used ?? 0),
+            'points_discount' => (float) ($order->points_discount ?? 0),
             'points_earned' => $order->loyaltyPointsEarned(),
+            'estimated_delivery_minutes' => (int) ($order->estimated_delivery_minutes ?: $order->delivery_minutes ?: 0),
+            'late_minutes' => (int) ($order->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($order->late_discount_percent ?? 0),
+            'late_discount' => (float) ($order->late_discount ?? 0),
         ];
     }
 

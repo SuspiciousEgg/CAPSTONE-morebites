@@ -12,6 +12,7 @@ import {
   LuImage,
   LuTrash2,
   LuTriangleAlert,
+  LuCopy,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import EmptyState from './EmptyState'
@@ -161,6 +162,10 @@ function mapIngredientRows(list) {
       row.qty_per_serving != null && row.qty_per_serving !== ''
         ? String(Number(row.qty_per_serving))
         : '1',
+    price:
+      row.price != null && row.price !== ''
+        ? String(row.price)
+        : '0',
     name: row.name || '',
     unit: row.unit || row.inventory_unit || '',
     inventory_unit: row.inventory_unit || row.unit || '',
@@ -230,6 +235,8 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   const [form, setForm] = useState(() => buildInitialForm(initial))
   const [activeSizeIndex, setActiveSizeIndex] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
+  const copyMenuRef = useRef(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -273,6 +280,24 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
   const safeActiveSizeIndex = Math.min(activeSizeIndex, Math.max(0, (form.sizes || []).length - 1))
 
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target)) {
+        setCopyMenuOpen(false)
+      }
+    }
+    if (copyMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [copyMenuOpen])
+
+  useEffect(() => {
+    setCopyMenuOpen(false)
+  }, [safeActiveSizeIndex])
+
   function updateIngredient(index, key, value) {
     if (form.hasSizes) {
       setForm((prev) => {
@@ -289,6 +314,9 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                 nextRow.inventory_unit = inv.unit
                 if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                   nextRow.unit = inv.unit || 'pcs'
+                }
+                if (inv.price != null && (!nextRow.price || Number(nextRow.price) === 0)) {
+                  nextRow.price = String(inv.price)
                 }
               }
             }
@@ -313,6 +341,9 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                 nextRow.unit = inv.unit || 'pcs'
               }
+              if (inv.price != null && (!nextRow.price || Number(nextRow.price) === 0)) {
+                nextRow.price = String(inv.price)
+              }
             }
           }
           return nextRow
@@ -328,7 +359,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           if (sIdx !== safeActiveSizeIndex) return size
           const nextIngs = [
             ...(size.ingredients || []),
-            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
           ]
           return { ...size, ingredients: nextIngs }
         })
@@ -339,7 +370,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...prev,
         ingredients: [
           ...prev.ingredients,
-          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
         ],
       }))
     }
@@ -363,6 +394,50 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }
   }
 
+  function copyIngredientsFrom(sourceIndex) {
+    const sourceSize = form.sizes[sourceIndex]
+    if (!sourceSize) return
+    const sourceIngs = (sourceSize.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
+    )
+    if (!sourceIngs.length) {
+      alert(`No ingredients found in ${sourceSize.name.trim() || `Size ${sourceIndex + 1}`}.`)
+      return
+    }
+
+    const currentSize = form.sizes[safeActiveSizeIndex]
+    const currentName = currentSize?.name?.trim() || `Size ${safeActiveSizeIndex + 1}`
+    const sourceName = sourceSize.name?.trim() || `Size ${sourceIndex + 1}`
+
+    const currentIngs = (currentSize?.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
+    )
+    if (currentIngs.length > 0) {
+      const ok = window.confirm(
+        `Replace current ingredients in "${currentName}" with the ${sourceIngs.length} ingredients from "${sourceName}"?`
+      )
+      if (!ok) return
+    }
+
+    const cloned = sourceIngs.map((row) => ({
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: String(row.qty_per_serving || '1'),
+      price: String(row.price != null && row.price !== '' ? row.price : '0'),
+      name: row.name || '',
+      unit: row.unit || row.inventory_unit || '',
+      inventory_unit: row.inventory_unit || row.unit || '',
+      stock: row.stock ?? '',
+    }))
+
+    setForm((prev) => {
+      const nextSizes = prev.sizes.map((size, sIdx) => {
+        if (sIdx !== safeActiveSizeIndex) return size
+        return { ...size, ingredients: cloned }
+      })
+      return { ...prev, sizes: nextSizes }
+    })
+  }
+
   function hasIngredientChanges() {
     const normalize = (list) =>
       (list || [])
@@ -374,6 +449,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               ? 1
               : Number(row.qty_per_serving),
           unit: row.unit || '',
+          price: Number(row.price || 0),
         }))
 
     if (form.hasSizes) {
@@ -493,11 +569,16 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         processedSizes.push({
           name: s.name.trim(),
           price: Number(s.price),
-          ingredients: recipeRows.map((row) => ({
-            inventory_item_id: Number(row.inventory_item_id),
-            qty_per_serving: Number(row.qty_per_serving),
-            unit: row.unit || undefined,
-          })),
+          ingredients: recipeRows.map((row) => {
+            const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+            const effectivePrice = inv?.price != null ? Number(inv.price) : Number(row.price || 0)
+            return {
+              inventory_item_id: Number(row.inventory_item_id),
+              qty_per_serving: Number(row.qty_per_serving),
+              unit: row.unit || undefined,
+              price: effectivePrice,
+            }
+          }),
         })
       }
 
@@ -554,11 +635,16 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         subcategory,
         price: Number(form.price),
         sizes: [],
-        ingredients: recipeRows.map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving: Number(row.qty_per_serving),
-          unit: row.unit || undefined,
-        })),
+        ingredients: recipeRows.map((row) => {
+          const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+          const effectivePrice = inv?.price != null ? Number(inv.price) : Number(row.price || 0)
+          return {
+            inventory_item_id: Number(row.inventory_item_id),
+            qty_per_serving: Number(row.qty_per_serving),
+            unit: row.unit || undefined,
+            price: effectivePrice,
+          }
+        }),
       }
     }
 
@@ -579,6 +665,19 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   const selectedIds = new Set(
     activeIngredientsList.map((r) => r.inventory_item_id).filter(Boolean),
   )
+
+  const availableSourceSizes = useMemo(() => {
+    if (!form.hasSizes || !Array.isArray(form.sizes)) return []
+    return form.sizes
+      .map((s, idx) => ({ ...s, idx }))
+      .filter(
+        (s) =>
+          s.idx !== safeActiveSizeIndex &&
+          (s.name || '').trim() !== '' &&
+          Array.isArray(s.ingredients) &&
+          s.ingredients.some((row) => String(row.inventory_item_id || '').trim() !== ''),
+      )
+  }, [form.hasSizes, form.sizes, safeActiveSizeIndex])
 
   return (
     <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
@@ -903,12 +1002,78 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
             {form.hasSizes && (
               <div className="menu-recipe-size-banner">
-                <span>
-                  Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
-                </span>
-                <span className="banner-note">
-                  Directly entered amounts for this size only (no multipliers).
-                </span>
+                <div className="menu-recipe-banner-left">
+                  <span>
+                    Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
+                  </span>
+                  <span className="banner-note">
+                    Directly entered amounts for this size only (no multipliers).
+                  </span>
+                </div>
+                {availableSourceSizes.length === 1 ? (
+                  <button
+                    type="button"
+                    className="menu-recipe-copy-btn"
+                    onClick={() => copyIngredientsFrom(availableSourceSizes[0].idx)}
+                    title={`Copy ingredients and prices from ${availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}`}
+                  >
+                    <LuCopy size={13} />
+                    <span>Copy from {availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}</span>
+                  </button>
+                ) : availableSourceSizes.length > 1 ? (
+                  <div className="menu-recipe-copy-dropdown" ref={copyMenuRef}>
+                    <button
+                      type="button"
+                      className={`menu-recipe-copy-btn ${copyMenuOpen ? 'active' : ''}`}
+                      onClick={() => setCopyMenuOpen((prev) => !prev)}
+                      aria-expanded={copyMenuOpen}
+                      title="Copy ingredients from another size"
+                    >
+                      <LuCopy size={13} />
+                      <span>Copy from...</span>
+                      <LuChevronDown
+                        size={12}
+                        className={`menu-recipe-copy-caret ${copyMenuOpen ? 'open' : ''}`}
+                      />
+                    </button>
+                    {copyMenuOpen && (
+                      <div className="menu-recipe-copy-menu">
+                        <div className="menu-recipe-copy-menu-header">Select Size to Copy</div>
+                        {availableSourceSizes.map((s) => {
+                          const count = s.ingredients.filter((r) => r.inventory_item_id).length
+                          const sizeLabel = s.name.trim() || `Size ${s.idx + 1}`
+                          return (
+                            <button
+                              key={s.idx}
+                              type="button"
+                              className="menu-recipe-copy-menu-item"
+                              onClick={() => {
+                                setCopyMenuOpen(false)
+                                copyIngredientsFrom(s.idx)
+                              }}
+                            >
+                              <LuCopy size={12} className="copy-item-icon" />
+                              <span className="copy-item-name">{sizeLabel}</span>
+                              <span className="copy-item-badge">
+                                {count} {count === 1 ? 'item' : 'items'}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {activeIngredientsList.length > 0 && (
+              <div className="menu-recipe-columns-header">
+                <span className="col-ingredient">Ingredient</span>
+                <span className="col-qty">Portion</span>
+                <span className="col-unit">Unit</span>
+                <span className="col-price">Price (₱)</span>
+                <span className="col-action"></span>
               </div>
             )}
 
@@ -945,9 +1110,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                         const optId = String(opt.id)
                         const taken =
                           selectedIds.has(optId) && optId !== currentId
+                        const priceLabel =
+                          opt.price > 0
+                            ? ` · ₱${Number(opt.price) % 1 === 0 ? Number(opt.price) : Number(opt.price).toFixed(2)}`
+                            : ''
                         return (
                           <option key={optId} value={optId} disabled={taken}>
-                            {opt.name} ({opt.stock} {opt.unit})
+                            {opt.name} ({opt.stock} {opt.unit}){priceLabel}
                           </option>
                         )
                       })}
@@ -981,6 +1150,12 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                         </option>
                       ))}
                     </select>
+                    <div
+                      className="menu-recipe-price-pill"
+                      title="Ingredient price configured in Inventory"
+                    >
+                      ₱{Number((pickedInv?.price ?? row.inventory_price ?? row.price) || 0).toFixed(2)}
+                    </div>
                     <button
                       type="button"
                       className="menu-remove-size-btn"

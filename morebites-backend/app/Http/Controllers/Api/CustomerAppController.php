@@ -298,35 +298,57 @@ class CustomerAppController extends Controller
                 }
             }
 
-            // 2. Dispatch via SMS service (SMS gateway or local log)
-            $smsService->sendOtp($phone, $code);
+            // 2. Dispatch via SMS service if phone was entered
+            if (! $isEmail) {
+                $smsService->sendOtp($phone, $code);
+            }
         } else {
-            PasswordResetOtp::query()->updateOrCreate(
-                ['phone' => $phone],
-                [
-                    'email' => $targetEmail,
-                    'user_id' => null,
-                    'otp_hash' => null,
-                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
-                    'attempts' => 0,
-                    'last_sent_at' => now(),
-                    'reset_token_hash' => null,
-                    'reset_token_expires_at' => null,
-                    'consumed_at' => null,
-                ]
-            );
+            if ($isEmail) {
+                // Safely track cooldown for non-existent email without phone unique collisions
+                $record = PasswordResetOtp::query()->where('email', $targetEmail)->first();
+                if (! $record) {
+                    $dummyPhone = '09'.substr(str_pad(preg_replace('/\D/', '', (string) crc32($targetEmail)), 9, '0', STR_PAD_LEFT), 0, 9);
+                    while (PasswordResetOtp::query()->where('phone', $dummyPhone)->exists()) {
+                        $dummyPhone = '09'.str_pad((string) random_int(100000000, 999999999), 9, '0', STR_PAD_LEFT);
+                    }
+                    $record = new PasswordResetOtp(['email' => $targetEmail, 'phone' => $dummyPhone]);
+                }
+                $record->user_id = null;
+                $record->otp_hash = null;
+                $record->otp_expires_at = now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES);
+                $record->attempts = 0;
+                $record->last_sent_at = now();
+                $record->reset_token_hash = null;
+                $record->reset_token_expires_at = null;
+                $record->consumed_at = null;
+                $record->save();
+            } else {
+                PasswordResetOtp::query()->updateOrCreate(
+                    ['phone' => $phone],
+                    [
+                        'email' => null,
+                        'user_id' => null,
+                        'otp_hash' => null,
+                        'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                        'attempts' => 0,
+                        'last_sent_at' => now(),
+                        'reset_token_hash' => null,
+                        'reset_token_expires_at' => null,
+                        'consumed_at' => null,
+                    ]
+                );
+            }
         }
 
-        $message = 'If this phone number is registered, a 6-digit verification code has been sent.';
-        if ($isEmail) {
-            $message = 'If this email address is registered, a 6-digit verification code has been sent.';
-        }
+        $message = $isEmail
+            ? 'If an account exists with this email, we’ve sent a verification code.'
+            : 'If an account exists with this phone number, we’ve sent a verification code.';
 
         return response()->json([
             'message' => $message,
-            'phone' => $phone,
-            'email' => $effectiveEmail ?? $targetEmail,
-            'delivery_channel' => ! empty($effectiveEmail) ? 'email' : 'sms',
+            'phone' => ! $isEmail ? $phone : null,
+            'email' => $isEmail ? $targetEmail : null,
+            'delivery_channel' => $isEmail ? 'email' : 'sms',
             'cooldown_seconds' => PasswordResetOtp::RESEND_COOLDOWN_SECONDS,
             'expires_in_seconds' => PasswordResetOtp::OTP_EXPIRY_MINUTES * 60,
         ]);
@@ -871,7 +893,7 @@ class CustomerAppController extends Controller
             ->keyBy('menu_item_id');
 
         $items = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->orderBy('category')
             ->orderBy('name')
@@ -1008,6 +1030,7 @@ class CustomerAppController extends Controller
             'items.*.size' => ['nullable', 'string'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.removed_ingredients' => ['nullable', 'array'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -1117,6 +1140,7 @@ class CustomerAppController extends Controller
                 'dest_lng' => $dest['longitude'],
                 'delivery_distance_km' => $distanceKm,
                 'delivery_minutes' => max(15, (int) round($distanceKm * 4)),
+                'estimated_delivery_minutes' => max(15, (int) round($distanceKm * 4)),
             ]);
 
             if ($pointsUsed > 0) {
@@ -1146,6 +1170,7 @@ class CustomerAppController extends Controller
                     'menu_item_id' => $item['menu_item_id'] ?? null,
                     'name' => $item['name'].(! empty($item['size']) ? ' ('.$item['size'].')' : ''),
                     'size' => $item['size'] ?? null,
+                    'removed_ingredients' => $item['removed_ingredients'] ?? null,
                     'qty' => $item['qty'],
                     'unit_price' => $item['unit_price'],
                     'line_total' => $item['qty'] * $item['unit_price'],
@@ -1284,8 +1309,27 @@ class CustomerAppController extends Controller
         $isAvailable = (bool) ($m->available && $stockOk);
 
         $sizes = $m->sizes->map(fn ($s) => [
+            'id' => $s->id,
             'sizeName' => $s->name,
             'price' => (float) $s->price,
+            'ingredients' => $s->ingredients->map(fn ($ing) => [
+                'id' => $ing->id,
+                'inventory_item_id' => $ing->inventory_item_id,
+                'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                'qty_per_serving' => (float) $ing->qty_per_serving,
+                'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
+            ])->values(),
+        ])->values();
+
+        $ingredients = $m->ingredients->map(fn ($ing) => [
+            'id' => $ing->id,
+            'menu_item_size_id' => $ing->menu_item_size_id,
+            'inventory_item_id' => $ing->inventory_item_id,
+            'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+            'qty_per_serving' => (float) $ing->qty_per_serving,
+            'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+            'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
         ])->values();
 
         $min = $sizes->min('price');
@@ -1308,6 +1352,7 @@ class CustomerAppController extends Controller
             'priceLabel' => $priceLabel,
             'hasSizes' => (bool) $m->has_sizes,
             'sizes' => $sizes,
+            'ingredients' => $ingredients,
             'image' => Media::url($m->image),
             'available' => $isAvailable,
             'availability' => $isAvailable,
@@ -1374,7 +1419,6 @@ class CustomerAppController extends Controller
             'driver_phone' => $o->driver?->phone,
             'driver_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
             'rider_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
-            'reported_issues' => $o->reportedIssues(),
             'eta_mins' => (int) ($o->delivery_minutes ?: 25),
             'distance' => number_format((float) ($o->delivery_distance_km ?: 2.5), 1).'km',
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
@@ -1393,6 +1437,10 @@ class CustomerAppController extends Controller
             'points_used' => (int) ($o->points_used ?? 0),
             'points_discount' => (float) ($o->points_discount ?? 0),
             'points_earned' => $o->loyaltyPointsEarned(),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $o->delivery_minutes ?: 25),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
         ];
     }
 }

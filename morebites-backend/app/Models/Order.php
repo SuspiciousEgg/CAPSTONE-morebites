@@ -8,11 +8,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
 {
+    public const MAX_LATE_DISCOUNT_PERCENT = 50;
+
     protected $fillable = [
         'order_code', 'idempotency_key', 'customer_id', 'loyalty_customer_id', 'customer_name', 'order_type',
-        'total', 'points_used', 'points_discount', 'delivery_fee', 'service_fee', 'status', 'cancellation_reason', 'inventory_deducted', 'order_date', 'payment_method', 'payment_status',
+        'total', 'points_used', 'points_discount', 'late_discount', 'delivery_fee', 'service_fee', 'status', 'cancellation_reason', 'inventory_deducted', 'order_date', 'payment_method', 'payment_status',
         'delivery_address', 'dest_lat', 'dest_lng', 'current_lat', 'current_lng', 'driver_id', 'assigned_at', 'delivered_at',
-        'proof_of_delivery', 'delivery_minutes', 'delivery_distance_km', 'route_coordinates',
+        'proof_of_delivery', 'delivery_minutes', 'estimated_delivery_minutes', 'late_minutes', 'late_discount_percent', 'delivery_distance_km', 'route_coordinates',
         'food_rating', 'food_comment', 'rider_rating', 'rider_comment', 'rated_at',
         'customer_rating',
     ];
@@ -23,6 +25,7 @@ class Order extends Model
             'total' => 'float',
             'points_used' => 'integer',
             'points_discount' => 'float',
+            'late_discount' => 'float',
             'loyalty_customer_id' => 'integer',
             'delivery_fee' => 'float',
             'service_fee' => 'float',
@@ -32,6 +35,10 @@ class Order extends Model
             'delivered_at' => 'datetime',
             'rated_at' => 'datetime',
             'customer_rating' => 'integer',
+            'delivery_minutes' => 'integer',
+            'estimated_delivery_minutes' => 'integer',
+            'late_minutes' => 'integer',
+            'late_discount_percent' => 'integer',
             'delivery_distance_km' => 'float',
             'dest_lat' => 'float',
             'dest_lng' => 'float',
@@ -132,6 +139,62 @@ class Order extends Model
             : $this->hasMany(LoyaltyLedger::class)->where('type', 'earn')->first();
 
         return $entry ? (int) $entry->points : 0;
+    }
+
+    /**
+     * Calculate late delivery metrics and discount when an online delivery order is marked Delivered.
+     *
+     * Rules (Prompt 122):
+     * - Compares actual elapsed delivery time (from assigned_at or created_at to delivered_at)
+     *   against estimated_delivery_minutes (or delivery_minutes prior to completion).
+     * - For every full 10-minute block late, applies a 10% discount to the food subtotal
+     *   (excluding delivery_fee and service_fee), capped at 50% maximum.
+     * - Independent of and additive with loyalty points_discount on the food subtotal.
+     */
+    public function calculateLateDeliveryPayload(?\Illuminate\Support\Carbon $deliveredAt = null): array
+    {
+        $deliveredAt ??= $this->delivered_at ?? now();
+        $startTime = $this->assigned_at ?? $this->created_at;
+
+        $estimatedMins = (int) (
+            $this->estimated_delivery_minutes
+            ?: $this->delivery_minutes
+            ?: max(8, (int) round(((float) ($this->delivery_distance_km ?: 2.5)) * 4))
+        );
+
+        $actualMins = $startTime
+            ? max(1, (int) floor($startTime->diffInMinutes($deliveredAt)))
+            : $estimatedMins;
+
+        $lateMins = max(0, $actualMins - $estimatedMins);
+        $tenMinBlocks = intdiv($lateMins, 10);
+        $latePercent = min(self::MAX_LATE_DISCOUNT_PERCENT, $tenMinBlocks * 10);
+
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
+        $itemsSubtotal = (float) $items->sum(fn ($i) => ((int) $i->qty) * ((float) $i->unit_price));
+        $deliveryFee = (float) ($this->delivery_fee ?? 0);
+        $serviceFee = (float) ($this->service_fee ?? 0);
+        $pointsDiscount = (float) ($this->points_discount ?? 0);
+
+        $foodSubtotal = $itemsSubtotal > 0
+            ? $itemsSubtotal
+            : max(0.0, (float) $this->total + $pointsDiscount + (float) ($this->late_discount ?? 0) - $deliveryFee - $serviceFee);
+
+        $lateDiscount = $latePercent > 0
+            ? round($foodSubtotal * ($latePercent / 100), 2)
+            : 0.0;
+
+        $discountedFood = max(0.0, $foodSubtotal - $pointsDiscount - $lateDiscount);
+        $newTotal = round($discountedFood + $deliveryFee + $serviceFee, 2);
+
+        return [
+            'estimated_delivery_minutes' => $estimatedMins,
+            'delivery_minutes' => $actualMins,
+            'late_minutes' => $lateMins,
+            'late_discount_percent' => $latePercent,
+            'late_discount' => $lateDiscount,
+            'total' => $newTotal,
+        ];
     }
 
     /**
