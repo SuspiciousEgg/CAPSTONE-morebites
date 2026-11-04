@@ -1318,7 +1318,7 @@ class CustomerAppController extends Controller
                 'name' => $ing->inventoryItem?->name ?? 'Ingredient',
                 'qty_per_serving' => (float) $ing->qty_per_serving,
                 'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                'price' => (float) ($ing->price ?? 0),
+                'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
             ])->values(),
         ])->values();
 
@@ -1329,7 +1329,7 @@ class CustomerAppController extends Controller
             'name' => $ing->inventoryItem?->name ?? 'Ingredient',
             'qty_per_serving' => (float) $ing->qty_per_serving,
             'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-            'price' => (float) ($ing->price ?? 0),
+            'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
         ])->values();
 
         $min = $sizes->min('price');

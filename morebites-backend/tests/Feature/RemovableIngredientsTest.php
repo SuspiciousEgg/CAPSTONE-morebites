@@ -227,5 +227,87 @@ class RemovableIngredientsTest extends TestCase
         $this->pepperoni->refresh();
         $this->assertEquals(400.0, (float) $this->pepperoni->stock); // 500 - (2 * 50)
     }
+
+    public function test_inventory_price_acts_as_default_and_allows_recipe_override(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        // 1. Create an inventory item with price = 15.00
+        $spinach = InventoryItem::create([
+            'name' => 'Fresh Spinach',
+            'category' => 'Vegetables',
+            'stock' => 50,
+            'unit' => 'kg',
+            'price' => 15.00,
+        ]);
+
+        $this->assertEquals(15.00, (float) $spinach->price);
+
+        // 2. Create menu item size with price = 0 (no override -> should inherit 15.00)
+        $spinachPizza = MenuItem::create([
+            'name' => 'Spinach Special Pizza',
+            'category' => 'Pizza',
+            'price' => 250.00,
+            'available' => true,
+        ]);
+
+        $size12 = $spinachPizza->sizes()->create([
+            'name' => '12"',
+            'price' => 250.00,
+        ]);
+
+        $size15 = $spinachPizza->sizes()->create([
+            'name' => '15"',
+            'price' => 350.00,
+        ]);
+
+        // 12" has price = 0 (inherits 15.00 from inventory item)
+        $size12->ingredients()->create([
+            'menu_item_id' => $spinachPizza->id,
+            'inventory_item_id' => $spinach->id,
+            'qty_per_serving' => 1,
+            'unit' => 'kg',
+            'price' => 0.00,
+        ]);
+
+        // 15" has explicit override price = 25.00
+        $size15->ingredients()->create([
+            'menu_item_id' => $spinachPizza->id,
+            'inventory_item_id' => $spinach->id,
+            'qty_per_serving' => 2,
+            'unit' => 'kg',
+            'price' => 25.00,
+        ]);
+
+        // 3. Verify in Menu API
+        $response = $this->getJson('/api/menu');
+        $response->assertStatus(200);
+
+        $menuItem = collect($response->json('data'))->firstWhere('id', $spinachPizza->id);
+        $this->assertNotNull($menuItem);
+
+        $size12Data = collect($menuItem['sizes'])->firstWhere('name', '12"');
+        $this->assertEquals(15.00, (float) $size12Data['ingredients'][0]['price']);
+        $this->assertEquals(15.00, (float) $size12Data['ingredients'][0]['inventory_price']);
+
+        $size15Data = collect($menuItem['sizes'])->firstWhere('name', '15"');
+        $this->assertEquals(25.00, (float) $size15Data['ingredients'][0]['price']);
+        $this->assertEquals(15.00, (float) $size15Data['ingredients'][0]['inventory_price']);
+
+        // 4. Verify in Customer App API
+        Sanctum::actingAs($this->customerUser);
+        $customerResponse = $this->getJson('/api/customer/menu');
+        $customerResponse->assertStatus(200);
+
+        $custItem = collect($customerResponse->json('data'))->firstWhere('name', 'Spinach Special Pizza');
+        $this->assertNotNull($custItem);
+
+        $custSizes = $custItem['sizes'];
+        $cust12 = collect($custSizes)->firstWhere('sizeName', '12"');
+        $this->assertEquals(15.00, (float) $cust12['ingredients'][0]['price']);
+
+        $cust15 = collect($custSizes)->firstWhere('sizeName', '15"');
+        $this->assertEquals(25.00, (float) $cust15['ingredients'][0]['price']);
+    }
 }
 

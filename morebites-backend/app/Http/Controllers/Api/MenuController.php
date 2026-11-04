@@ -460,7 +460,9 @@ class MenuController extends Controller
                         ? (float) $row['qty_per_serving']
                         : 1.0;
                     $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
-                    $price = isset($row['price']) && (float) $row['price'] >= 0 ? (float) $row['price'] : 0.0;
+                    $invItem = InventoryItem::find((int) $row['inventory_item_id']);
+                    $invPrice = (float) ($invItem?->price ?? 0.0);
+                    $price = isset($row['price']) && (float) $row['price'] > 0 ? (float) $row['price'] : $invPrice;
 
                     $item->ingredients()->create([
                         'menu_item_size_id' => $sizeId,
@@ -490,7 +492,9 @@ class MenuController extends Controller
                 ? (float) $row['qty_per_serving']
                 : 1.0;
             $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
-            $price = isset($row['price']) && (float) $row['price'] >= 0 ? (float) $row['price'] : 0.0;
+            $invItem = InventoryItem::find($inventoryId);
+            $invPrice = (float) ($invItem?->price ?? 0.0);
+            $price = isset($row['price']) && (float) $row['price'] > 0 ? (float) $row['price'] : $invPrice;
 
             $item->ingredients()->create([
                 'menu_item_size_id' => null,
@@ -536,7 +540,8 @@ class MenuController extends Controller
                         'name' => $inv?->name,
                         'unit' => $ing->unit ?: $inv?->unit,
                         'inventory_unit' => $inv?->unit,
-                        'price' => (float) ($ing->price ?? 0),
+                        'inventory_price' => (float) ($inv?->price ?? 0),
+                        'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($inv?->price ?? 0)),
                         'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                     ];
                 })->values(),
@@ -553,7 +558,8 @@ class MenuController extends Controller
                     'name' => $inv?->name,
                     'unit' => $ing->unit ?: $inv?->unit,
                     'inventory_unit' => $inv?->unit,
-                    'price' => (float) ($ing->price ?? 0),
+                    'inventory_price' => (float) ($inv?->price ?? 0),
+                    'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($inv?->price ?? 0)),
                     'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                 ];
             })->values(),

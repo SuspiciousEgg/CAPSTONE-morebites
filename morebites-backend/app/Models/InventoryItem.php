@@ -20,6 +20,7 @@ class InventoryItem extends Model
         'stock',
         'unit',
         'reorder_level',
+        'price',
         'status',
         'date_placed',
         'expiry_date',
@@ -30,6 +31,7 @@ class InventoryItem extends Model
         return [
             'stock' => 'float',
             'reorder_level' => 'float',
+            'price' => 'float',
             'date_placed' => 'date',
             'expiry_date' => 'date',
         ];

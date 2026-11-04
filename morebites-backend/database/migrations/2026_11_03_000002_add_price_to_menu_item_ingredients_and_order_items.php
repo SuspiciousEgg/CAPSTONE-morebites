@@ -22,6 +22,11 @@ return new class extends Migration
                 $table->json('removed_ingredients')->nullable()->after('size');
             }
         });
+
+        // Backfill existing linked ingredients so price is never null
+        \Illuminate\Support\Facades\DB::table('menu_item_ingredients')
+            ->whereNull('price')
+            ->update(['price' => 0.00]);
     }
 
     /**
