@@ -44,9 +44,10 @@ function regionFromPoints(points) {
 export default function OutForDeliveryScreen() {
   const [issueModalVisible, setIssueModalVisible] = useState(false);
   const [reportingIssue, setReportingIssue] = useState(false);
-  const [otherSelected, setOtherSelected] = useState(false);
+  const [selectedIssueCategory, setSelectedIssueCategory] = useState("");
   const [otherIssueNotes, setOtherIssueNotes] = useState("");
   const [localIncidentReported, setLocalIncidentReported] = useState(false);
+  const [lastReportedIncident, setLastReportedIncident] = useState(null);
   const [ackModalVisible, setAckModalVisible] = useState(false);
   const [incidentAcknowledged, setIncidentAcknowledged] = useState(false);
   const params = useLocalSearchParams();
@@ -259,19 +260,25 @@ export default function OutForDeliveryScreen() {
 
   const closeIssueModal = () => {
     setIssueModalVisible(false);
-    setOtherSelected(false);
+    setSelectedIssueCategory("");
     setOtherIssueNotes("");
   };
 
   const submitIssue = async (issue, notes = "") => {
     if (!dbId || reportingIssue) return;
+    const trimmedNotes = String(notes || "").trim();
+    if (!trimmedNotes) {
+      Alert.alert("Describe Issue", "Please describe the situation in your own words before submitting.");
+      return;
+    }
     setReportingIssue(true);
     try {
-      await driverApi.reportIssue(dbId, issue, notes);
+      await driverApi.reportIssue(dbId, issue, trimmedNotes);
       setLocalIncidentReported(true);
+      setLastReportedIncident({ issue, notes: trimmedNotes });
       setIncidentAcknowledged(false);
       reload();
-      setOtherSelected(false);
+      setSelectedIssueCategory("");
       setOtherIssueNotes("");
       Alert.alert("Reported", `${issue} was sent to the admin.`);
     } catch (err) {
@@ -281,18 +288,22 @@ export default function OutForDeliveryScreen() {
     }
   };
 
-  const handleSubmitOtherIssue = () => {
+  const handleSubmitSelectedIssue = () => {
+    if (!selectedIssueCategory) {
+      Alert.alert("Select Issue", "Please select an issue category first.");
+      return;
+    }
     const trimmed = otherIssueNotes.trim();
     if (!trimmed) {
       Alert.alert("Describe Issue", "Please describe the situation in your own words before submitting.");
       return;
     }
     setIssueModalVisible(false);
-    submitIssue("Other", trimmed);
+    submitIssue(selectedIssueCategory, trimmed);
   };
 
   const reportIssue = () => {
-    setOtherSelected(false);
+    setSelectedIssueCategory("");
     setOtherIssueNotes("");
     setIssueModalVisible(true);
   };
@@ -539,82 +550,84 @@ export default function OutForDeliveryScreen() {
                 Select the issue encountered for Order {String(order?.id || orderId || '').startsWith('#') ? (order?.id || orderId) : `#${order?.id || orderId}`}.
               </Text>
 
-              <View style={styles.issueOptionsList}>
+              <ScrollView
+                style={styles.issueOptionsScroll}
+                contentContainerStyle={styles.issueOptionsList}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
                 {[
                   "Customer Unreachable",
                   "Wrong Address",
                   "Vehicle Breakdown / Flat Tire",
                   "Road Blockage / Severe Weather",
                   "Accident / Emergency",
-                ].map((issueText) => (
-                  <TouchableOpacity
-                    key={issueText}
-                    style={styles.issueOptionButton}
-                    activeOpacity={0.7}
-                    disabled={reportingIssue}
-                    onPress={() => {
-                      closeIssueModal();
-                      submitIssue(issueText);
-                    }}
-                  >
-                    <Text style={styles.issueOptionText}>{issueText}</Text>
-                    <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                  </TouchableOpacity>
-                ))}
+                  "Other",
+                ].map((issueText) => {
+                  const isSelected = selectedIssueCategory === issueText;
+                  return (
+                    <View key={issueText}>
+                      <TouchableOpacity
+                        style={[
+                          styles.issueOptionButton,
+                          isSelected && styles.issueOptionButtonActive,
+                        ]}
+                        activeOpacity={0.7}
+                        disabled={reportingIssue}
+                        onPress={() => {
+                          setSelectedIssueCategory((prev) =>
+                            prev === issueText ? "" : issueText,
+                          );
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.issueOptionText,
+                            isSelected && styles.issueOptionTextActive,
+                          ]}
+                        >
+                          {issueText}
+                        </Text>
+                        <Ionicons
+                          name={isSelected ? "chevron-down" : "chevron-forward"}
+                          size={16}
+                          color={isSelected ? "#F97000" : "#9CA3AF"}
+                        />
+                      </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[
-                    styles.issueOptionButton,
-                    otherSelected && styles.issueOptionButtonActive,
-                  ]}
-                  activeOpacity={0.7}
-                  disabled={reportingIssue}
-                  onPress={() => setOtherSelected((prev) => !prev)}
-                >
-                  <Text
-                    style={[
-                      styles.issueOptionText,
-                      otherSelected && styles.issueOptionTextActive,
-                    ]}
-                  >
-                    Other
-                  </Text>
-                  <Ionicons
-                    name={otherSelected ? "chevron-down" : "chevron-forward"}
-                    size={16}
-                    color={otherSelected ? "#F97000" : "#9CA3AF"}
-                  />
-                </TouchableOpacity>
-
-                {otherSelected ? (
-                  <View style={styles.otherIssueWrap}>
-                    <TextInput
-                      style={styles.otherIssueInput}
-                      placeholder="Describe the situation in your own words..."
-                      placeholderTextColor="#9CA3AF"
-                      multiline
-                      maxLength={1000}
-                      value={otherIssueNotes}
-                      onChangeText={setOtherIssueNotes}
-                      textAlignVertical="top"
-                      autoFocus
-                    />
-                    <TouchableOpacity
-                      style={[
-                        styles.otherIssueSubmitButton,
-                        (!otherIssueNotes.trim() || reportingIssue) && styles.otherIssueSubmitButtonDisabled,
-                      ]}
-                      activeOpacity={0.85}
-                      disabled={!otherIssueNotes.trim() || reportingIssue}
-                      onPress={handleSubmitOtherIssue}
-                    >
-                      <Text style={styles.otherIssueSubmitButtonText}>
-                        {reportingIssue ? "Submitting..." : "Submit Issue"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </View>
+                      {isSelected ? (
+                        <View style={styles.otherIssueWrap}>
+                          <TextInput
+                            style={styles.otherIssueInput}
+                            placeholder="Describe the situation in your own words..."
+                            placeholderTextColor="#9CA3AF"
+                            multiline
+                            maxLength={1000}
+                            value={otherIssueNotes}
+                            onChangeText={setOtherIssueNotes}
+                            textAlignVertical="top"
+                            autoFocus
+                          />
+                          <TouchableOpacity
+                            style={[
+                              styles.otherIssueSubmitButton,
+                              (!otherIssueNotes.trim() || reportingIssue) &&
+                                styles.otherIssueSubmitButtonDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={!otherIssueNotes.trim() || reportingIssue}
+                            onPress={handleSubmitSelectedIssue}
+                          >
+                            <Text style={styles.otherIssueSubmitButtonText}>
+                              {reportingIssue ? "Submitting..." : "Submit Issue"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </ScrollView>
 
               <TouchableOpacity
                 style={styles.issueCancelButton}
@@ -651,8 +664,10 @@ export default function OutForDeliveryScreen() {
               <View style={styles.ackIncidentSummary}>
                 <Text style={styles.ackIncidentLabel}>Reported Incident:</Text>
                 <Text style={styles.ackIncidentText}>
-                  {reportedList[0]?.issue || "Delivery issue reported during transit"}
-                  {reportedList[0]?.notes ? ` — "${reportedList[0].notes}"` : ""}
+                  {reportedList[0]?.issue || lastReportedIncident?.issue || "Delivery issue reported during transit"}
+                  {(reportedList[0]?.notes || lastReportedIncident?.notes)
+                    ? ` — "${reportedList[0]?.notes || lastReportedIncident?.notes}"`
+                    : ""}
                 </Text>
               </View>
             ) : null}
@@ -1056,9 +1071,12 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginBottom: 16,
   },
+  issueOptionsScroll: {
+    maxHeight: 420,
+    marginBottom: 16,
+  },
   issueOptionsList: {
     gap: 8,
-    marginBottom: 16,
   },
   issueOptionButton: {
     flexDirection: "row",
@@ -1087,7 +1105,7 @@ const styles = StyleSheet.create({
   },
   otherIssueWrap: {
     gap: 10,
-    marginTop: 2,
+    marginTop: 8,
   },
   otherIssueInput: {
     backgroundColor: "#F9FAFB",

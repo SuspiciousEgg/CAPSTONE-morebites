@@ -98,6 +98,14 @@ class DeliveryTrackingVisibilityTest extends TestCase
     {
         Sanctum::actingAs($this->driver);
 
+        // Submitting any preset category without a written description (notes) is rejected
+        $missingNotesRes = $this->postJson("/api/driver/orders/{$this->order->id}/report", [
+            'issue' => 'Customer Unreachable',
+            'notes' => '',
+        ]);
+        $missingNotesRes->assertStatus(422)
+            ->assertJsonValidationErrors(['notes']);
+
         $response = $this->postJson("/api/driver/orders/{$this->order->id}/report", [
             'issue' => 'Vehicle Breakdown / Flat Tire',
             'notes' => 'Rear tire punctured near crossing',

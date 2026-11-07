@@ -870,7 +870,7 @@ function CreateOrderModal({
                               </div>
                               {ingPrice > 0 ? (
                                 <span className="ing-price-tag">
-                                  {isRemoved ? `-₱${peso(ingPrice)}` : `₱${peso(ingPrice)}`}
+                                  {isRemoved ? `-${peso(ingPrice)}` : peso(ingPrice)}
                                 </span>
                               ) : (
                                 <span style={{ fontSize: 11, color: '#9CA3AF' }}>Included</span>
@@ -944,7 +944,7 @@ function CreateOrderModal({
                       }
                     }}
                   >
-                    Add to Cart — {peso(sizeSubtotal)}.00
+                    Add to Cart
                   </button>
                 </div>
               </div>
@@ -957,12 +957,35 @@ function CreateOrderModal({
 }
 
 const CANCEL_REASON_OPTIONS = [
-  'Bad weather',
   'Out of stock',
   'Customer unreachable',
   'Customer request',
+  'Unable to prepare in time',
+  'Duplicate order',
+  'Payment failed',
+  'Restaurant closed',
   'Other',
 ]
+
+const DELIVERY_LOGISTICS_CANCEL_REASONS = new Set([
+  'Customer unreachable',
+  'Bad weather',
+  'Wrong address',
+])
+
+function getCancelReasonOptionsForOrder(order) {
+  const orderType = String(order?.type || order?.order_type || '').trim()
+  const isDeliveryOrder =
+    !orderType ||
+    orderType.toLowerCase() === 'online order' ||
+    orderType.toLowerCase() === 'delivery'
+
+  if (isDeliveryOrder) {
+    return CANCEL_REASON_OPTIONS
+  }
+
+  return CANCEL_REASON_OPTIONS.filter((opt) => !DELIVERY_LOGISTICS_CANCEL_REASONS.has(opt))
+}
 
 function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   const [reason, setReason] = useState('')
@@ -970,6 +993,7 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   const [reasonOpen, setReasonOpen] = useState(false)
   const [error, setError] = useState('')
   const reasonRef = useRef(null)
+  const reasonOptions = useMemo(() => getCancelReasonOptionsForOrder(order), [order])
 
   useEffect(() => {
     function onDocClick(e) {
@@ -1001,10 +1025,10 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
       return
     }
     if (reason === 'Other' && !otherReason.trim()) {
-      setError('Please enter a specific cancellation reason.')
+      setError('Please describe the situation in your own words.')
       return
     }
-    const finalReason = reason === 'Other' ? otherReason.trim() : reason
+    const finalReason = reason === 'Other' ? `Other: ${otherReason.trim()}` : reason
     onConfirm(finalReason)
   }
 
@@ -1053,7 +1077,7 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
               </button>
               {reasonOpen && (
                 <div className="om-cancel-select-menu" role="listbox" aria-labelledby="om-cancel-reason-label">
-                  {CANCEL_REASON_OPTIONS.map((opt) => (
+                  {reasonOptions.map((opt) => (
                     <button
                       key={opt}
                       type="button"
@@ -1076,19 +1100,21 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
 
           {reason === 'Other' && (
             <div className="om-cancel-field-group">
-              <label className="om-cancel-field-label">
-                Specify Reason <span style={{ color: '#EF4444' }}>*</span>
+              <label className="om-cancel-field-label" htmlFor="om-cancel-other-textarea">
+                Describe the situation <span style={{ color: '#EF4444' }}>*</span>
               </label>
-              <input
-                type="text"
-                className="om-cancel-input"
-                placeholder="Please enter reason details..."
+              <textarea
+                id="om-cancel-other-textarea"
+                className="om-cancel-textarea"
+                placeholder="Describe the situation in your own words..."
+                rows={3}
                 value={otherReason}
                 onChange={(e) => {
                   setOtherReason(e.target.value)
                   setError('')
                 }}
-                maxLength={255}
+                maxLength={240}
+                autoFocus
                 required
               />
             </div>
@@ -1161,6 +1187,10 @@ export default function OrderManagement() {
 
   useEffect(() => {
     loadOrders().catch(console.error)
+    const interval = setInterval(() => {
+      loadOrders().catch(console.error)
+    }, 3000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {

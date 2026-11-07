@@ -107,8 +107,15 @@ export default function OrderTrackingScreen() {
       const res = await customerApi.tracking(dbId);
       const data = res.data || res;
       setTracking(data);
-      if (data?.rider?.latitude && data?.rider?.longitude) {
+      const accepted =
+        Boolean(data?.rider_accepted) ||
+        ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(
+          data?.raw_status || data?.status || "",
+        );
+      if (accepted && data?.rider?.latitude && data?.rider?.longitude) {
         setLiveRider((prev) => prev || data.rider);
+      } else {
+        setLiveRider(null);
       }
       setError("");
     } catch (err) {
@@ -123,10 +130,15 @@ export default function OrderTrackingScreen() {
   }, [dbId, loadTracking]);
 
   const currentStatus = tracking?.status || orderParam.status || "";
+  const rawStatus = tracking?.raw_status || orderParam.raw_status || currentStatus;
+  const isRiderAccepted =
+    Boolean(tracking?.rider_accepted) ||
+    ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(rawStatus) ||
+    ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(currentStatus);
   const isPreparing =
-    (["Preparing", "Pending", "Confirmed"].includes(currentStatus) || Boolean(tracking?.is_preparing)) &&
-    !["Out for Delivery", "Delivered", "Completed", "Cancelled"].includes(currentStatus) &&
-    tracking?.eta_mins == null;
+    (rawStatus === "Preparing" || currentStatus === "Preparing" || Boolean(tracking?.is_preparing)) &&
+    !isRiderAccepted &&
+    !["Ready", "Assigned", "Delivered", "Completed", "Cancelled"].includes(rawStatus);
 
   // Live driver location polling (every 3000ms while order is active)
   useEffect(() => {
@@ -140,7 +152,13 @@ export default function OrderTrackingScreen() {
       try {
         const res = await customerApi.deliveryLocation(dbId);
         const loc = res.data || res;
-        if (!cancelled && loc?.latitude && loc?.longitude) {
+        const locStatus = loc?.raw_status || loc?.status || "";
+        const locAccepted =
+          loc?.rider_accepted === true ||
+          (loc?.rider_accepted !== false &&
+            ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(locStatus));
+
+        if (!cancelled && locAccepted && loc?.latitude && loc?.longitude) {
           const next = {
             latitude: Number(loc.latitude),
             longitude: Number(loc.longitude),
@@ -154,8 +172,14 @@ export default function OrderTrackingScreen() {
               prev ? { ...prev, distance_km: loc.distance_km, distance_label: `${loc.distance_km} km` } : prev
             );
           }
+        } else if (!cancelled && !locAccepted) {
+          setLiveRider(null);
         }
-        if (!cancelled && loc?.status && loc.status !== currentStatus) {
+        if (
+          !cancelled &&
+          ((loc?.status && loc.status !== currentStatus) ||
+            (loc?.raw_status && loc.raw_status !== rawStatus))
+        ) {
           loadTracking();
         }
       } catch {
@@ -168,7 +192,7 @@ export default function OrderTrackingScreen() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [dbId, currentStatus, loadTracking]);
+  }, [dbId, currentStatus, rawStatus, loadTracking]);
 
   const items = Array.isArray(tracking?.items)
     ? tracking.items
@@ -176,14 +200,14 @@ export default function OrderTrackingScreen() {
       ? orderParam.items
       : [];
   const destination = tracking?.destination || null;
-  const rider = liveRider || tracking?.rider || null;
+  const rider = isRiderAccepted ? (liveRider || tracking?.rider || null) : null;
   const store = tracking?.store || null;
-  const route = Array.isArray(tracking?.route) ? tracking.route : [];
+  const route = isRiderAccepted && Array.isArray(tracking?.route) ? tracking.route : [];
   const region = useMemo(
     () => regionFromPoints([...(route || []), destination, rider, store]),
     [route, destination, rider, store],
   );
-  const hasMapPoints = Boolean(destination || rider || route.length >= 2);
+  const hasMapPoints = Boolean(destination || store || rider || route.length >= 2);
 
   const openRating = () => {
     if (currentStatus === "Delivered" || currentStatus === "Completed") {
@@ -348,19 +372,29 @@ export default function OrderTrackingScreen() {
               <View>
                 <Text style={styles.arrivalLabel}>Estimated Arrival</Text>
                 <Text style={styles.arrivalTime}>
-                  {tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
+                  {isRiderAccepted && tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
                 </Text>
               </View>
               <View style={styles.arrivalRight}>
                 <Text style={styles.arrivalLabel}>By</Text>
-                <Text style={styles.arrivalBy}>{tracking?.arrival_by || "—"}</Text>
+                <Text style={styles.arrivalBy}>
+                  {isRiderAccepted && tracking?.arrival_by ? tracking.arrival_by : "—"}
+                </Text>
               </View>
               <View style={styles.distanceRow}>
                 <Ionicons name="location" size={14} color="#9CA3AF" />
                 <Text style={styles.distanceText}>
-                  {tracking?.distance_label
+                  {isRiderAccepted && tracking?.distance_label && tracking.distance_label !== "—"
                     ? `${tracking.distance_label} away from your location`
-                    : "Waiting for route…"}
+                    : rawStatus === "Pending"
+                      ? "Waiting for the store to confirm your order…"
+                      : rawStatus === "Confirmed"
+                        ? "Order confirmed · Waiting for kitchen to start preparing…"
+                        : rawStatus === "Ready"
+                          ? "Order is ready · Waiting for rider assignment…"
+                          : rawStatus === "Assigned"
+                            ? "Rider assigned · Waiting for rider to accept delivery…"
+                            : "Waiting for route…"}
                 </Text>
               </View>
             </View>
@@ -698,7 +732,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
   },
   activeIcon: {
-    backgroundColor: PRIMARY,
+    backgroundColor: "#22C55E",
   },
   pendingIcon: {
     backgroundColor: "#FFFFFF",

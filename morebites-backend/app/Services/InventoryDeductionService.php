@@ -34,6 +34,172 @@ class InventoryDeductionService
         return $unit ? "{$formatted} {$unit}" : $formatted;
     }
 
+    /**
+     * Resolves and snapshots the removed ingredients for an order line at order placement time,
+     * locking in the computed proportional deduction price (inventory unit price × qty_per_serving)
+     * so historical receipts and reports never change if inventory prices are updated later.
+     */
+    public function snapshotRemovedIngredientsForLine(array $line): ?array
+    {
+        $removed = $line['removed_ingredients'] ?? null;
+        if (empty($removed) || ! is_array($removed)) {
+            return null;
+        }
+
+        $menuId = $line['menu_item_id'] ?? null;
+        $lineSize = $line['size'] ?? null;
+        $lineIngredients = collect();
+
+        if ($menuId) {
+            $menu = MenuItem::query()->with(['sizes', 'ingredients.inventoryItem'])->find($menuId);
+            if ($menu) {
+                if (! empty($lineSize) && ($menu->has_sizes || $menu->sizes->isNotEmpty())) {
+                    $targetSize = trim((string) $lineSize);
+                    $sizeObj = $menu->sizes->first(
+                        fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+                    ) ?? $menu->sizes->first(
+                        fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                            || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+                    );
+
+                    if ($sizeObj) {
+                        $lineIngredients = $menu->ingredients->where('menu_item_size_id', $sizeObj->id);
+                    }
+                    if ($lineIngredients->isEmpty()) {
+                        $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                    }
+                } else {
+                    $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                    if ($lineIngredients->isEmpty()) {
+                        $lineIngredients = $menu->ingredients;
+                    }
+                }
+            }
+        }
+
+        $snapshots = [];
+        foreach ($removed as $r) {
+            $matchIng = null;
+            if (is_numeric($r) || (is_string($r) && is_numeric(trim($r)))) {
+                $targetId = (int) $r;
+                $matchIng = $lineIngredients->first(
+                    fn ($ing) => (int) $ing->inventory_item_id === $targetId || (int) $ing->id === $targetId
+                );
+                if (! $matchIng) {
+                    $inv = InventoryItem::withTrashed()->find($targetId);
+                    $snapshots[] = [
+                        'inventory_item_id' => $targetId,
+                        'name' => $inv?->name ?? 'Ingredient',
+                        'unit_price' => (float) ($inv?->price ?? 0.0),
+                        'price' => (float) ($inv?->price ?? 0.0),
+                    ];
+                    continue;
+                }
+            } elseif (is_string($r)) {
+                $targetName = strtolower(trim($r));
+                $matchIng = $lineIngredients->first(
+                    fn ($ing) => strtolower(trim((string) ($ing->inventoryItem?->name ?? ''))) === $targetName
+                );
+                if (! $matchIng) {
+                    $snapshots[] = [
+                        'name' => trim($r),
+                        'price' => 0.0,
+                    ];
+                    continue;
+                }
+            } elseif (is_array($r)) {
+                $invId = ! empty($r['inventory_item_id']) ? (int) $r['inventory_item_id'] : null;
+                $ingId = ! empty($r['id']) ? (int) $r['id'] : null;
+                $rName = ! empty($r['name']) ? strtolower(trim((string) $r['name'])) : '';
+
+                $matchIng = $lineIngredients->first(function ($ing) use ($invId, $ingId, $rName) {
+                    if ($invId && (int) $ing->inventory_item_id === $invId) {
+                        return true;
+                    }
+                    if ($ingId && (int) $ing->id === $ingId) {
+                        return true;
+                    }
+                    if ($rName !== '' && strtolower(trim((string) ($ing->inventoryItem?->name ?? ''))) === $rName) {
+                        return true;
+                    }
+                    return false;
+                });
+
+                if (! $matchIng) {
+                    $snapshots[] = [
+                        'id' => $ingId,
+                        'inventory_item_id' => $invId,
+                        'name' => $r['name'] ?? 'Ingredient',
+                        'price' => isset($r['price']) ? round((float) $r['price'], 2) : 0.0,
+                    ];
+                    continue;
+                }
+            }
+
+            if ($matchIng) {
+                $inv = $matchIng->inventoryItem;
+                $computed = $matchIng->computedPrice();
+                $snapshots[] = [
+                    'id' => $matchIng->id,
+                    'inventory_item_id' => (int) $matchIng->inventory_item_id,
+                    'name' => $inv?->name ?? (is_array($r) ? ($r['name'] ?? 'Ingredient') : 'Ingredient'),
+                    'qty_per_serving' => (float) $matchIng->qty_per_serving,
+                    'unit' => $matchIng->unit ?: $inv?->unit,
+                    'unit_price' => (float) ($inv?->price ?? 0.0),
+                    'price' => $computed > 0 ? $computed : (is_array($r) && isset($r['price']) ? round((float) $r['price'], 2) : 0.0),
+                ];
+            }
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * Resolves the authoritative unit price for an order line. When removed_ingredients
+     * are present on a menu-backed line item, deducts the snapshotted proportional
+     * ingredient prices from the menu/size base price so unit_price and removed_ingredients
+     * are always consistent.
+     */
+    public function resolveEffectiveUnitPriceForLine(array $line, ?array $snapshottedRemoved = null): float
+    {
+        $fallbackPrice = round((float) ($line['unit_price'] ?? 0.0), 2);
+        $removed = $snapshottedRemoved ?? $this->snapshotRemovedIngredientsForLine($line);
+
+        if (empty($removed) || empty($line['menu_item_id'])) {
+            return $fallbackPrice;
+        }
+
+        $menu = MenuItem::query()->with('sizes')->find($line['menu_item_id']);
+        if (! $menu) {
+            return $fallbackPrice;
+        }
+
+        $basePrice = (float) $menu->price;
+        $lineSize = $line['size'] ?? null;
+
+        if (! empty($lineSize) && ($menu->has_sizes || $menu->sizes->isNotEmpty())) {
+            $targetSize = trim((string) $lineSize);
+            $sizeObj = $menu->sizes->first(
+                fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+            ) ?? $menu->sizes->first(
+                fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                    || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+            );
+
+            if ($sizeObj && (float) $sizeObj->price > 0) {
+                $basePrice = (float) $sizeObj->price;
+            }
+        }
+
+        if ($basePrice <= 0) {
+            return $fallbackPrice;
+        }
+
+        $deduction = collect($removed)->sum(fn ($r) => (float) ($r['price'] ?? 0.0));
+
+        return max(0.0, round($basePrice - $deduction, 2));
+    }
+
     public function aggregateDemandsForLines(iterable $lines): array
     {
         $demands = [];

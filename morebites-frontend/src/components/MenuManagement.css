@@ -299,38 +299,40 @@
   border-bottom: none;
 }
 
-/* Archived Menu Items - Greyed Out State */
+/* Archived Menu Items - Legible Muted-Gray State (Consistent System-Wide) */
 .menu-table tr.menu-row-archived {
-  background-color: #F8F9FA;
-  opacity: 0.55;
+  background-color: #F8FAFC;
 }
 
 .menu-table tr.menu-row-archived:hover {
-  background-color: #F3F4F6;
+  background-color: #F1F5F9;
 }
 
 .menu-table tr.menu-row-archived .menu-img-container {
   filter: grayscale(100%);
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 .menu-table tr.menu-row-archived .menu-item-name,
-.menu-table tr.menu-row-archived .menu-item-desc,
 .menu-table tr.menu-row-archived .menu-price-text {
-  color: #9CA3AF !important;
+  color: #64748B !important;
+}
+
+.menu-table tr.menu-row-archived .menu-item-desc {
+  color: #94A3B8 !important;
 }
 
 .menu-table tr.menu-row-archived .menu-category-badge,
 .menu-table tr.menu-row-archived .menu-subcategory-badge {
-  background-color: #F3F4F6 !important;
-  color: #9CA3AF !important;
-  border-color: #E5E7EB !important;
+  background-color: #F1F5F9 !important;
+  color: #64748B !important;
+  border: 1px solid #E2E8F0 !important;
 }
 
 .menu-table tr.menu-row-archived .menu-size-pill {
-  background-color: #F3F4F6 !important;
-  color: #9CA3AF !important;
-  border-color: #E5E7EB !important;
+  background-color: #F1F5F9 !important;
+  color: #64748B !important;
+  border: 1px solid #E2E8F0 !important;
 }
 
 /* Image Thumbnail Column */

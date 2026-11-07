@@ -323,7 +323,10 @@ export default function CustomerManagement() {
                 </tr>
               ) : (
                 rows.map((c) => (
-                <tr key={c.db_id || c.id || c.name}>
+                <tr
+                  key={c.db_id || c.id || c.name}
+                  className={c.status && c.status !== 'ACTIVE' ? 'cm-row-inactive' : ''}
+                >
                   <td className="cm-name">{c.name}</td>
                   <td>{c.phone ? c.phone : <span className="cm-empty">Not provided yet</span>}</td>
                   <td className="cm-address-cell" title={c.address || undefined}>

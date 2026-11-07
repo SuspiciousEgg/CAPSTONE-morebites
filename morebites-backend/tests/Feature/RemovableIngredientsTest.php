@@ -228,11 +228,11 @@ class RemovableIngredientsTest extends TestCase
         $this->assertEquals(400.0, (float) $this->pepperoni->stock); // 500 - (2 * 50)
     }
 
-    public function test_inventory_price_acts_as_default_and_allows_recipe_override(): void
+    public function test_inventory_price_computes_proportionally_per_size_and_snapshots_at_order_time(): void
     {
         Sanctum::actingAs($this->admin);
 
-        // 1. Create an inventory item with price = 15.00
+        // 1. Create an inventory item with unit price = 15.00 per kg
         $spinach = InventoryItem::create([
             'name' => 'Fresh Spinach',
             'category' => 'Vegetables',
@@ -243,12 +243,17 @@ class RemovableIngredientsTest extends TestCase
 
         $this->assertEquals(15.00, (float) $spinach->price);
 
-        // 2. Create menu item size with price = 0 (no override -> should inherit 15.00)
+        // 2. Create menu item with 10" (500 g), 12" (1 kg), and 15" (2 kg) sizes
         $spinachPizza = MenuItem::create([
             'name' => 'Spinach Special Pizza',
             'category' => 'Pizza',
             'price' => 250.00,
             'available' => true,
+        ]);
+
+        $size10 = $spinachPizza->sizes()->create([
+            'name' => '10"',
+            'price' => 180.00,
         ]);
 
         $size12 = $spinachPizza->sizes()->create([
@@ -261,7 +266,16 @@ class RemovableIngredientsTest extends TestCase
             'price' => 350.00,
         ]);
 
-        // 12" has price = 0 (inherits 15.00 from inventory item)
+        // 10" uses 500 g (0.5 kg) -> 15.00 * 0.5 = 7.50
+        $size10->ingredients()->create([
+            'menu_item_id' => $spinachPizza->id,
+            'inventory_item_id' => $spinach->id,
+            'qty_per_serving' => 500,
+            'unit' => 'g',
+            'price' => 0.00,
+        ]);
+
+        // 12" uses 1 kg -> 15.00 * 1 = 15.00
         $size12->ingredients()->create([
             'menu_item_id' => $spinachPizza->id,
             'inventory_item_id' => $spinach->id,
@@ -270,28 +284,32 @@ class RemovableIngredientsTest extends TestCase
             'price' => 0.00,
         ]);
 
-        // 15" has explicit override price = 25.00
+        // 15" uses 2 kg -> 15.00 * 2 = 30.00
         $size15->ingredients()->create([
             'menu_item_id' => $spinachPizza->id,
             'inventory_item_id' => $spinach->id,
             'qty_per_serving' => 2,
             'unit' => 'kg',
-            'price' => 25.00,
+            'price' => 0.00,
         ]);
 
-        // 3. Verify in Menu API
+        // 3. Verify proportional computed prices in Admin Menu API
         $response = $this->getJson('/api/menu');
         $response->assertStatus(200);
 
         $menuItem = collect($response->json('data'))->firstWhere('id', $spinachPizza->id);
         $this->assertNotNull($menuItem);
 
+        $size10Data = collect($menuItem['sizes'])->firstWhere('name', '10"');
+        $this->assertEquals(7.50, (float) $size10Data['ingredients'][0]['price']);
+        $this->assertEquals(15.00, (float) $size10Data['ingredients'][0]['inventory_price']);
+
         $size12Data = collect($menuItem['sizes'])->firstWhere('name', '12"');
         $this->assertEquals(15.00, (float) $size12Data['ingredients'][0]['price']);
         $this->assertEquals(15.00, (float) $size12Data['ingredients'][0]['inventory_price']);
 
         $size15Data = collect($menuItem['sizes'])->firstWhere('name', '15"');
-        $this->assertEquals(25.00, (float) $size15Data['ingredients'][0]['price']);
+        $this->assertEquals(30.00, (float) $size15Data['ingredients'][0]['price']);
         $this->assertEquals(15.00, (float) $size15Data['ingredients'][0]['inventory_price']);
 
         // 4. Verify in Customer App API
@@ -303,11 +321,59 @@ class RemovableIngredientsTest extends TestCase
         $this->assertNotNull($custItem);
 
         $custSizes = $custItem['sizes'];
+        $cust10 = collect($custSizes)->firstWhere('sizeName', '10"');
+        $this->assertEquals(7.50, (float) $cust10['ingredients'][0]['price']);
+
         $cust12 = collect($custSizes)->firstWhere('sizeName', '12"');
         $this->assertEquals(15.00, (float) $cust12['ingredients'][0]['price']);
 
         $cust15 = collect($custSizes)->firstWhere('sizeName', '15"');
-        $this->assertEquals(25.00, (float) $cust15['ingredients'][0]['price']);
+        $this->assertEquals(30.00, (float) $cust15['ingredients'][0]['price']);
+
+        // 5. Place an order for 15" Spinach Special Pizza with Fresh Spinach removed (350 - 30 = 320)
+        $orderResp = $this->postJson('/api/customer/orders', [
+            'full_name' => 'Pizza Lover',
+            'phone' => '09123456789',
+            'delivery_address' => 'Poblacion, Dangcagan',
+            'payment_method' => 'COD',
+            'latitude' => 7.6100,
+            'longitude' => 124.9900,
+            'items' => [
+                [
+                    'menu_item_id' => $spinachPizza->id,
+                    'name' => 'Spinach Special Pizza (15")',
+                    'size' => '15"',
+                    'qty' => 1,
+                    'unit_price' => 320.00,
+                    'removed_ingredients' => [
+                        ['inventory_item_id' => $spinach->id, 'name' => 'Fresh Spinach', 'price' => 30.00],
+                    ],
+                ],
+            ],
+            'delivery_fee' => 20,
+            'service_fee' => 10,
+            'total' => 350.00,
+        ]);
+        $orderResp->assertStatus(201);
+        $orderId = $orderResp->json('data.id');
+
+        // 6. Update Inventory unit price for Fresh Spinach from 15.00/kg to 40.00/kg
+        $spinach->update(['price' => 40.00]);
+
+        // Live menu reflects the updated inventory price (15" uses 2 kg * 40.00 = 80.00)
+        $updatedMenuResp = $this->getJson('/api/customer/menu');
+        $updatedCustItem = collect($updatedMenuResp->json('data'))->firstWhere('name', 'Spinach Special Pizza');
+        $updatedCust15 = collect($updatedCustItem['sizes'])->firstWhere('sizeName', '15"');
+        $this->assertEquals(80.00, (float) $updatedCust15['ingredients'][0]['price']);
+
+        // Past order receipt and Admin order records retain the snapshotted price (320.00 item price, 30.00 deduction)
+        $historyResp = $this->getJson('/api/customer/orders');
+        $historyResp->assertStatus(200);
+        $pastOrder = collect($historyResp->json('data'))->firstWhere('id', (string) $orderId);
+        $this->assertNotNull($pastOrder);
+        $this->assertEquals(320.00, (float) $pastOrder['items'][0]['price']);
+        $this->assertEquals(30.00, (float) $pastOrder['items'][0]['removed_ingredients'][0]['price']);
+        $this->assertEquals(15.00, (float) $pastOrder['items'][0]['removed_ingredients'][0]['unit_price']);
     }
 }
 

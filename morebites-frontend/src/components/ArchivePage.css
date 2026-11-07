@@ -123,6 +123,20 @@
   border-bottom: none;
 }
 
+/* Archived Account Rows - Legible Muted-Gray State (Consistent System-Wide) */
+.ar-table tr.ar-row-archived {
+  background-color: #F8FAFC;
+}
+
+.ar-table tr.ar-row-archived:hover {
+  background-color: #F1F5F9;
+}
+
+.ar-table tr.ar-row-archived td,
+.ar-table tr.ar-row-archived .ar-id {
+  color: #64748B;
+}
+
 .ar-id {
   font-weight: 700;
   color: #1C1B18;
@@ -132,10 +146,10 @@
   display: inline-block;
   padding: 4px 12px;
   border-radius: 999px;
-  background: #F3F4F6;
-  color: #4B5563;
+  background: #6B7280;
+  color: #FFFFFF;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .ar-empty {

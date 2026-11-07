@@ -1063,7 +1063,17 @@ class CustomerAppController extends Controller
             app(\App\Services\LoyaltyService::class)->lazyCheckExpiry($lockedCustomer);
             $lockedCustomer->refresh();
 
-            $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+            $resolvedItems = collect($data['items'])->map(function ($item) use ($service) {
+                $snapshottedRemoved = $service->snapshotRemovedIngredientsForLine($item);
+                $effectiveUnitPrice = $service->resolveEffectiveUnitPriceForLine($item, $snapshottedRemoved);
+
+                return array_merge($item, [
+                    '_snapshotted_removed' => $snapshottedRemoved,
+                    'unit_price' => $effectiveUnitPrice,
+                ]);
+            })->all();
+
+            $subtotal = collect($resolvedItems)->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $tracking = app(TrackingService::class);
             $rates = app(DeliveryRateService::class);
 
@@ -1164,13 +1174,13 @@ class CustomerAppController extends Controller
                 ]);
             }
 
-            foreach ($data['items'] as $item) {
+            foreach ($resolvedItems as $item) {
                 OrderItem::query()->create([
                     'order_id' => $order->id,
                     'menu_item_id' => $item['menu_item_id'] ?? null,
                     'name' => $item['name'].(! empty($item['size']) ? ' ('.$item['size'].')' : ''),
                     'size' => $item['size'] ?? null,
-                    'removed_ingredients' => $item['removed_ingredients'] ?? null,
+                    'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
                     'qty' => $item['qty'],
                     'unit_price' => $item['unit_price'],
                     'line_total' => $item['qty'] * $item['unit_price'],
@@ -1318,7 +1328,8 @@ class CustomerAppController extends Controller
                 'name' => $ing->inventoryItem?->name ?? 'Ingredient',
                 'qty_per_serving' => (float) $ing->qty_per_serving,
                 'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
+                'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                'price' => $ing->computedPrice(),
             ])->values(),
         ])->values();
 
@@ -1329,7 +1340,8 @@ class CustomerAppController extends Controller
             'name' => $ing->inventoryItem?->name ?? 'Ingredient',
             'qty_per_serving' => (float) $ing->qty_per_serving,
             'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-            'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($ing->inventoryItem?->price ?? 0)),
+            'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+            'price' => $ing->computedPrice(),
         ])->values();
 
         $min = $sizes->min('price');
@@ -1379,7 +1391,8 @@ class CustomerAppController extends Controller
         $deliveredAt = $o->delivered_at ?? ($isCompleted ? $o->updated_at : null);
         $firstItem = $o->items->first();
         $prepSetting = \App\Models\StoreSetting::current();
-        $isPreparing = in_array($o->status, ['Preparing', 'Pending'], true);
+        $isPreparing = $o->status === 'Preparing';
+        $riderAccepted = in_array($o->status, ['Picked Up', 'Out for Delivery', 'Out For Delivery', 'Delivered', 'Completed'], true);
 
         return [
             'id' => $o->order_code,
@@ -1387,6 +1400,7 @@ class CustomerAppController extends Controller
             'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
+            'rider_accepted' => $riderAccepted,
             'is_preparing' => $isPreparing,
             'prep_time_min' => $prepSetting->min_prep_time,
             'prep_time_max' => $prepSetting->max_prep_time,
@@ -1406,6 +1420,8 @@ class CustomerAppController extends Controller
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'line_total' => (float) $i->line_total,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $firstItem?->name ?: 'Your order',
@@ -1423,8 +1439,8 @@ class CustomerAppController extends Controller
             'distance' => number_format((float) ($o->delivery_distance_km ?: 2.5), 1).'km',
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
             'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
-            'rider_lat' => $o->driver?->current_lat ? (float) $o->driver->current_lat : null,
-            'rider_lng' => $o->driver?->current_lng ? (float) $o->driver->current_lng : null,
+            'rider_lat' => ($riderAccepted && $o->driver?->current_lat) ? (float) $o->driver->current_lat : null,
+            'rider_lng' => ($riderAccepted && $o->driver?->current_lng) ? (float) $o->driver->current_lng : null,
             'rated' => (bool) $o->rated_at,
             'can_rate' => $displayStatus === 'Delivered' && ! $o->rated_at,
             'food_rating' => $o->food_rating ? (int) $o->food_rating : null,

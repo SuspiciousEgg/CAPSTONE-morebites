@@ -522,6 +522,43 @@
   color: #FFFFFF !important;
 }
 
+/* Archived Inventory Rows - Legible Muted-Gray State (Consistent System-Wide) */
+.inv-table tr.inv-row-archived {
+  background-color: #F8FAFC;
+}
+
+.inv-table tr.inv-row-archived:hover {
+  background-color: #F1F5F9;
+}
+
+.inv-table tr.inv-row-archived .inv-name,
+.inv-table tr.inv-row-archived .inv-stock-val,
+.inv-table tr.inv-row-archived .inv-stock-val strong,
+.inv-table tr.inv-row-archived .inv-price-val,
+.inv-table tr.inv-row-archived .inv-date-cell {
+  color: #64748B !important;
+}
+
+.inv-table tr.inv-row-archived .inv-category-text,
+.inv-table tr.inv-row-archived .inv-reorder-val,
+.inv-table tr.inv-row-archived .inv-unit {
+  color: #94A3B8 !important;
+}
+
+.inv-table tr.inv-row-archived .inv-days-pill,
+.inv-table tr.inv-row-archived .inv-batch-pill-item {
+  background-color: #F1F5F9 !important;
+  color: #64748B !important;
+  border-color: #E2E8F0 !important;
+}
+
+.inv-table tr.inv-row-archived .inv-batch-pill-badge,
+.inv-table tr.inv-row-archived .inv-batch-pill-qty,
+.inv-table tr.inv-row-archived .inv-batch-pill-exp {
+  background-color: transparent !important;
+  color: #64748B !important;
+}
+
 /* Actions */
 .inv-actions {
   display: flex;

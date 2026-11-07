@@ -1120,7 +1120,11 @@ export default function RecordsReports({ user: propUser }) {
 
         let remarksText = r.remarks
         if (!remarksText) {
-          if (Array.isArray(r.reported_issues) && r.reported_issues.length > 0) {
+          if (String(r.status || '').toLowerCase() === 'cancelled') {
+            remarksText = r.cancellation_reason
+              ? `Cancelled: ${r.cancellation_reason}`
+              : 'Order cancelled'
+          } else if (Array.isArray(r.reported_issues) && r.reported_issues.length > 0) {
             remarksText = r.reported_issues
               .map((iss) => {
                 const label = String(iss.issue || 'Delivery Issue').trim()
@@ -2008,7 +2012,12 @@ export default function RecordsReports({ user: propUser }) {
                           <span className={`reports-badge ${payClass}`}>{payMethod}</span>
                         </td>
                         <td>
-                          <span className={`reports-badge ${statusClass}`}>{r.status}</span>
+                          <span
+                            className={`reports-badge ${statusClass}`}
+                            title={r.cancellation_reason ? `Reason: ${r.cancellation_reason}` : undefined}
+                          >
+                            {r.status}
+                          </span>
                         </td>
                       </tr>
                     )
@@ -2105,8 +2114,18 @@ export default function RecordsReports({ user: propUser }) {
                     paginatedRows.map((r) => {
                       const statusClass = getStatusBadgeClass(r.status)
                       const displayId = r.id?.startsWith('#') ? r.id : `#${r.id}`
-                      const hasIssue = Array.isArray(r.reported_issues) && r.reported_issues.length > 0
-                      const remarksText = r.remarks || (hasIssue ? r.reported_issues.map((i) => i.issue).join('; ') : 'Delivered successfully')
+                      const isCancelled = String(r.status || '').toLowerCase() === 'cancelled'
+                      const hasIssue =
+                        isCancelled || (Array.isArray(r.reported_issues) && r.reported_issues.length > 0)
+                      const remarksText =
+                        r.remarks ||
+                        (isCancelled
+                          ? r.cancellation_reason
+                            ? `Cancelled: ${r.cancellation_reason}`
+                            : 'Order cancelled'
+                          : hasIssue
+                            ? r.reported_issues.map((i) => i.issue).join('; ')
+                            : 'Delivered successfully')
                       return (
                         <tr key={r.id}>
                           <td>{r.datetime}</td>

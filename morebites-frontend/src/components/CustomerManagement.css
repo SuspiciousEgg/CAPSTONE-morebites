@@ -300,6 +300,20 @@
   border-bottom: none;
 }
 
+/* Inactive Customer Rows - Legible Muted-Gray State (Consistent System-Wide) */
+.cm-table tr.cm-row-inactive {
+  background-color: #F8FAFC;
+}
+
+.cm-table tr.cm-row-inactive:hover {
+  background-color: #F1F5F9;
+}
+
+.cm-table tr.cm-row-inactive td,
+.cm-table tr.cm-row-inactive .cm-name {
+  color: #64748B;
+}
+
 .cm-name {
   font-weight: 600;
   color: #1C1B18;

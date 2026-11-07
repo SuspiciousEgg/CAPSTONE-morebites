@@ -419,7 +419,16 @@ class MenuController extends Controller
                             ? (float) $row['qty_per_serving']
                             : 1.0;
                         $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
-                        $price = isset($row['price']) && (float) $row['price'] >= 0 ? (float) $row['price'] : 0.0;
+                        $invItem = InventoryItem::find($inventoryId);
+                        $invPrice = (float) ($invItem?->price ?? 0.0);
+                        $recipeUnit = $unit ?: $invItem?->unit;
+                        $stockUnit = $invItem?->unit;
+                        $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                            ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                            : $qty;
+                        $price = $invPrice > 0
+                            ? round($invPrice * $qtyInStockUnit, 2)
+                            : (isset($row['price']) && (float) $row['price'] >= 0 ? round((float) $row['price'], 2) : 0.0);
 
                         $item->ingredients()->create([
                             'menu_item_size_id' => $matchingSize->id,
@@ -462,7 +471,14 @@ class MenuController extends Controller
                     $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
                     $invItem = InventoryItem::find((int) $row['inventory_item_id']);
                     $invPrice = (float) ($invItem?->price ?? 0.0);
-                    $price = isset($row['price']) && (float) $row['price'] > 0 ? (float) $row['price'] : $invPrice;
+                    $recipeUnit = $unit ?: $invItem?->unit;
+                    $stockUnit = $invItem?->unit;
+                    $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                        ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                        : $qty;
+                    $price = $invPrice > 0
+                        ? round($invPrice * $qtyInStockUnit, 2)
+                        : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
                     $item->ingredients()->create([
                         'menu_item_size_id' => $sizeId,
@@ -494,7 +510,14 @@ class MenuController extends Controller
             $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
             $invItem = InventoryItem::find($inventoryId);
             $invPrice = (float) ($invItem?->price ?? 0.0);
-            $price = isset($row['price']) && (float) $row['price'] > 0 ? (float) $row['price'] : $invPrice;
+            $recipeUnit = $unit ?: $invItem?->unit;
+            $stockUnit = $invItem?->unit;
+            $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                : $qty;
+            $price = $invPrice > 0
+                ? round($invPrice * $qtyInStockUnit, 2)
+                : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
             $item->ingredients()->create([
                 'menu_item_size_id' => null,
@@ -541,7 +564,7 @@ class MenuController extends Controller
                         'unit' => $ing->unit ?: $inv?->unit,
                         'inventory_unit' => $inv?->unit,
                         'inventory_price' => (float) ($inv?->price ?? 0),
-                        'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($inv?->price ?? 0)),
+                        'price' => $ing->computedPrice(),
                         'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                     ];
                 })->values(),
@@ -559,7 +582,7 @@ class MenuController extends Controller
                     'unit' => $ing->unit ?: $inv?->unit,
                     'inventory_unit' => $inv?->unit,
                     'inventory_price' => (float) ($inv?->price ?? 0),
-                    'price' => (float) (($ing->price !== null && (float) $ing->price > 0) ? $ing->price : ($inv?->price ?? 0)),
+                    'price' => $ing->computedPrice(),
                     'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                 ];
             })->values(),
