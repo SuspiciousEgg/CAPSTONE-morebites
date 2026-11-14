@@ -190,7 +190,18 @@ class OrderController extends Controller
                     }
                 }
 
-                $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+                $deductionService = app(InventoryDeductionService::class);
+                $resolvedItems = collect($data['items'])->map(function ($item) use ($deductionService) {
+                    $snapshottedRemoved = $deductionService->snapshotRemovedIngredientsForLine($item);
+                    $effectiveUnitPrice = $deductionService->resolveEffectiveUnitPriceForLine($item, $snapshottedRemoved);
+
+                    return array_merge($item, [
+                        '_snapshotted_removed' => $snapshottedRemoved,
+                        'unit_price' => $effectiveUnitPrice,
+                    ]);
+                })->all();
+
+                $total = collect($resolvedItems)->sum(fn ($i) => $i['qty'] * $i['unit_price']);
 
                 $order = Order::query()->create([
                     'order_code' => Order::generateOrderCode(),
@@ -206,7 +217,7 @@ class OrderController extends Controller
                     'delivery_address' => $data['delivery_address'] ?? null,
                 ]);
 
-                foreach ($data['items'] as $item) {
+                foreach ($resolvedItems as $item) {
                     $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
                     $name = ! empty($item['size']) && ! $hasSizeInName
                         ? $item['name'].' ('.$item['size'].')'
@@ -217,7 +228,7 @@ class OrderController extends Controller
                         'menu_item_id' => $item['menu_item_id'] ?? null,
                         'name' => $name,
                         'size' => $item['size'] ?? null,
-                        'removed_ingredients' => $item['removed_ingredients'] ?? null,
+                        'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
                         'qty' => $item['qty'],
                         'unit_price' => $item['unit_price'],
                         'line_total' => $item['qty'] * $item['unit_price'],
@@ -274,6 +285,18 @@ class OrderController extends Controller
             if ($order->status === 'Cancelled') {
                 return response()->json(['data' => $this->transform($order->load('items'))]);
             }
+
+            if (in_array($order->status, ['Completed', 'Delivered'], true)) {
+                return response()->json([
+                    'message' => 'Completed orders cannot be cancelled.',
+                    'errors' => ['status' => ['Completed orders cannot be cancelled.']],
+                ], 422);
+            }
+        } elseif ($order->status === 'Cancelled') {
+            return response()->json([
+                'message' => 'Cancelled orders cannot be reopened or updated.',
+                'errors' => ['status' => ['Cancelled orders cannot be reopened or updated.']],
+            ], 422);
         }
 
         $previous = $order->status;
@@ -304,9 +327,12 @@ class OrderController extends Controller
         if ($data['status'] !== $previous) {
             Notification::createOrderNotification($order);
             $actor = $user?->name ?: 'Staff';
+            $reasonSuffix = ($data['status'] === 'Cancelled' && $order->cancellation_reason)
+                ? " ({$order->cancellation_reason})"
+                : '';
             ActivityLog::query()->create([
                 'actor' => $actor,
-                'action' => "Order {$order->order_code} status updated to {$data['status']}",
+                'action' => "Order {$order->order_code} status updated to {$data['status']}{$reasonSuffix}",
             ]);
         }
 
@@ -341,7 +367,8 @@ class OrderController extends Controller
                             'name' => $ing->inventoryItem?->name ?? 'Ingredient',
                             'qty_per_serving' => (float) $ing->qty_per_serving,
                             'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                            'price' => (float) ($ing->price ?? 0),
+                            'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                            'price' => $ing->computedPrice(),
                         ])->values(),
                     ];
                 })->values();
@@ -353,7 +380,8 @@ class OrderController extends Controller
                     'name' => $ing->inventoryItem?->name ?? 'Ingredient',
                     'qty_per_serving' => (float) $ing->qty_per_serving,
                     'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                    'price' => (float) ($ing->price ?? 0),
+                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                    'price' => $ing->computedPrice(),
                 ])->values();
 
                 $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);

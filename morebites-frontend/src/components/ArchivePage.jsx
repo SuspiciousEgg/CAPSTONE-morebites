@@ -161,7 +161,7 @@ export default function ArchivePage({ embedded = false }) {
                 </tr>
               ) : (
                 pagedAdmins.map((a) => (
-                  <tr key={a.id}>
+                  <tr key={a.id} className="ar-row-archived">
                     <td className="ar-id">{a.id}</td>
                     <td>{a.name}</td>
                     <td>{a.email}</td>
@@ -244,7 +244,7 @@ export default function ArchivePage({ embedded = false }) {
                 </tr>
               ) : (
                 pagedDrivers.map((d) => (
-                  <tr key={d.id}>
+                  <tr key={d.id} className="ar-row-archived">
                     <td className="ar-id">{d.id}</td>
                     <td>{d.name}</td>
                     <td>{d.email}</td>

@@ -73,7 +73,7 @@ class TrackingController extends Controller
             'location_updated_at' => now(),
         ]);
 
-        if (in_array($order->status, ['Assigned', 'Picked Up', 'Out for Delivery'], true)) {
+        if ($tracking->isRiderAccepted($order)) {
             $tracking->updateLivePosition($order, $lat, $lng);
         } else {
             $order->update([
@@ -116,18 +116,21 @@ class TrackingController extends Controller
             }
         }
 
-        $point = $tracking->riderPoint($order) ?? $tracking->storePoint();
+        $riderAccepted = $tracking->isRiderAccepted($order);
+        $point = $riderAccepted ? ($tracking->riderPoint($order) ?? $tracking->storePoint()) : null;
 
         return response()->json([
             'data' => [
                 'delivery_id' => $order->id,
                 'order_id' => $order->order_code,
                 'status' => $order->status === 'Completed' ? 'Delivered' : $order->status,
-                'latitude' => (float) $point['latitude'],
-                'longitude' => (float) $point['longitude'],
+                'raw_status' => $order->status,
+                'rider_accepted' => $riderAccepted,
+                'latitude' => $point ? (float) $point['latitude'] : null,
+                'longitude' => $point ? (float) $point['longitude'] : null,
                 'updated_at' => $point['updated_at'] ?? $order->updated_at?->toIso8601String(),
-                'eta_mins' => $order->delivery_minutes,
-                'distance_km' => $order->delivery_distance_km ? (float) $order->delivery_distance_km : null,
+                'eta_mins' => $riderAccepted ? $order->delivery_minutes : null,
+                'distance_km' => ($riderAccepted && $order->delivery_distance_km) ? (float) $order->delivery_distance_km : null,
             ],
         ]);
     }

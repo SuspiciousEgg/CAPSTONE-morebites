@@ -30,16 +30,19 @@ export default function OrderDetailsScreen() {
   }, [reload]);
 
   const currentStep = statusStep(order?.status);
-  const isDelivered = order?.status === "Delivered";
-  const canProceed = !isDelivered && Boolean(order?.status);
+  const isDelivered = order?.status === "Delivered" || order?.status === "Completed";
+  const isCancelled = order?.status === "Cancelled";
+  const canProceed = !isDelivered && !isCancelled && Boolean(order?.status);
   const buttonLabel = isDelivered
     ? "Completed"
-    : order?.status === "Assigned"
-      ? "Proceed →"
-      : "Continue →";
+    : isCancelled
+      ? "Order Cancelled"
+      : order?.status === "Assigned"
+        ? "Proceed →"
+        : "Continue →";
 
   const continueOrder = () => {
-    if (!order || isDelivered) return;
+    if (!order || isDelivered || isCancelled) return;
     const params = {
       id: String(order.id || orderId),
       dbId: String(dbId),
@@ -145,15 +148,29 @@ export default function OrderDetailsScreen() {
 
           <Text style={styles.sectionLabel}>ITEMS</Text>
           <View style={styles.card}>
-            {(order.items || []).map((item, index) => (
-              <View key={`${item.name}-${index}`}>
-                {index > 0 ? <View style={styles.itemDivider} /> : null}
-                <View style={styles.itemRow}>
-                  <Text style={styles.itemName}>{item.label}</Text>
-                  <Text style={styles.itemPrice}>{formatPeso(item.line_total)}</Text>
+            {(order.items || []).map((item, index) => {
+              const removedList = Array.isArray(item.removed_ingredients)
+                ? item.removed_ingredients
+                    .map((r) => `No ${typeof r === "object" ? r?.name || "Ingredient" : String(r)}`)
+                    .join(", ")
+                : "";
+              return (
+                <View key={`${item.name}-${index}`}>
+                  {index > 0 ? <View style={styles.itemDivider} /> : null}
+                  <View style={styles.itemRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.itemName}>{item.label}</Text>
+                      {removedList ? (
+                        <Text style={{ fontFamily: FONT, fontSize: 12, color: "#DC2626", marginTop: 2 }}>
+                          {removedList}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.itemPrice}>{formatPeso(item.line_total)}</Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
             <View style={styles.totalDivider} />
             <View style={styles.itemRow}>
               <Text style={styles.totalLabel}>Total</Text>

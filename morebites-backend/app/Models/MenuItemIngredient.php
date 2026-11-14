@@ -38,4 +38,30 @@ class MenuItemIngredient extends Model
     {
         return $this->belongsTo(InventoryItem::class);
     }
+
+    /**
+     * Computes the proportional ingredient price for this recipe row:
+     * inventory unit price × qty_per_serving (converted to the inventory item's stock unit).
+     */
+    public function computedPrice(): float
+    {
+        $inv = $this->relationLoaded('inventoryItem')
+            ? $this->inventoryItem
+            : $this->inventoryItem()->withTrashed()->first();
+
+        $qty = (float) ($this->qty_per_serving > 0 ? $this->qty_per_serving : 1.0);
+        $invUnitPrice = (float) ($inv?->price ?? 0.0);
+
+        if ($inv && $invUnitPrice > 0) {
+            $recipeUnit = $this->unit ?: $inv->unit;
+            $stockUnit = $inv->unit;
+            $qtyInStockUnit = \App\Support\UnitConverter::isCompatible($recipeUnit, $stockUnit)
+                ? \App\Support\UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                : $qty;
+
+            return round($invUnitPrice * $qtyInStockUnit, 2);
+        }
+
+        return round((float) ($this->price ?? 0.0), 2);
+    }
 }

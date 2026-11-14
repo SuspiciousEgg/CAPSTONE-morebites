@@ -439,14 +439,15 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         notificationsApi.unreadCount(),
         notificationsApi.list(),
       ])
-      const count = countRes.data?.count ?? countRes.data?.data?.count ?? 0
+      const rawCount = countRes.data?.count ?? countRes.data?.data?.count
       const list = listRes.data?.data || []
       if (Array.isArray(list)) {
         setNotifications(list)
-        // Strictly derive badge count and list unread status from identical backend data
+      }
+      if (rawCount !== undefined && rawCount !== null) {
+        setUnreadCount(Number(rawCount) || 0)
+      } else if (Array.isArray(list)) {
         setUnreadCount(list.filter((n) => Boolean(n.unread)).length)
-      } else {
-        setUnreadCount(Number(count) || 0)
       }
     } catch (err) {
       console.error('Failed to load notifications:', err)

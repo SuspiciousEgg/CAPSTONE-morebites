@@ -77,6 +77,7 @@ class ReportController extends Controller
                 'amount' => (float) $o->total,
                 'payment' => $o->payment_method ?: 'COD',
                 'status' => $o->status ?: 'Preparing',
+                'cancellation_reason' => $o->cancellation_reason,
             ];
         })->values();
 
@@ -116,9 +117,18 @@ class ReportController extends Controller
                     ->filter()
                     ->implode('; ');
 
-                $remarks = $incidentText !== ''
-                    ? $incidentText
-                    : 'Delivery completed successfully without any incidents.';
+                if ($o->status === 'Cancelled') {
+                    $cancelText = $o->cancellation_reason
+                        ? "Cancelled: {$o->cancellation_reason}"
+                        : 'Order cancelled';
+                    $remarks = $incidentText !== ''
+                        ? "{$cancelText}; {$incidentText}"
+                        : $cancelText;
+                } else {
+                    $remarks = $incidentText !== ''
+                        ? $incidentText
+                        : 'Delivery completed successfully without any incidents.';
+                }
 
                 $deliveryDate = ($o->delivered_at ?? $o->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d');
                 $deliveryTime = $o->delivered_at
@@ -150,6 +160,7 @@ class ReportController extends Controller
                     'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
                     'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
                     'status' => $o->status ?: 'Preparing',
+                    'cancellation_reason' => $o->cancellation_reason,
                     'type' => $o->order_type,
                     'order_type' => $o->order_type,
                     'reported_issues' => $issues,

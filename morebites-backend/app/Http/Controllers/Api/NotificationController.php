@@ -67,7 +67,7 @@ class NotificationController extends Controller
             ->withExists(['reads as is_read_by_user' => function ($q) use ($user) {
                 $q->where('user_id', $user->id);
             }])
-            ->take(50)
+            ->take(200)
             ->get()
             ->map(fn (Notification $n) => $this->transform($n, (bool) $n->is_read_by_user));
 

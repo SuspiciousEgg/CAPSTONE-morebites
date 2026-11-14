@@ -1167,8 +1167,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               ) : (
                 rows.map((item) => {
                   const sc = statusClass(item.status)
+                  const isArchivedRow =
+                    currentTab === 'archived' ||
+                    item.status === 'Archived' ||
+                    Boolean(item.archived)
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={isArchivedRow ? 'inv-row-archived' : ''}>
                       <td>
                         <div className="inv-name">{item.name}</div>
                       </td>

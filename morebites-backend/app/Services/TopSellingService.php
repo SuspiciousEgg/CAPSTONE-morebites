@@ -121,7 +121,7 @@ class TopSellingService
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
 
             $items = MenuItem::query()
-                ->with(['sizes', 'ingredients.inventoryItem'])
+                ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
                 ->whereIn('id', $itemIds)
                 ->get()
                 ->sortBy(fn ($m) => array_search($m->id, $itemIds))
@@ -136,7 +136,7 @@ class TopSellingService
 
         // 2. Fallback Tier 1: Return menu items where is_featured is true
         $featuredItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('is_featured', true)
@@ -149,7 +149,7 @@ class TopSellingService
 
         // 3. Fallback Tier 2: Return most recently created active menu items, newest first
         $newestItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('available', true)
@@ -191,6 +191,26 @@ class TopSellingService
                 'sizeName' => $s->name,
                 'name' => $s->name,
                 'price' => (float) $s->price,
+                'ingredients' => $s->ingredients->map(fn ($ing) => [
+                    'id' => $ing->id,
+                    'inventory_item_id' => $ing->inventory_item_id,
+                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                    'qty_per_serving' => (float) $ing->qty_per_serving,
+                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                    'price' => $ing->computedPrice(),
+                ])->values(),
+            ])->values();
+
+            $ingredients = $m->ingredients->map(fn ($ing) => [
+                'id' => $ing->id,
+                'menu_item_size_id' => $ing->menu_item_size_id,
+                'inventory_item_id' => $ing->inventory_item_id,
+                'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                'qty_per_serving' => (float) $ing->qty_per_serving,
+                'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                'price' => $ing->computedPrice(),
             ])->values();
 
             $min = $sizes->min('price');
@@ -239,6 +259,7 @@ class TopSellingService
                 'priceLabel' => $priceLabel,
                 'hasSizes' => (bool) $m->has_sizes,
                 'sizes' => $sizes,
+                'ingredients' => $ingredients,
                 'available' => $isAvailable,
                 'availability' => $isAvailable,
                 'stockOk' => $stockOk,

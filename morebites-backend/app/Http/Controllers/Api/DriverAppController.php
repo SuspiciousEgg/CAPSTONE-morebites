@@ -128,6 +128,7 @@ class DriverAppController extends Controller
         }
 
         abort_if($order->status === 'Completed', 422, 'Customer rating cannot be modified after the order is completed.');
+        abort_if($order->status === 'Cancelled', 422, 'Cancelled orders cannot be updated.');
 
         $data = $request->validate([
             'status' => ['required', 'string', Rule::in(self::DRIVER_STATUSES)],
@@ -158,6 +159,10 @@ class DriverAppController extends Controller
         }
 
         $order->update($payload);
+
+        if (in_array($status, ['Picked Up', 'Out for Delivery'], true)) {
+            app(\App\Services\TrackingService::class)->ensureRoute($order->fresh()->load('driver'));
+        }
 
         ActivityLog::query()->create([
             'actor' => $user->name,
@@ -264,7 +269,7 @@ class DriverAppController extends Controller
 
         $active = Order::query()
             ->where('driver_id', $user->id)
-            ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery'])
+            ->whereIn('status', ['Picked Up', 'Out for Delivery'])
             ->latest()
             ->first();
 
@@ -293,7 +298,7 @@ class DriverAppController extends Controller
 
         $data = $request->validate([
             'issue' => ['required', 'string', 'max:255'],
-            'notes' => ['nullable', 'string', 'max:1000'],
+            'notes' => ['required', 'string', 'max:1000'],
         ]);
 
         ActivityLog::query()->create([
@@ -432,6 +437,8 @@ class DriverAppController extends Controller
             'payment_status' => $o->payment_status,
             'items' => $o->items->map(fn ($i) => [
                 'name' => $i->name,
+                'size' => $i->size,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
                 'qty' => (int) $i->qty,
                 'unit_price' => (float) $i->unit_price,
                 'line_total' => (float) $i->line_total,

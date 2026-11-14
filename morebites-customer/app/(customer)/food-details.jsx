@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { useCart } from "../../src/context/CartContext";
-import { mediaUrl } from "../../src/api/client";
+import { customerApi, mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -80,7 +80,12 @@ function getItem(params) {
 
 export default function FoodDetailsScreen() {
   const params = useLocalSearchParams();
-  const item = getItem(params);
+  const initialItem = getItem(params);
+  const [hydratedData, setHydratedData] = useState(null);
+  const item = useMemo(
+    () => (hydratedData ? { ...initialItem, ...hydratedData } : initialItem),
+    [initialItem, hydratedData]
+  );
   const isAvailable = item.availability !== false && item.available !== false;
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
@@ -94,11 +99,58 @@ export default function FoodDetailsScreen() {
     return () => clearTimeout(navigationTimer.current);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await customerApi.menu();
+        const menuList = Array.isArray(res?.data) ? res.data : [];
+        const match = menuList.find(
+          (m) =>
+            String(m.id) === String(initialItem.id) ||
+            (m.db_id != null && String(m.db_id) === String(initialItem.db_id ?? initialItem.id)) ||
+            String(m.name || "").trim().toLowerCase() === String(initialItem.name || "").trim().toLowerCase()
+        );
+        if (!cancelled && match) {
+          setHydratedData({
+            sizes: Array.isArray(match.sizes) && match.sizes.length > 0 ? match.sizes : initialItem.sizes,
+            ingredients:
+              Array.isArray(match.ingredients) && match.ingredients.length > 0
+                ? match.ingredients
+                : initialItem.ingredients,
+          });
+          if (Array.isArray(match.sizes) && match.sizes.length > 0) {
+            setSelectedSize((prev) => {
+              const targetName = prev?.sizeName || prev?.name;
+              return (
+                match.sizes.find((s) => (s.sizeName || s.name) === targetName) ||
+                match.sizes[0]
+              );
+            });
+          }
+        }
+      } catch {
+        // Keep route params fallback if offline
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialItem.id, initialItem.name]);
+
   const activeIngredients = useMemo(() => {
     if (selectedSize && Array.isArray(selectedSize.ingredients) && selectedSize.ingredients.length > 0) {
       return selectedSize.ingredients;
     }
-    return Array.isArray(item.ingredients) ? item.ingredients : [];
+    const allIngs = Array.isArray(item.ingredients) ? item.ingredients : [];
+    if (selectedSize?.id != null) {
+      const bySizeId = allIngs.filter(
+        (ing) => ing.menu_item_size_id != null && String(ing.menu_item_size_id) === String(selectedSize.id)
+      );
+      if (bySizeId.length > 0) return bySizeId;
+    }
+    const baseIngs = allIngs.filter((ing) => ing.menu_item_size_id == null);
+    return baseIngs.length > 0 ? baseIngs : allIngs;
   }, [selectedSize, item.ingredients]);
 
   const basePrice = selectedSize ? Number(selectedSize.price) : item.price;
@@ -273,7 +325,9 @@ export default function FoodDetailsScreen() {
                     {ingPrice > 0 ? (
                       <View style={[styles.ingredientPriceBadge, isRemoved && styles.ingredientPriceBadgeRemoved]}>
                         <Text style={[styles.ingredientPriceText, isRemoved && styles.ingredientPriceTextRemoved]}>
-                          {isRemoved ? `-₱${ingPrice.toFixed(0)}` : `₱${ingPrice.toFixed(0)}`}
+                          {isRemoved
+                            ? `-₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`
+                            : `₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`}
                         </Text>
                       </View>
                     ) : (
@@ -331,7 +385,7 @@ export default function FoodDetailsScreen() {
         >
           <Ionicons name="cart-outline" size={24} color="#FFFFFF" />
           <Text style={styles.addButtonText}>
-            {isAvailable ? `Add to Cart • ₱${effectivePrice.toFixed(2)}` : "Unavailable"}
+            {isAvailable ? "Add to Cart" : "Unavailable"}
           </Text>
         </Pressable>
       </View>

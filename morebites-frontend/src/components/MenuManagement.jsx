@@ -129,6 +129,26 @@ function areUnitsCompatible(unitA, unitB) {
   return catA === catB
 }
 
+function convertUnitQty(qty, fromUnit, toUnit) {
+  const q = Number(qty)
+  if (!Number.isFinite(q) || q <= 0) return 0
+  const from = normalizeUnitName(fromUnit)
+  const to = normalizeUnitName(toUnit || fromUnit)
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return q
+  if (from === 'g' && to === 'kg') return q / 1000
+  if (from === 'kg' && to === 'g') return q * 1000
+  if (from === 'ml' && to === 'L') return q / 1000
+  if (from === 'L' && to === 'ml') return q * 1000
+  return q
+}
+
+function computeIngredientPortionPrice(unitPrice, qtyPerServing, recipeUnit, inventoryUnit) {
+  const uPrice = Number(unitPrice || 0)
+  if (!Number.isFinite(uPrice) || uPrice <= 0) return 0
+  const qtyInStockUnit = convertUnitQty(qtyPerServing, recipeUnit, inventoryUnit)
+  return Math.round(uPrice * qtyInStockUnit * 100) / 100
+}
+
 function getSelectableUnits(inventoryUnit) {
   const normInv = normalizeUnitName(inventoryUnit)
   const cat = getUnitCategory(normInv)
@@ -156,21 +176,35 @@ function getSelectableUnits(inventoryUnit) {
 }
 
 function mapIngredientRows(list) {
-  return (list || []).map((row) => ({
-    inventory_item_id: String(row.inventory_item_id || ''),
-    qty_per_serving:
+  return (list || []).map((row) => {
+    const qtyStr =
       row.qty_per_serving != null && row.qty_per_serving !== ''
         ? String(Number(row.qty_per_serving))
-        : '1',
-    price:
-      row.price != null && row.price !== ''
-        ? String(row.price)
-        : '0',
-    name: row.name || '',
-    unit: row.unit || row.inventory_unit || '',
-    inventory_unit: row.inventory_unit || row.unit || '',
-    stock: row.stock ?? '',
-  }))
+        : '1'
+    const recipeUnit = row.unit || row.inventory_unit || ''
+    const invUnit = row.inventory_unit || row.unit || ''
+    const invPrice =
+      row.inventory_price != null && row.inventory_price !== ''
+        ? Number(row.inventory_price)
+        : 0
+    const computed =
+      invPrice > 0
+        ? computeIngredientPortionPrice(invPrice, qtyStr, recipeUnit, invUnit)
+        : row.price != null && row.price !== ''
+          ? Number(row.price)
+          : 0
+
+    return {
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: qtyStr,
+      inventory_price: invPrice,
+      price: String(computed),
+      name: row.name || '',
+      unit: recipeUnit,
+      inventory_unit: invUnit,
+      stock: row.stock ?? '',
+    }
+  })
 }
 
 function emptyForm() {
@@ -299,6 +333,25 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   }, [safeActiveSizeIndex])
 
   function updateIngredient(index, key, value) {
+    const syncRowComputedPrice = (row) => {
+      const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+      const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+      const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+      const recipeUnit = row.unit || invUnit || 'pcs'
+      row.inventory_price = unitPrice
+      if (unitPrice > 0) {
+        row.price = String(
+          computeIngredientPortionPrice(
+            unitPrice,
+            row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+            recipeUnit,
+            invUnit,
+          ),
+        )
+      }
+      return row
+    }
+
     if (form.hasSizes) {
       setForm((prev) => {
         const nextSizes = prev.sizes.map((size, sIdx) => {
@@ -312,15 +365,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                 nextRow.name = inv.name
                 nextRow.stock = inv.stock
                 nextRow.inventory_unit = inv.unit
+                nextRow.inventory_price = Number(inv.price || 0)
                 if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                   nextRow.unit = inv.unit || 'pcs'
                 }
-                if (inv.price != null && (!nextRow.price || Number(nextRow.price) === 0)) {
-                  nextRow.price = String(inv.price)
-                }
               }
             }
-            return nextRow
+            return syncRowComputedPrice(nextRow)
           })
           return { ...size, ingredients: nextIngs }
         })
@@ -338,15 +389,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               nextRow.name = inv.name
               nextRow.stock = inv.stock
               nextRow.inventory_unit = inv.unit
+              nextRow.inventory_price = Number(inv.price || 0)
               if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                 nextRow.unit = inv.unit || 'pcs'
               }
-              if (inv.price != null && (!nextRow.price || Number(nextRow.price) === 0)) {
-                nextRow.price = String(inv.price)
-              }
             }
           }
-          return nextRow
+          return syncRowComputedPrice(nextRow)
         }),
       }))
     }
@@ -422,6 +471,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     const cloned = sourceIngs.map((row) => ({
       inventory_item_id: String(row.inventory_item_id || ''),
       qty_per_serving: String(row.qty_per_serving || '1'),
+      inventory_price: Number(row.inventory_price || 0),
       price: String(row.price != null && row.price !== '' ? row.price : '0'),
       name: row.name || '',
       unit: row.unit || row.inventory_unit || '',
@@ -571,7 +621,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           price: Number(s.price),
           ingredients: recipeRows.map((row) => {
             const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
-            const effectivePrice = inv?.price != null ? Number(inv.price) : Number(row.price || 0)
+            const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+            const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+            const recipeUnit = row.unit || invUnit || 'pcs'
+            const effectivePrice =
+              unitPrice > 0
+                ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit)
+                : Number(row.price || 0)
             return {
               inventory_item_id: Number(row.inventory_item_id),
               qty_per_serving: Number(row.qty_per_serving),
@@ -637,7 +693,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         sizes: [],
         ingredients: recipeRows.map((row) => {
           const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
-          const effectivePrice = inv?.price != null ? Number(inv.price) : Number(row.price || 0)
+          const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+          const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+          const recipeUnit = row.unit || invUnit || 'pcs'
+          const effectivePrice =
+            unitPrice > 0
+              ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit)
+              : Number(row.price || 0)
           return {
             inventory_item_id: Number(row.inventory_item_id),
             qty_per_serving: Number(row.qty_per_serving),
@@ -1112,7 +1174,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                           selectedIds.has(optId) && optId !== currentId
                         const priceLabel =
                           opt.price > 0
-                            ? ` · ₱${Number(opt.price) % 1 === 0 ? Number(opt.price) : Number(opt.price).toFixed(2)}`
+                            ? ` · ₱${Number(opt.price) % 1 === 0 ? Number(opt.price) : Number(opt.price).toFixed(2)}${opt.unit ? `/${opt.unit}` : ''}`
                             : ''
                         return (
                           <option key={optId} value={optId} disabled={taken}>
@@ -1152,9 +1214,18 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                     </select>
                     <div
                       className="menu-recipe-price-pill"
-                      title="Ingredient price configured in Inventory"
+                      title="Computed as Inventory unit price × portion for this size"
                     >
-                      ₱{Number((pickedInv?.price ?? row.inventory_price ?? row.price) || 0).toFixed(2)}
+                      ₱{(
+                        (pickedInv?.price ?? row.inventory_price ?? 0) > 0
+                          ? computeIngredientPortionPrice(
+                              pickedInv?.price ?? row.inventory_price ?? 0,
+                              row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+                              currentUnit,
+                              invUnit,
+                            )
+                          : Number(row.price || 0)
+                      ).toFixed(2)}
                     </div>
                     <button
                       type="button"

@@ -227,8 +227,32 @@ class TrackingService
         ];
     }
 
+    public const ACTIVE_DELIVERY_STATUSES = [
+        'Assigned',
+        'Picked Up',
+        'Out for Delivery',
+        'Out For Delivery',
+    ];
+
+    public const RIDER_ACCEPTED_STATUSES = [
+        'Picked Up',
+        'Out for Delivery',
+        'Out For Delivery',
+        'Delivered',
+        'Completed',
+    ];
+
+    public function isRiderAccepted(Order $order): bool
+    {
+        return in_array($order->status, self::RIDER_ACCEPTED_STATUSES, true);
+    }
+
     public function riderPoint(Order $order): ?array
     {
+        if (! $this->isRiderAccepted($order)) {
+            return null;
+        }
+
         if ($order->current_lat && $order->current_lng) {
             return [
                 'latitude' => (float) $order->current_lat,
@@ -249,13 +273,6 @@ class TrackingService
         ];
     }
 
-    public const ACTIVE_DELIVERY_STATUSES = [
-        'Assigned',
-        'Picked Up',
-        'Out for Delivery',
-        'Out For Delivery',
-    ];
-
     public function trackingPayload(Order $order): array
     {
         $order = $this->ensureDestination($order->loadMissing(['driver', 'items.menuItem', 'customer']));
@@ -263,15 +280,13 @@ class TrackingService
             'latitude' => (float) $order->dest_lat,
             'longitude' => (float) $order->dest_lng,
         ];
-        $rider = $this->riderPoint($order);
-        if (! $rider && in_array($order->status, self::ACTIVE_DELIVERY_STATUSES, true)) {
-            $rider = $this->storePoint();
-        }
+        $riderAccepted = $this->isRiderAccepted($order);
+        $rider = $riderAccepted ? ($this->riderPoint($order) ?? $this->storePoint()) : null;
         $coords = [];
         $distanceKm = null;
         $etaMins = null;
 
-        if ($rider) {
+        if ($riderAccepted && $rider) {
             $coords = $order->route_coordinates;
             if (! is_array($coords) || count($coords) < 2) {
                 $order = $this->ensureRoute($order, $rider);
@@ -290,7 +305,7 @@ class TrackingService
         $deliveredAt = $order->delivered_at ?? ($isCompleted ? $order->updated_at : null);
         $rates = app(DeliveryRateService::class);
         $prepSetting = \App\Models\StoreSetting::current();
-        $isPreparing = in_array($order->status, ['Preparing', 'Pending'], true);
+        $isPreparing = $order->status === 'Preparing';
 
         return [
             'order_id' => $order->order_code,
@@ -299,6 +314,7 @@ class TrackingService
             'receipt_number' => $order->receiptNumber(),
             'status' => $status,
             'raw_status' => $order->status,
+            'rider_accepted' => $riderAccepted,
             'is_preparing' => $isPreparing,
             'prep_time_min' => $prepSetting->min_prep_time,
             'prep_time_max' => $prepSetting->max_prep_time,
@@ -317,12 +333,12 @@ class TrackingService
             'reported_issues' => $order->reportedIssues(),
             'eta_mins' => $etaMins,
             'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : '—',
+            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : null,
             'arrival_by' => $etaMins ? now()->addMinutes($etaMins)->format('g:i A') : null,
             'store' => $this->storePoint(),
             'destination' => $destination,
             'rider' => $rider,
-            'route' => is_array($coords) ? array_values($coords) : [],
+            'route' => ($riderAccepted && is_array($coords)) ? array_values($coords) : [],
             'updated_at' => $order->updated_at?->toIso8601String(),
             'timeline' => $this->timeline($order),
             'items' => $order->items->map(fn ($i) => [
@@ -331,6 +347,8 @@ class TrackingService
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'line_total' => (float) ($i->line_total ?? ((float) $i->unit_price * (int) $i->qty)),
+                'removed_ingredients' => $i->removed_ingredients ?? [],
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $order->items->first()?->name ?: 'Your order',
@@ -436,29 +454,35 @@ class TrackingService
         $prepSetting = \App\Models\StoreSetting::current();
         $prepLabel = $prepSetting->formattedLabel();
         $steps = [
-            ['key' => 'Pending', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
+            ['key' => 'Confirmed', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
             ['key' => 'Preparing', 'title' => 'Preparing', 'description' => "Your food is being prepared · ready in {$prepLabel} (est.)", 'icon' => 'checkmark'],
             ['key' => 'Out for Delivery', 'title' => 'Out For Delivery', 'description' => 'Your order is on the way', 'icon' => 'bicycle'],
             ['key' => 'Delivered', 'title' => 'Delivered', 'description' => 'Order will be delivered soon', 'icon' => 'home-outline'],
         ];
 
-        $rank = match ($status) {
-            'Pending' => 0,
-            'Preparing', 'Ready', 'Assigned' => 1,
-            'Picked Up', 'Out for Delivery' => 2,
-            'Delivered', 'Completed' => 3,
-            default => 0,
+        $stepStates = match ($status) {
+            'Pending' => ['pending', 'pending', 'pending', 'pending'],
+            'Confirmed' => ['complete', 'pending', 'pending', 'pending'],
+            'Preparing' => ['complete', 'active', 'pending', 'pending'],
+            'Ready', 'Assigned' => ['complete', 'complete', 'pending', 'pending'],
+            'Picked Up', 'Out for Delivery', 'Out For Delivery' => ['complete', 'complete', 'active', 'pending'],
+            'Delivered', 'Completed' => ['complete', 'complete', 'complete', 'complete'],
+            default => ['pending', 'pending', 'pending', 'pending'],
         };
 
-        return array_map(function ($step, $index) use ($rank, $order) {
-            $state = $index < $rank ? 'complete' : ($index === $rank ? 'active' : 'pending');
+        return array_map(function ($step, $index) use ($stepStates, $order) {
+            $state = $stepStates[$index] ?? 'pending';
             $timestamp = null;
-            if ($index === 0 && $order->created_at) {
-                $timestamp = $order->created_at->format('g:i A');
-            } elseif ($index === 2 && $order->assigned_at) {
-                $timestamp = $order->assigned_at->format('g:i A');
-            } elseif ($index === 3 && $order->delivered_at) {
-                $timestamp = $order->delivered_at->format('g:i A');
+            if ($state !== 'pending') {
+                if ($index === 0 && $order->created_at) {
+                    $timestamp = $order->created_at->format('g:i A');
+                } elseif ($index === 2) {
+                    $timeSource = $order->updated_at ?? $order->assigned_at;
+                    $timestamp = $timeSource?->format('g:i A');
+                } elseif ($index === 3) {
+                    $timeSource = $order->delivered_at ?? $order->updated_at;
+                    $timestamp = $timeSource?->format('g:i A');
+                }
             }
 
             return [...$step, 'state' => $state, 'timestamp' => $timestamp];
