@@ -12,8 +12,8 @@ class TrackingService
     public function storePoint(): array
     {
         return [
-            'latitude' => (float) config('services.maps.store_lat', 7.6094),
-            'longitude' => (float) config('services.maps.store_lng', 124.9883),
+            'latitude' => (float) config('services.maps.store_lat', 7.610688),
+            'longitude' => (float) config('services.maps.store_lng', 125.005047),
         ];
     }
 
@@ -423,6 +423,7 @@ class TrackingService
                     'updated_date' => $order->updated_at?->format('M d, Y'),
                     'updated_at' => $payload['updated_at'],
                     'assigned_at' => $order->assigned_at?->format('M d, Y g:i A'),
+                    'store' => $payload['store'],
                     'destination' => $payload['destination'],
                     'rider' => $payload['rider'],
                     'route' => $payload['route'],
@@ -445,6 +446,7 @@ class TrackingService
         return [
             'deliveries' => $deliveries,
             'monitoring' => $deliveries,
+            'store' => $this->storePoint(),
         ];
     }
 

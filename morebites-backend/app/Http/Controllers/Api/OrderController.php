@@ -151,6 +151,7 @@ class OrderController extends Controller
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.size' => ['nullable', 'string'],
             'items.*.removed_ingredients' => ['nullable', 'array'],
+            'items.*.special_instructions' => ['nullable', 'string', 'max:500'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'delivery_address' => ['nullable', 'string'],
@@ -229,6 +230,7 @@ class OrderController extends Controller
                         'name' => $name,
                         'size' => $item['size'] ?? null,
                         'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
+                        'special_instructions' => ! empty($item['special_instructions']) ? trim((string) $item['special_instructions']) : null,
                         'qty' => $item['qty'],
                         'unit_price' => $item['unit_price'],
                         'line_total' => $item['qty'] * $item['unit_price'],
@@ -306,9 +308,9 @@ class OrderController extends Controller
         }
 
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
+            $deliveredAt = $order->delivered_at ?? now();
+            $updatePayload['delivered_at'] = $deliveredAt;
             if ($order->order_type === 'Online Order') {
-                $deliveredAt = $order->delivered_at ?? now();
-                $updatePayload['delivered_at'] = $deliveredAt;
                 $updatePayload = array_merge($updatePayload, $order->calculateLateDeliveryPayload($deliveredAt));
             }
             $updatePayload['payment_status'] = 'Paid';
@@ -419,7 +421,20 @@ class OrderController extends Controller
 
     private function transform(Order $o): array
     {
-        $itemsLabel = $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', ');
+        $itemsLabel = $o->items->map(function ($i) {
+            $removedNames = collect($i->removed_ingredients ?? [])
+                ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                ->filter()
+                ->values();
+            $removedSuffix = $removedNames->isNotEmpty()
+                ? ' (Without: '.$removedNames->implode(', ').')'
+                : '';
+            $noteSuffix = ! empty($i->special_instructions)
+                ? ' [Note: '.$i->special_instructions.']'
+                : '';
+
+            return $i->qty.'x '.$i->name.$removedSuffix.$noteSuffix;
+        })->implode(', ');
         $isOnline = $o->order_type === 'Online Order';
 
         $action = match ($o->status) {
@@ -437,6 +452,16 @@ class OrderController extends Controller
             'customer' => $o->customer_name,
             'type' => $o->order_type,
             'items' => $itemsLabel,
+            'items_list' => $o->items->map(fn ($i) => [
+                'id' => $i->id,
+                'name' => $i->name,
+                'size' => $i->size,
+                'qty' => (int) $i->qty,
+                'unit_price' => (float) $i->unit_price,
+                'line_total' => (float) $i->line_total,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
+            ])->values(),
             'price' => (float) $o->total,
             'status' => $o->status,
             'cancellation_reason' => $o->cancellation_reason,
@@ -451,6 +476,7 @@ class OrderController extends Controller
             'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
             'late_discount' => (float) ($o->late_discount ?? 0),
             'created_at' => $o->created_at?->toIso8601String(),
+            'delivered_at' => $o->delivered_at?->toIso8601String(),
             'reported_issues' => $o->reportedIssues(),
         ];
     }

@@ -453,7 +453,6 @@ export default function HomeScreen() {
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setNotificationsVisible(false)}
         >
           <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.notificationsHeader}>

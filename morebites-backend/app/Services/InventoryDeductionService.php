@@ -337,7 +337,8 @@ class InventoryDeductionService
                         ]);
                     }
 
-                    $reason = $this->unserviceableReason($menu, $lineQty, $lineSize);
+                    $lineRemoved = is_array($line['removed_ingredients'] ?? null) ? $line['removed_ingredients'] : [];
+                    $reason = $this->unserviceableReason($menu, $lineQty, $lineSize, $lineRemoved);
                     if ($reason === 'expired') {
                         throw ValidationException::withMessages([
                             'items' => ["The item '{$itemLabel}' cannot be ordered because one or more ingredients are expired."],
@@ -409,7 +410,7 @@ class InventoryDeductionService
         return (string) ($this->unserviceableReason($item, $qty, $size) ?? '');
     }
 
-    public function unserviceableReason(MenuItem $item, int $qty = 1, ?string $size = null): ?string
+    public function unserviceableReason(MenuItem $item, int $qty = 1, ?string $size = null, array $removedIngredients = []): ?string
     {
         $item->loadMissing([
             'sizes',
@@ -443,7 +444,7 @@ class InventoryDeductionService
                 return null;
             }
 
-            return $this->evaluateIngredientsReason($ingredients, $qty);
+            return $this->evaluateIngredientsReason($ingredients, $qty, $removedIngredients);
         }
 
         // When no specific size is requested on a sized item with size-specific recipes,
@@ -451,7 +452,7 @@ class InventoryDeductionService
         if ($item->has_sizes && $item->sizes->isNotEmpty() && $item->ingredients->whereNotNull('menu_item_size_id')->isNotEmpty()) {
             $reasons = [];
             foreach ($item->sizes as $sizeModel) {
-                $reason = $this->unserviceableReason($item, $qty, $sizeModel->name);
+                $reason = $this->unserviceableReason($item, $qty, $sizeModel->name, $removedIngredients);
                 if ($reason === null) {
                     return null;
                 }
@@ -465,12 +466,15 @@ class InventoryDeductionService
             return $reasons[0] ?? 'insufficient';
         }
 
-        return $this->evaluateIngredientsReason($item->ingredients, $qty);
+        return $this->evaluateIngredientsReason($item->ingredients, $qty, $removedIngredients);
     }
 
-    private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1): ?string
+    private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1, array $removedIngredients = []): ?string
     {
         foreach ($ingredients as $ingredient) {
+            if (! empty($removedIngredients) && $this->isIngredientRemoved($ingredient, $removedIngredients)) {
+                continue;
+            }
             $inventory = $ingredient->inventoryItem;
             // Soft-deleted, archived, or missing inventory counts as unavailable.
             if (! $inventory || $inventory->trashed() || $inventory->status === 'Archived') {

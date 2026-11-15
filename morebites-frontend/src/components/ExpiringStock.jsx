@@ -76,7 +76,7 @@ function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
   const qtyLabel = `${row?.stock ?? 0} ${row?.unit || ''}`.trim()
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -477,7 +477,7 @@ export default function ExpiringStock() {
       )}
 
       {promoRow && (
-        <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">
+        <div className="exp-backdrop" role="presentation">
           <div className="exp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="exp-modal-head">
               <h2>Flag Item for Promo Review</h2>

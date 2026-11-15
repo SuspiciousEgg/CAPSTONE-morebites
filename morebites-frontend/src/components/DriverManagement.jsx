@@ -341,7 +341,7 @@ export default function DriverManagement({ embedded = false }) {
 
       {selected && (
         <>
-          <div className="dm-backdrop" onClick={() => setSelected(null)} role="presentation" />
+          <div className="dm-backdrop" role="presentation" />
           <aside className="dm-drawer" role="dialog" aria-modal="true">
             <div className="dm-drawer-head">
               <h2>Driver Details</h2>
@@ -439,7 +439,6 @@ export default function DriverManagement({ embedded = false }) {
       {confirmModal && (
         <div
           className="dm-modal-overlay"
-          onClick={() => !actionLoading && setConfirmModal(null)}
           role="presentation"
         >
           <div className="dm-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -490,7 +489,6 @@ export default function DriverManagement({ embedded = false }) {
       {blacklistModal && (
         <div
           className="dm-modal-overlay"
-          onClick={() => !actionLoading && setBlacklistModal(null)}
           role="presentation"
         >
           {blacklistStep === 1 ? (

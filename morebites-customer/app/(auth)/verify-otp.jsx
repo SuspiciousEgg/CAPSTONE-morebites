@@ -167,7 +167,7 @@ export default function VerifyOtpScreen() {
     try {
       const res = await customerApi.verifyPasswordResetOtp(String(identifier), entered);
       const resetToken = res?.reset_token || "";
-      router.push({
+      router.replace({
         pathname: "/(auth)/reset-password",
         params: {
           phone: String(identifier),

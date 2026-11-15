@@ -145,6 +145,9 @@ export default function ProfileScreen() {
     } finally {
       setLoggingOut(false);
       setLogoutVisible(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace("/(auth)/login");
     }
   };
@@ -264,7 +267,7 @@ export default function ProfileScreen() {
         animationType="fade"
         onRequestClose={() => setLogoutVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setLogoutVisible(false)}>
+        <Pressable style={styles.modalOverlay}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
             <Image source={require("../../../assets/images/logout.png")} style={styles.modalImage} />
             <Text style={styles.modalTitle}>Log Out?</Text>

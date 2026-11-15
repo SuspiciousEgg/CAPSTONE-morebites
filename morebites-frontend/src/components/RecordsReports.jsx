@@ -2371,7 +2371,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* Generate Report Modal */}
       {generateOpen && (
-        <div className="reports-modal-overlay" onClick={handleCancel} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container"
             onClick={(e) => e.stopPropagation()}
@@ -2535,7 +2535,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* Top 10 Selling Items — Full List Modal */}
       {topOpen && (
-        <div className="reports-modal-overlay" onClick={() => setTopOpen(false)} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container large"
             style={{ maxWidth: '780px' }}
@@ -2663,7 +2663,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* All Exported Reports Modal */}
       {exportsOpen && (
-        <div className="reports-modal-overlay" onClick={() => setExportsOpen(false)} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container large"
             style={{ maxWidth: '720px' }}
@@ -2785,9 +2785,6 @@ export default function RecordsReports({ user: propUser }) {
       {gasModalOpen && (
         <div
           className="reports-modal-overlay"
-          onClick={() => {
-            if (!gasSubmitting) setGasModalOpen(false)
-          }}
           role="presentation"
         >
           <div
@@ -2898,7 +2895,6 @@ export default function RecordsReports({ user: propUser }) {
       {gasHistoryOpen && (
         <div
           className="reports-modal-overlay"
-          onClick={() => setGasHistoryOpen(false)}
           role="presentation"
         >
           <div

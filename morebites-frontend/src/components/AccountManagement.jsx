@@ -507,7 +507,7 @@ function AccountConfirmModal({ target, saving, onClose, onConfirm }) {
     : 'this account'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -1336,7 +1336,7 @@ export default function AccountManagement() {
       )}
 
       {addAdmin && (
-        <div className="ac-backdrop" onClick={() => setAddAdmin(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Admin</h2>
@@ -1434,7 +1434,7 @@ export default function AccountManagement() {
       )}
 
       {addDriver && (
-        <div className="ac-backdrop" onClick={() => setAddDriver(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal ac-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Driver</h2>
@@ -1581,7 +1581,7 @@ export default function AccountManagement() {
       )}
 
       {addCashier && (
-        <div className="ac-backdrop" onClick={() => setAddCashier(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Cashier</h2>
@@ -1680,7 +1680,7 @@ export default function AccountManagement() {
 
       {profile && (
         <>
-          <div className="ac-backdrop" onClick={() => setProfile(null)} role="presentation" />
+          <div className="ac-backdrop" role="presentation" />
           <aside className="ac-drawer" role="dialog" aria-modal="true">
             <div className="ac-drawer-head">
               <div>
@@ -1841,7 +1841,7 @@ export default function AccountManagement() {
       )}
 
       {blockTarget && (
-        <div className="ac-backdrop" onClick={() => { setBlockTarget(null); setBlockStep(1); }} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal ac-block" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             {blockStep === 1 ? (
               <>

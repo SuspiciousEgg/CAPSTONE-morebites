@@ -278,10 +278,10 @@
 .menu-table th {
   padding: 16px 20px;
   font-family: 'DM Sans', sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: #222222;
-  border-bottom: 1px solid #EFEFEF;
+  color: #6B7280;
+  border-bottom: 1px solid #EDEDED;
   background: #FFFFFF;
   white-space: nowrap;
 }

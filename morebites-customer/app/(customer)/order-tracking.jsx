@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Pressable,
   ScrollView,
@@ -262,11 +263,36 @@ export default function OrderTrackingScreen() {
   };
 
   const timeline = Array.isArray(tracking?.timeline) ? tracking.timeline : null;
+  const isOrderCancelled = currentStatus === "Cancelled" || rawStatus === "Cancelled";
+
+  const handleBackNavigation = useCallback(() => {
+    if (isOrderCancelled || !router.canGoBack()) {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(customer)/(tabs)/orders");
+      return;
+    }
+    router.back();
+  }, [isOrderCancelled]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (isOrderCancelled || !router.canGoBack()) {
+          handleBackNavigation();
+          return true;
+        }
+        return false;
+      });
+      return () => sub.remove();
+    }, [isOrderCancelled, handleBackNavigation])
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={handleBackNavigation} hitSlop={8}>
           <Ionicons name="arrow-back" size={24} color="#121212" />
         </Pressable>
         <Text style={styles.headerTitle}>Order Tracking</Text>
@@ -305,8 +331,10 @@ export default function OrderTrackingScreen() {
                 anchor={{ x: 0.5, y: 0.5 }}
                 title="MoreBites Store"
               >
-                <View style={styles.originMarker}>
-                  <Ionicons name="storefront" size={14} color="#FFFFFF" />
+                <View style={styles.originMarkerOuter}>
+                  <View style={styles.originMarkerInner}>
+                    <Ionicons name="storefront" size={14} color="#FFFFFF" />
+                  </View>
                 </View>
               </Marker>
             ) : null}
@@ -560,7 +588,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  originMarker: {
+  originMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(249, 112, 0, 0.22)",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  originMarkerInner: {
     alignItems: "center",
     backgroundColor: "#F97000",
     borderColor: "#FFFFFF",

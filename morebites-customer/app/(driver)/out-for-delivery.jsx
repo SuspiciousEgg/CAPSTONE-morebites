@@ -57,6 +57,7 @@ export default function OutForDeliveryScreen() {
   const [tracking, setTracking] = useState(null);
   const [liveRider, setLiveRider] = useState(null);
   const [trackingLoading, setTrackingLoading] = useState(Boolean(dbId));
+  const [navigationMode, setNavigationMode] = useState(false);
 
   const currentStep = statusStep(order?.status || tracking?.status || "Out for Delivery");
 
@@ -98,7 +99,9 @@ export default function OutForDeliveryScreen() {
   }, [dbId, loadTracking]);
 
   const isCompletedRef = useRef(false);
-  const isDelivered = ["Delivered", "Completed"].includes(order?.status || tracking?.status || "");
+  const currentOrderStatus = order?.status || tracking?.status || "";
+  const isDelivered = ["Delivered", "Completed", "Cancelled"].includes(currentOrderStatus);
+  const isCancelled = currentOrderStatus === "Cancelled";
 
   useEffect(() => {
     if (isDelivered) {
@@ -341,6 +344,17 @@ export default function OutForDeliveryScreen() {
     navigateToConfirmDelivery();
   };
 
+  const handleBackNavigation = () => {
+    if (isCancelled || !router.canGoBack()) {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(driver)/(tabs)/home");
+      return;
+    }
+    router.back();
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header section */}
@@ -348,7 +362,7 @@ export default function OutForDeliveryScreen() {
         <TouchableOpacity
           style={styles.headerButton}
           activeOpacity={0.7}
-          onPress={() => router.back()}
+          onPress={handleBackNavigation}
         >
           <Ionicons name="chevron-back" size={27} color="#121212" />
         </TouchableOpacity>
@@ -412,17 +426,43 @@ export default function OutForDeliveryScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Map Section with OpenStreetMap tiles */}
-        <View style={styles.mapContainer}>
+        {/* Map Section with OpenStreetMap tiles (Default: Top-Down Overview, Optional: Turn-by-Turn Navigation) */}
+        <View style={[styles.mapContainer, navigationMode && styles.mapContainerNav]}>
           {hasMap ? (
-            <DeliveryMap
-              initialRegion={mapRegion}
-              region={mapRegion}
-              routeCoordinates={routeCoordinates}
-              storeCoord={tracking?.store}
-              riderCoord={riderCoord}
-              destinationCoord={destinationCoord}
-            />
+            <>
+              <DeliveryMap
+                initialRegion={mapRegion}
+                region={mapRegion}
+                routeCoordinates={routeCoordinates}
+                storeCoord={tracking?.store}
+                riderCoord={riderCoord}
+                destinationCoord={destinationCoord}
+                navigationMode={navigationMode}
+                destinationAddress={tracking?.address || order?.address || ""}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.navModeToggleBtn,
+                  navigationMode && styles.navModeToggleBtnActive,
+                ]}
+                activeOpacity={0.85}
+                onPress={() => setNavigationMode((prev) => !prev)}
+              >
+                <Ionicons
+                  name={navigationMode ? "map-outline" : "navigate"}
+                  size={15}
+                  color={navigationMode ? "#FFFFFF" : "#F97000"}
+                />
+                <Text
+                  style={[
+                    styles.navModeToggleText,
+                    navigationMode && styles.navModeToggleTextActive,
+                  ]}
+                >
+                  {navigationMode ? "Overview Map" : "Turn-by-Turn"}
+                </Text>
+              </TouchableOpacity>
+            </>
           ) : (
             <View style={styles.mapPlaceholder}>
               {trackingLoading ? (
@@ -443,7 +483,9 @@ export default function OutForDeliveryScreen() {
         <View style={styles.statusBarCard}>
           <View style={styles.statusTopRow}>
             <View style={styles.deliveringToGroup}>
-              <Ionicons name="home" size={16} color="#F97000" />
+              <View style={styles.deliveringToPinBadge}>
+                <Ionicons name="location" size={12} color="#FFFFFF" />
+              </View>
               <Text style={styles.deliveringToLabel}>Delivering to</Text>
             </View>
 
@@ -542,7 +584,6 @@ export default function OutForDeliveryScreen() {
         >
           <Pressable
             style={styles.issueModalBackdrop}
-            onPress={closeIssueModal}
           >
             <Pressable style={styles.issueModalCard} onPress={(e) => e.stopPropagation()}>
               <Text style={styles.issueModalTitle}>Report Issue</Text>
@@ -649,7 +690,6 @@ export default function OutForDeliveryScreen() {
       >
         <Pressable
           style={styles.ackModalBackdrop}
-          onPress={() => setAckModalVisible(false)}
         >
           <Pressable style={styles.ackModalCard} onPress={(e) => e.stopPropagation()}>
             <View style={styles.ackIconWrap}>
@@ -812,7 +852,54 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     height: 220,
     overflow: "hidden",
+    position: "relative",
     width: "100%",
+  },
+  mapContainerNav: {
+    height: 340,
+  },
+  navModeToggleBtn: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#F97000",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    bottom: 12,
+    elevation: 5,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    position: "absolute",
+    right: 12,
+    shadowColor: "#121212",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 5,
+    zIndex: 20,
+  },
+  navModeToggleBtnActive: {
+    backgroundColor: "#F97000",
+    borderColor: "#FFFFFF",
+  },
+  navModeToggleText: {
+    color: "#F97000",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  navModeToggleTextActive: {
+    color: "#FFFFFF",
+  },
+  deliveringToPinBadge: {
+    alignItems: "center",
+    backgroundColor: "#EF4444",
+    borderColor: "#FFFFFF",
+    borderRadius: 11,
+    borderWidth: 1.5,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
   },
   mapPlaceholder: {
     alignItems: "center",
@@ -830,38 +917,6 @@ const styles = StyleSheet.create({
   map: {
     height: "100%",
     width: "100%",
-  },
-  riderMarkerOuter: {
-    alignItems: "center",
-    backgroundColor: "rgba(34, 197, 94, 0.25)",
-    borderRadius: 18,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  riderMarkerInner: {
-    backgroundColor: "#22C55E",
-    borderColor: "#FFFFFF",
-    borderRadius: 9,
-    borderWidth: 2.5,
-    height: 18,
-    width: 18,
-  },
-  destMarkerOuter: {
-    alignItems: "center",
-    backgroundColor: "rgba(239, 68, 68, 0.25)",
-    borderRadius: 18,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  destMarkerInner: {
-    backgroundColor: "#EF4444",
-    borderColor: "#FFFFFF",
-    borderRadius: 9,
-    borderWidth: 2.5,
-    height: 18,
-    width: 18,
   },
   statusBarCard: {
     backgroundColor: "#FFFFFF",

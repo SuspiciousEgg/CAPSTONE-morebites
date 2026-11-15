@@ -108,6 +108,7 @@ class DispatchController extends Controller
                 'monitoring' => $activeDeliveries,
                 'deliveries' => $activeDeliveries,
                 'riders' => $riders,
+                'store' => $tracking->storePoint(),
             ],
         ]);
     }

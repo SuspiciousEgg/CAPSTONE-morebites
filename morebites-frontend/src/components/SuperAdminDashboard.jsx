@@ -758,7 +758,6 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       {showLogoutModal && (
         <div
           className="sa-logout-backdrop"
-          onClick={() => setShowLogoutModal(false)}
           role="presentation"
         >
           <div
@@ -800,7 +799,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       {showAllNotifsModal && (
         <div
           className="sa-logout-backdrop"
-          onClick={() => setShowAllNotifsModal(false)}
+          role="presentation"
         >
           <div
             className="sa-all-notifs-modal"

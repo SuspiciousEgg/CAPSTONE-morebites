@@ -60,6 +60,9 @@ export default function ProfileScreen() {
     } finally {
       setLoggingOut(false);
       setLogoutVisible(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace("/(auth)/login");
     }
   };
@@ -143,7 +146,6 @@ export default function ProfileScreen() {
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setLogoutVisible(false)}
         >
           <Pressable style={styles.logoutModal} onPress={() => {}}>
             <Image

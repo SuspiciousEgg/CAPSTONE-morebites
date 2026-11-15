@@ -429,6 +429,7 @@ class DriverAppController extends Controller
             'address' => $o->delivery_address ?: 'N/A',
             'contact' => $o->customer?->phone ?: '',
             'status' => $displayStatus,
+            'cancellation_reason' => $o->cancellation_reason,
             'distance' => number_format((float) $distanceKm, 1).'km',
             'distance_km' => (float) $distanceKm,
             'eta_mins' => (int) $etaMins,
@@ -439,17 +440,33 @@ class DriverAppController extends Controller
                 'name' => $i->name,
                 'size' => $i->size,
                 'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'qty' => (int) $i->qty,
                 'unit_price' => (float) $i->unit_price,
                 'line_total' => (float) $i->line_total,
                 'label' => $i->name.' x'.$i->qty,
             ])->values(),
-            'items_label' => $o->items->map(fn ($i) => $i->name.' x'.$i->qty)->implode(' + '),
+            'items_label' => $o->items->map(function ($i) {
+                $removedNames = collect($i->removed_ingredients ?? [])
+                    ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                    ->filter()
+                    ->values();
+                $removedSuffix = $removedNames->isNotEmpty()
+                    ? ' (Without: '.$removedNames->implode(', ').')'
+                    : '';
+                $noteSuffix = ! empty($i->special_instructions)
+                    ? ' [Note: '.$i->special_instructions.']'
+                    : '';
+
+                return $i->name.' x'.$i->qty.$removedSuffix.$noteSuffix;
+            })->implode(' + '),
             'created_at' => $o->created_at?->toIso8601String(),
             'assigned_at' => $o->assigned_at?->toIso8601String(),
             'delivered_at' => $o->delivered_at?->toIso8601String(),
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
-            'customer_rating' => $o->customer_rating ? (int) $o->customer_rating : null,
+            'customer_rating' => ($o->rider_rating ?? $o->customer_rating) ? (int) ($o->rider_rating ?? $o->customer_rating) : null,
+            'rider_rating' => $o->rider_rating ? (int) $o->rider_rating : null,
+            'food_rating' => $o->food_rating ? (int) $o->food_rating : null,
             'reported_issues' => $o->reportedIssues(),
             'has_reported_issue' => count($o->reportedIssues()) > 0,
             'points_used' => (int) ($o->points_used ?? 0),

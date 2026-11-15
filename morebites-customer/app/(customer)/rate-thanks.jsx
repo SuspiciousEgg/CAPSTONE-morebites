@@ -1,6 +1,7 @@
+import { useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { BackHandler, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { mediaUrl } from "../../src/api/client";
 
@@ -69,6 +70,23 @@ export default function RateThanksScreen() {
   const riderName = firstParam(params.riderName) || "Delivery Rider";
   const riderPhoto = firstParam(params.riderPhoto) || "";
 
+  const backToHome = useCallback(() => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace("/(customer)/(tabs)/home");
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        backToHome();
+        return true;
+      });
+      return () => sub.remove();
+    }, [backToHome])
+  );
+
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.content}>
@@ -97,7 +115,7 @@ export default function RateThanksScreen() {
           />
         </View>
 
-        <Pressable style={styles.homeButton} onPress={() => router.replace("/(customer)/(tabs)/home")}>
+        <Pressable style={styles.homeButton} onPress={backToHome}>
           <Text style={styles.homeButtonText}>Back to Home</Text>
         </Pressable>
       </View>

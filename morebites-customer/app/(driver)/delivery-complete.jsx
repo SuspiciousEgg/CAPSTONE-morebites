@@ -1,6 +1,8 @@
+import { useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
+  BackHandler,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,9 +30,22 @@ export default function DeliveryCompleteScreen() {
     ? params.total[0]
     : params.total || "—";
 
-  const backToDashboard = () => {
+  const backToDashboard = useCallback(() => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace("/(driver)/(tabs)/delivered");
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        backToDashboard();
+        return true;
+      });
+      return () => sub.remove();
+    }, [backToDashboard])
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>

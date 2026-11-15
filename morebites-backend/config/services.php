@@ -36,8 +36,8 @@ return [
     ],
 
     'maps' => [
-        'store_lat' => env('MAPS_STORE_LAT', env('MAPBOX_STORE_LAT', 7.6094)),
-        'store_lng' => env('MAPS_STORE_LNG', env('MAPBOX_STORE_LNG', 124.9883)),
+        'store_lat' => env('MAPS_STORE_LAT', env('MAPBOX_STORE_LAT', 7.610688)),
+        'store_lng' => env('MAPS_STORE_LNG', env('MAPBOX_STORE_LNG', 125.005047)),
     ],
 
     'fees' => [

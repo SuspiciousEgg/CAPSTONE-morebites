@@ -488,49 +488,6 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     })
   }
 
-  function hasIngredientChanges() {
-    const normalize = (list) =>
-      (list || [])
-        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
-        .map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving:
-            row.qty_per_serving === '' || row.qty_per_serving == null
-              ? 1
-              : Number(row.qty_per_serving),
-          unit: row.unit || '',
-          price: Number(row.price || 0),
-        }))
-
-    if (form.hasSizes) {
-      const current = form.sizes.map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      const init = (initial?.sizes || []).map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      return JSON.stringify(current) !== JSON.stringify(init)
-    }
-
-    return (
-      JSON.stringify(normalize(form.ingredients)) !==
-      JSON.stringify(normalize(initial?.ingredients))
-    )
-  }
-
-  async function handleDismiss() {
-    if (saving) return
-    if (mode === 'edit' && hasIngredientChanges()) {
-      await submit()
-      return
-    }
-    onClose()
-  }
-
   async function submit(e) {
     e?.preventDefault()
     if (!String(form.name || '').trim()) {
@@ -742,7 +699,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   }, [form.hasSizes, form.sizes, safeActiveSizeIndex])
 
   return (
-    <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-content"
         role="dialog"
@@ -1276,7 +1233,7 @@ function ConfirmModal({ type, item, onClose, onConfirm, saving = false }) {
   const name = item?.name || 'this item'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"

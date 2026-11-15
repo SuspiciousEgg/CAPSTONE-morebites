@@ -577,7 +577,6 @@ export default function DispatchManagement({ focusOrder = null, onFocusOrderHand
       {assignOrder && (
         <div
           className="dp-modal-backdrop"
-          onClick={() => setAssignOrder(null)}
           role="presentation"
         >
           <div
@@ -694,7 +693,6 @@ export default function DispatchManagement({ focusOrder = null, onFocusOrderHand
       {showMapModal && (
         <div
           className="dp-map-modal-backdrop"
-          onClick={() => setShowMapModal(false)}
           role="presentation"
         >
           <div
@@ -756,7 +754,6 @@ export default function DispatchManagement({ focusOrder = null, onFocusOrderHand
       {viewDelivery && (
         <div
           className="dp-modal-backdrop"
-          onClick={() => setViewDelivery(null)}
           role="presentation"
         >
           <div

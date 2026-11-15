@@ -390,7 +390,7 @@ export default function CustomerManagement() {
       </section>
 
       {selected && (
-        <div className="cm-backdrop" onClick={() => setSelected(null)} role="presentation">
+        <div className="cm-backdrop" role="presentation">
           <div className="cm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="cm-modal-head">
               <div className="cm-modal-title-wrap">

@@ -424,7 +424,7 @@ function CreateOrderModal({
   }
 
   return (
-    <div className="om-modal-backdrop" onClick={submitting || checkingOrder ? undefined : onClose} role="presentation">
+    <div className="om-modal-backdrop" role="presentation">
       <div
         className="om-modal"
         role="dialog"
@@ -770,7 +770,6 @@ function CreateOrderModal({
           return (
             <div
               className="om-size-popover-backdrop"
-              onClick={() => setActiveSizedItem(null)}
               role="presentation"
             >
               <div
@@ -1033,7 +1032,7 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   }
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card om-cancel-modal-card"
         role="dialog"
@@ -1683,7 +1682,6 @@ export default function OrderManagement() {
       {viewOrder && (
         <div
           className="om-modal-backdrop"
-          onClick={() => setViewOrder(null)}
           role="presentation"
         >
           <div
@@ -1731,7 +1729,55 @@ export default function OrderManagement() {
               </div>
               <div className="full">
                 <dt>Items</dt>
-                <dd>{viewOrder.items || '—'}</dd>
+                <dd>
+                  {Array.isArray(viewOrder.items_list) && viewOrder.items_list.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {viewOrder.items_list.map((it, idx) => (
+                        <div
+                          key={it.id || idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            padding: '6px 10px',
+                            background: '#F9FAFB',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '8px',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px' }}>
+                              {it.qty}x {it.name}
+                            </div>
+                            {Array.isArray(it.removed_ingredients) && it.removed_ingredients.length > 0 && (
+                              <div style={{ fontSize: '11.5px', color: '#D97706', fontWeight: 500, marginTop: '2px' }}>
+                                Without:{' '}
+                                {it.removed_ingredients
+                                  .map((r) =>
+                                    typeof r === 'string'
+                                      ? r
+                                      : `${r.name}${Number(r.price) > 0 ? ` (-₱${r.price})` : ''}`
+                                  )
+                                  .join(', ')}
+                              </div>
+                            )}
+                            {it.special_instructions && (
+                              <div style={{ fontSize: '11.5px', color: '#6B7280', fontStyle: 'italic', marginTop: '2px' }}>
+                                Note: {it.special_instructions}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                            {peso(it.line_total ?? it.unit_price * it.qty)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    viewOrder.items || '—'
+                  )}
+                </dd>
               </div>
               <div className="full">
                 <dt>Delivery Address</dt>
@@ -1749,7 +1795,8 @@ export default function OrderManagement() {
                     : '—'}
                 </dd>
               </div>
-            </dl>            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
+            </dl>
+            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
               <div className="om-issue-section">
                 <div className="om-issue-heading">
                   <LuTriangleAlert size={14} /> Reported Issues ({viewOrder.reported_issues.length})

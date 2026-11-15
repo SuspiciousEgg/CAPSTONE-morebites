@@ -17,6 +17,9 @@ export default function DriverLayout() {
       if (!token || !user) {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(auth)/login");
         return;
       }
@@ -34,15 +37,24 @@ export default function DriverLayout() {
       } else if (role === "customer") {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(customer)/(tabs)/home");
       } else {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(auth)/login");
       }
     } catch {
       setIsAuthorized(false);
       setIsChecking(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace("/(auth)/login");
     }
   }, []);
@@ -61,7 +73,12 @@ export default function DriverLayout() {
     return <View style={styles.container} />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="delivery-complete" options={{ gestureEnabled: false }} />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({

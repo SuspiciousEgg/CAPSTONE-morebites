@@ -1400,6 +1400,7 @@
 .inv-input-currency input {
   width: 100%;
   padding-left: 26px !important;
+  padding-right: 52px !important;
 }
 
 .inv-currency-symbol {

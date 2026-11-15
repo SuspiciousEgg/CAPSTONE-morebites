@@ -361,6 +361,7 @@ export default function CheckoutScreen() {
           qty: item.quantity,
           unit_price: item.price,
           removed_ingredients: item.removed_ingredients || [],
+          special_instructions: item.special_instructions || null,
         })),
       });
 
@@ -431,6 +432,9 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       setCheckingOrder(false);
 
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       if (recoveredViaLookup) {
         router.replace({
           pathname: "/(customer)/order-tracking",
@@ -441,7 +445,7 @@ export default function CheckoutScreen() {
           },
         });
       } else {
-        router.push({
+        router.replace({
           pathname: "/(customer)/order-confirmed",
           params: {
             order: JSON.stringify(order),
@@ -462,6 +466,9 @@ export default function CheckoutScreen() {
         style: "destructive",
         onPress: () => {
           clearCart();
+          if (router.canDismiss()) {
+            router.dismissAll();
+          }
           router.replace("/(customer)/(tabs)/home");
         },
       },
@@ -844,6 +851,11 @@ export default function CheckoutScreen() {
                       {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
                         <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2, fontWeight: '500' }}>
                           Without: {item.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+                        </Text>
+                      ) : null}
+                      {item.special_instructions ? (
+                        <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2, fontStyle: 'italic' }}>
+                          Note: {item.special_instructions}
                         </Text>
                       ) : null}
                     </View>

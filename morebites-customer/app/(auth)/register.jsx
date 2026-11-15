@@ -128,6 +128,9 @@ export default function RegisterScreen() {
       await authStorage.clear();
 
       const navigateToLogin = () => {
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace({
           pathname: "/(auth)/login",
           params: { phone: cleanPhone, registered: "1" },
