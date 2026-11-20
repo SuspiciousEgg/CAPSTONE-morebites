@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -60,7 +59,7 @@ export default function CheckoutScreen() {
   const [quoting, setQuoting] = useState(false);
 
   const [loyalty, setLoyalty] = useState(null);
-  const [usePoints, setUsePoints] = useState(false);
+  const [pointsInput, setPointsInput] = useState("");
 
   const balance = Number(loyalty?.points || 0);
   const pesoValue = Number(loyalty?.peso_value_per_point || 0.1);
@@ -69,10 +68,44 @@ export default function CheckoutScreen() {
   const canRedeem = loyaltyEnabled && balance >= minPoints;
   const pointsNeeded = Math.max(0, minPoints - balance);
 
-  const maxPointsNeeded = Math.ceil(cartTotal / (pesoValue || 0.1));
-  const pointsUsed = usePoints && canRedeem ? Math.min(balance, maxPointsNeeded) : 0;
-  const pointsDiscount = usePoints && canRedeem ? Math.min(pointsUsed * pesoValue, cartTotal) : 0;
+  const maxPointsNeeded = Math.max(0, Math.ceil(cartTotal / (pesoValue || 0.1)));
+  const maxRedeemablePoints = canRedeem ? Math.min(balance, maxPointsNeeded) : 0;
+  const parsedInputPoints = parseInt(String(pointsInput).replace(/\D/g, ""), 10);
+  const rawRequestedPoints = Number.isFinite(parsedInputPoints) && parsedInputPoints > 0 ? parsedInputPoints : 0;
+  const pointsUsed = canRedeem ? Math.min(rawRequestedPoints, maxRedeemablePoints) : 0;
+  const usePoints = pointsUsed > 0;
+  const pointsDiscount = usePoints ? Math.min(Number((pointsUsed * pesoValue).toFixed(2)), cartTotal) : 0;
   const total = Math.max(0, cartTotal - pointsDiscount) + deliveryFee + serviceFee;
+
+  const handlePointsInputChange = (text) => {
+    const digitsOnly = String(text || "").replace(/\D/g, "");
+    if (!digitsOnly) {
+      setPointsInput("");
+      return;
+    }
+    const numeric = parseInt(digitsOnly, 10);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      setPointsInput("");
+      return;
+    }
+    const clamped = Math.min(numeric, maxRedeemablePoints);
+    setPointsInput(clamped > 0 ? String(clamped) : "");
+  };
+
+  const adjustPointsBy = (delta) => {
+    if (!canRedeem || maxRedeemablePoints <= 0) return;
+    const next = Math.min(maxRedeemablePoints, Math.max(0, pointsUsed + delta));
+    setPointsInput(next > 0 ? String(next) : "");
+  };
+
+  const applyMaxPoints = () => {
+    if (!canRedeem || maxRedeemablePoints <= 0) return;
+    setPointsInput(String(maxRedeemablePoints));
+  };
+
+  const clearPoints = () => {
+    setPointsInput("");
+  };
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -352,7 +385,8 @@ export default function CheckoutScreen() {
         latitude: coordinates?.latitude ?? null,
         longitude: coordinates?.longitude ?? null,
         payment_method: "COD",
-        use_points: usePoints && canRedeem,
+        use_points: pointsUsed > 0 && canRedeem,
+        points_to_redeem: pointsUsed > 0 && canRedeem ? pointsUsed : 0,
         expected_points: loyalty?.points ?? null,
         items: cartItems.map((item) => ({
           menu_item_id: item.db_id ?? (Number(item.id) || null),
@@ -361,6 +395,7 @@ export default function CheckoutScreen() {
           qty: item.quantity,
           unit_price: item.price,
           removed_ingredients: item.removed_ingredients || [],
+          special_instructions: item.special_instructions || null,
         })),
       });
 
@@ -431,6 +466,9 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       setCheckingOrder(false);
 
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       if (recoveredViaLookup) {
         router.replace({
           pathname: "/(customer)/order-tracking",
@@ -441,7 +479,7 @@ export default function CheckoutScreen() {
           },
         });
       } else {
-        router.push({
+        router.replace({
           pathname: "/(customer)/order-confirmed",
           params: {
             order: JSON.stringify(order),
@@ -462,6 +500,9 @@ export default function CheckoutScreen() {
         style: "destructive",
         onPress: () => {
           clearCart();
+          if (router.canDismiss()) {
+            router.dismissAll();
+          }
           router.replace("/(customer)/(tabs)/home");
         },
       },
@@ -667,7 +708,7 @@ export default function CheckoutScreen() {
                 <Text style={styles.loyaltyRedeemTitle}>MoreBites Loyalty</Text>
                 {canRedeem ? (
                   <Text style={styles.loyaltyRedeemSubtitle}>
-                    You have {balance} points (worth ₱{(balance * pesoValue).toFixed(2)})
+                    Available: {balance} pts (worth ₱{(balance * pesoValue).toFixed(2)}) · Max for this order: {maxRedeemablePoints} pts (₱{Math.min(maxRedeemablePoints * pesoValue, cartTotal).toFixed(2)})
                   </Text>
                 ) : (
                   <Text style={styles.loyaltyRedeemWarning}>
@@ -675,25 +716,129 @@ export default function CheckoutScreen() {
                   </Text>
                 )}
               </View>
-              {canRedeem ? (
-                <View style={styles.toggleWrap}>
-                  <Text style={styles.toggleLabel}>Use my points</Text>
-                  <Switch
-                    value={usePoints}
-                    onValueChange={setUsePoints}
-                    trackColor={{ false: "#D1D5DB", true: "#FDBA74" }}
-                    thumbColor={usePoints ? PRIMARY : "#F4F3F4"}
-                  />
-                </View>
-              ) : null}
             </View>
 
-            {canRedeem && usePoints ? (
-              <View style={styles.loyaltyAppliedWrap}>
-                <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
-                <Text style={styles.loyaltyAppliedText}>
-                  Using {pointsUsed} points for ₱{Number(pointsDiscount).toFixed(2)} discount on food
-                </Text>
+            {canRedeem ? (
+              <View style={styles.loyaltyInputSection}>
+                <View style={styles.loyaltyInputHeaderRow}>
+                  <Text style={styles.loyaltyInputLabel}>Points to redeem</Text>
+                  <View style={styles.loyaltyQuickActions}>
+                    {pointsUsed > 0 ? (
+                      <Pressable
+                        style={styles.loyaltyClearPill}
+                        onPress={clearPoints}
+                        hitSlop={6}
+                      >
+                        <Text style={styles.loyaltyClearPillText}>Clear</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      style={[
+                        styles.loyaltyMaxPill,
+                        pointsUsed === maxRedeemablePoints &&
+                          maxRedeemablePoints > 0 &&
+                          styles.loyaltyMaxPillActive,
+                      ]}
+                      onPress={applyMaxPoints}
+                      hitSlop={6}
+                    >
+                      <Text
+                        style={[
+                          styles.loyaltyMaxPillText,
+                          pointsUsed === maxRedeemablePoints &&
+                            maxRedeemablePoints > 0 &&
+                            styles.loyaltyMaxPillTextActive,
+                        ]}
+                      >
+                        Use Max ({maxRedeemablePoints})
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.loyaltyAdjustRow}>
+                  <Pressable
+                    style={[
+                      styles.loyaltyStepBtn,
+                      pointsUsed <= 0 && styles.loyaltyStepBtnDisabled,
+                    ]}
+                    disabled={pointsUsed <= 0}
+                    onPress={() => adjustPointsBy(-10)}
+                    accessibilityLabel="Decrease points by 10"
+                  >
+                    <Ionicons
+                      name="remove"
+                      size={18}
+                      color={pointsUsed <= 0 ? "#D1D5DB" : "#121212"}
+                    />
+                  </Pressable>
+
+                  <View
+                    style={[
+                      styles.loyaltyPointsInputWrap,
+                      focusedField === "loyaltyPoints" && styles.focusedInput,
+                    ]}
+                  >
+                    <TextInput
+                      style={styles.loyaltyPointsInput}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor="#9CA3AF"
+                      value={pointsUsed > 0 ? String(pointsUsed) : pointsInput}
+                      onChangeText={handlePointsInputChange}
+                      onFocus={() => focusField("loyaltyPoints")}
+                      onBlur={blurField}
+                      maxLength={7}
+                    />
+                    <Text style={styles.loyaltyPointsUnitSuffix}>
+                      / {maxRedeemablePoints} pts
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    style={[
+                      styles.loyaltyStepBtn,
+                      pointsUsed >= maxRedeemablePoints && styles.loyaltyStepBtnDisabled,
+                    ]}
+                    disabled={pointsUsed >= maxRedeemablePoints}
+                    onPress={() => adjustPointsBy(10)}
+                    accessibilityLabel="Increase points by 10"
+                  >
+                    <Ionicons
+                      name="add"
+                      size={18}
+                      color={pointsUsed >= maxRedeemablePoints ? "#D1D5DB" : "#121212"}
+                    />
+                  </Pressable>
+                </View>
+
+                <View style={styles.loyaltyLiveDiscountRow}>
+                  <View style={styles.loyaltyLiveLeft}>
+                    <Ionicons
+                      name={pointsUsed > 0 ? "checkmark-circle" : "sparkles-outline"}
+                      size={16}
+                      color={pointsUsed > 0 ? "#16A34A" : "#6B7280"}
+                    />
+                    <Text
+                      style={[
+                        styles.loyaltyAppliedText,
+                        pointsUsed <= 0 && styles.loyaltyIdleHintText,
+                      ]}
+                    >
+                      {pointsUsed > 0
+                        ? `Redeeming ${pointsUsed} pts (${balance - pointsUsed} pts kept for later)`
+                        : `Type or tap + to apply points (1 pt = ₱${pesoValue.toFixed(2)})`}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.loyaltyLiveDiscountBadge,
+                      pointsUsed > 0 && styles.loyaltyLiveDiscountBadgeActive,
+                    ]}
+                  >
+                    -₱{Number(pointsDiscount).toFixed(2)}
+                  </Text>
+                </View>
               </View>
             ) : null}
           </View>
@@ -844,6 +989,11 @@ export default function CheckoutScreen() {
                       {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
                         <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2, fontWeight: '500' }}>
                           Without: {item.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+                        </Text>
+                      ) : null}
+                      {item.special_instructions ? (
+                        <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2, fontStyle: 'italic' }}>
+                          Note: {item.special_instructions}
                         </Text>
                       ) : null}
                     </View>
@@ -1571,31 +1721,140 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 17,
   },
-  toggleWrap: {
-    alignItems: "flex-end",
-    marginLeft: 12,
-  },
-  toggleLabel: {
-    color: "#6B7280",
-    fontFamily: FONT,
-    fontSize: 11,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  loyaltyAppliedWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 10,
-    marginTop: 10,
+  loyaltyInputSection: {
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
+  },
+  loyaltyInputHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  loyaltyInputLabel: {
+    color: "#374151",
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  loyaltyQuickActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  loyaltyClearPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+  },
+  loyaltyClearPillText: {
+    color: "#4B5563",
+    fontFamily: FONT,
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+  loyaltyMaxPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "#FFF4EB",
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+  },
+  loyaltyMaxPillActive: {
+    backgroundColor: PRIMARY,
+    borderColor: PRIMARY,
+  },
+  loyaltyMaxPillText: {
+    color: PRIMARY,
+    fontFamily: FONT,
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  loyaltyMaxPillTextActive: {
+    color: "#FFFFFF",
+  },
+  loyaltyAdjustRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  loyaltyStepBtn: {
+    width: 40,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loyaltyStepBtnDisabled: {
+    opacity: 0.5,
+  },
+  loyaltyPointsInputWrap: {
+    flex: 1,
+    height: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+  },
+  loyaltyPointsInput: {
+    flex: 1,
+    color: "#121212",
+    fontFamily: FONT,
+    fontSize: 15,
+    fontWeight: "700",
+    paddingVertical: 0,
+  },
+  loyaltyPointsUnitSuffix: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "600",
+    marginLeft: 6,
+  },
+  loyaltyLiveDiscountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+    gap: 8,
+  },
+  loyaltyLiveLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   loyaltyAppliedText: {
+    flex: 1,
     color: "#16A34A",
     fontFamily: FONT,
     fontSize: 12,
     fontWeight: "600",
+  },
+  loyaltyIdleHintText: {
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  loyaltyLiveDiscountBadge: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  loyaltyLiveDiscountBadgeActive: {
+    color: "#16A34A",
+    fontWeight: "800",
   },
   feesToPayBanner: {
     flexDirection: "row",

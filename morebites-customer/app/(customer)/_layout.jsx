@@ -17,6 +17,9 @@ export default function CustomerLayout() {
       if (!token || !user) {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(auth)/login");
         return;
       }
@@ -34,15 +37,24 @@ export default function CustomerLayout() {
       } else if (isDriver) {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(driver)/(tabs)/home");
       } else {
         setIsAuthorized(false);
         setIsChecking(false);
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         router.replace("/(auth)/login");
       }
     } catch {
       setIsAuthorized(false);
       setIsChecking(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace("/(auth)/login");
     }
   }, []);
@@ -61,7 +73,13 @@ export default function CustomerLayout() {
     return <View style={styles.container} />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="order-confirmed" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="rate-thanks" options={{ gestureEnabled: false }} />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({

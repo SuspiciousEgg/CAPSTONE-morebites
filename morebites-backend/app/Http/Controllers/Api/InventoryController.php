@@ -206,7 +206,41 @@ class InventoryController extends Controller
             'batch_no' => ['nullable', 'string'],
         ]);
 
-        $prevStock = (float) $inventory->stock;
+        $oldUnit = (string) $inventory->unit;
+        $newUnit = array_key_exists('unit', $data) ? (string) $data['unit'] : $oldUnit;
+        $unitChanged = strtolower(trim($oldUnit)) !== strtolower(trim($newUnit));
+        $unitFactor = $unitChanged
+            ? (InventoryDeductionService::convertToInventoryUnit(1.0, $oldUnit, $newUnit) ?? 1.0)
+            : 1.0;
+
+        $rawPrevStock = (float) $inventory->stock;
+        $prevStock = $unitFactor !== 1.0 ? round($rawPrevStock * $unitFactor, 4) : $rawPrevStock;
+
+        if ($unitFactor !== 1.0) {
+            if (! array_key_exists('stock', $data) || abs((float) $data['stock'] - $rawPrevStock) < 0.0001) {
+                $data['stock'] = $prevStock;
+            }
+            $rawPrevReorder = (float) $inventory->reorder_level;
+            if (! array_key_exists('reorder_level', $data) || abs((float) $data['reorder_level'] - $rawPrevReorder) < 0.0001) {
+                $data['reorder_level'] = round($rawPrevReorder * $unitFactor, 4);
+            }
+            $rawPrevPrice = (float) ($inventory->price ?? 0);
+            if ($rawPrevPrice > 0 && (! array_key_exists('price', $data) || abs((float) $data['price'] - $rawPrevPrice) < 0.0001)) {
+                $data['price'] = round($rawPrevPrice / $unitFactor, 4);
+            }
+            if ($inventory->batches()->exists()) {
+                foreach ($inventory->batches()->get() as $batch) {
+                    $convertedBatchStock = round((float) $batch->stock * $unitFactor, 4);
+                    $convertedInitial = round((float) $batch->initial_stock * $unitFactor, 4);
+                    $batch->update([
+                        'stock' => $convertedBatchStock,
+                        'initial_stock' => $convertedInitial,
+                        'status' => \App\Models\InventoryBatch::deriveBatchStatus($convertedBatchStock, $batch->expiry_date),
+                    ]);
+                }
+            }
+        }
+
         $stock = array_key_exists('stock', $data) ? (float) $data['stock'] : $prevStock;
         $reorder = array_key_exists('reorder_level', $data)
             ? (float) $data['reorder_level']
@@ -276,6 +310,19 @@ class InventoryController extends Controller
         ]);
 
         Notification::notifyIfLowStock($inventory->fresh());
+
+        // Keep linked recipe ingredient prices synchronized with updated inventory price/unit
+        $freshInventory = $inventory->fresh();
+        \App\Models\MenuItemIngredient::query()
+            ->where('inventory_item_id', $freshInventory->id)
+            ->with('inventoryItem')
+            ->get()
+            ->each(function (\App\Models\MenuItemIngredient $ing) {
+                $computed = $ing->computedPrice();
+                if (abs((float) $ing->price - $computed) > 0.001) {
+                    $ing->update(['price' => $computed]);
+                }
+            });
 
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
 

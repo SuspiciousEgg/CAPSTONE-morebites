@@ -92,6 +92,9 @@ export default function ConfirmDeliveryScreen() {
       const res = await driverApi.updateStatus(dbId, "Delivered", photo);
       const data = res.data || {};
       const mins = data.eta_mins ?? order?.eta_mins;
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace({
         pathname: "/delivery-complete",
         params: {
@@ -306,7 +309,6 @@ export default function ConfirmDeliveryScreen() {
       >
         <Pressable
           style={styles.ackModalBackdrop}
-          onPress={() => setAckModalVisible(false)}
         >
           <Pressable style={styles.ackModalCard} onPress={(e) => e.stopPropagation()}>
             <View style={styles.ackIconWrap}>

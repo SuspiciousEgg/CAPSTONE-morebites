@@ -246,7 +246,7 @@ export default function SavedAddressesScreen() {
         animationType="fade"
         onRequestClose={() => setAddressToDelete(null)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setAddressToDelete(null)}>
+        <Pressable style={styles.modalOverlay}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
             <Image source={require("../../assets/images/bin.png")} style={styles.binImage} />
             <Text style={styles.modalTitle}>Remove Address?</Text>

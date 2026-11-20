@@ -58,7 +58,10 @@ export default function ResetPasswordScreen() {
         password,
         password_confirmation: confirm,
       });
-      router.push("/(auth)/reset-success");
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(auth)/reset-success");
     } catch (err) {
       const msg = err?.message || "Failed to reset password. Please try again.";
       if (err?.status === 422 && /password/i.test(msg) && !/session|token/i.test(msg)) {

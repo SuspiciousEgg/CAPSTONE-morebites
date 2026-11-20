@@ -40,6 +40,7 @@ import {
 } from './Icons'
 import { inventoryApi, reportsApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
@@ -137,6 +138,14 @@ function formatStock(value, unit = 'pcs') {
   return `${pretty} ${unit}`
 }
 
+function formatPriceUnitLabel(unit = 'pcs') {
+  const u = String(unit || 'pcs').trim()
+  if (u.toLowerCase() === 'pcs' || u.toLowerCase() === 'pc' || u.toLowerCase() === 'piece') {
+    return 'piece'
+  }
+  return u
+}
+
 function formatDaysLeft(days) {
   if (days == null) return '—'
   if (days < 0) return `${days}d`
@@ -151,9 +160,9 @@ function notifyInventoryChanged() {
 function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
   return (
     <div className="inv-filter" ref={menuRef}>
-      <button type="button" className="inv-filter-btn" onClick={onToggle}>
+      <button type="button" className={`inv-filter-btn${open ? ' open' : ''}`} onClick={onToggle}>
         {value}
-        <LuChevronDown size={15} />
+        <LuChevronDown size={15} className="inv-filter-chevron" />
       </button>
       {open && (
         <div className="inv-menu">
@@ -194,7 +203,7 @@ function InventoryConfirmModal({ type, item, saving, onClose, onConfirm }) {
   const name = item?.name || 'this item'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -734,7 +743,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     const showExpiry = categoryConfig?.trackExpiry !== false
 
     return (
-      <div className="inv-backdrop" onClick={closeFormModal} role="presentation">
+      <div className="inv-backdrop" role="presentation">
         <div
           className="inv-modal inv-modal-form"
           onClick={(e) => e.stopPropagation()}
@@ -767,7 +776,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     </button>
                   )}
                 </div>
-                <select
+                <CustomSelect
                   id="inv-category-select"
                   value={form.category}
                   onChange={(e) => {
@@ -781,7 +790,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       {c}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
               </div>
 
               {showNewCatInput && (
@@ -843,7 +852,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <h3 className="inv-form-section-title">ITEM INFORMATION</h3>
                   <label>
                     Subcategory
-                    <select
+                    <CustomSelect
                       value={form.subcategory}
                       onChange={(e) =>
                         setForm((f) => ({
@@ -859,12 +868,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                           {sub}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
                   </label>
                   {detailConfig ? (
                     <label>
                       {detailConfig.label}
-                      <select
+                      <CustomSelect
                         value={form.subcategory_detail}
                         onChange={(e) =>
                           setForm((f) => ({ ...f, subcategory_detail: e.target.value }))
@@ -876,7 +885,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                             {part}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                   ) : null}
                   <label>
@@ -890,16 +899,51 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <div className="inv-form-grid">
                     <label>
                       Unit Type
-                      <select
+                      <CustomSelect
                         value={form.unit}
-                        onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                        onChange={(e) => {
+                          const nextUnit = e.target.value
+                          setForm((f) => {
+                            const prevUnit = f.unit
+                            let factor = 1
+                            if (prevUnit === 'kg' && nextUnit === 'g') factor = 1000
+                            else if (prevUnit === 'g' && nextUnit === 'kg') factor = 0.001
+                            else if (prevUnit === 'L' && nextUnit === 'ml') factor = 1000
+                            else if (prevUnit === 'ml' && nextUnit === 'L') factor = 0.001
+
+                            if (factor === 1) {
+                              return { ...f, unit: nextUnit }
+                            }
+
+                            const nextStock =
+                              f.stock !== '' && Number.isFinite(Number(f.stock))
+                                ? String(Number((Number(f.stock) * factor).toFixed(4)))
+                                : f.stock
+                            const nextReorder =
+                              f.reorder !== '' && Number.isFinite(Number(f.reorder))
+                                ? String(Number((Number(f.reorder) * factor).toFixed(4)))
+                                : f.reorder
+                            const nextPrice =
+                              f.price !== '' && Number.isFinite(Number(f.price)) && Number(f.price) > 0
+                                ? String(Number((Number(f.price) / factor).toFixed(4)))
+                                : f.price
+
+                            return {
+                              ...f,
+                              unit: nextUnit,
+                              stock: nextStock,
+                              reorder: nextReorder,
+                              price: nextPrice,
+                            }
+                          })
+                        }}
                       >
                         {UNITS.map((u) => (
                           <option key={u.value} value={u.value}>
                             {u.label}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                     <label>
                       {isEdit ? 'Current Stock' : 'Initial Stock'}
@@ -925,7 +969,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       />
                     </label>
                     <label>
-                      Price (₱)
+                      Price per {formatPriceUnitLabel(form.unit)} (₱)
                       <div className="inv-input-currency">
                         <span className="inv-currency-symbol">₱</span>
                         <input
@@ -936,11 +980,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                           onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
                           placeholder="0.00"
                         />
+                        <span className="inv-unit-suffix">/ {form.unit || 'pcs'}</span>
                       </div>
                     </label>
                   </div>
                   <p className="inv-field-hint">
-                    Default ingredient price used in recipes and customer customization.
+                    Priced per 1 {formatPriceUnitLabel(form.unit)} ({form.unit || 'pcs'}) — used to calculate recipe and removable ingredient costs.
                   </p>
                 </section>
 
@@ -1216,7 +1261,14 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       </td>
                       <td>
                         <span className="inv-price-val">
-                          {item.price > 0 ? `₱${Number(item.price).toFixed(2)}` : '—'}
+                          {item.price > 0 ? (
+                            <>
+                              ₱{Number(item.price).toFixed(2)}{' '}
+                              <span className="inv-unit">/ {item.unit || 'pcs'}</span>
+                            </>
+                          ) : (
+                            '—'
+                          )}
                         </span>
                       </td>
                       <td>
@@ -1342,7 +1394,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
         })}
 
       {restockItem && (
-        <div className="inv-backdrop" onClick={() => setRestockItem(null)} role="presentation">
+        <div className="inv-backdrop" role="presentation">
           <div className="inv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="inv-modal-head">
               <h2>Restock {restockItem.name}</h2>
@@ -1426,7 +1478,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       )}
 
       {historyOpen && (
-        <div className="inv-backdrop inv-activity-backdrop" onClick={closeHistory} role="presentation">
+        <div className="inv-backdrop inv-activity-backdrop" role="presentation">
           <div className="inv-activity-shell" onClick={(e) => e.stopPropagation()}>
             <div
               className="inv-modal inv-activity"

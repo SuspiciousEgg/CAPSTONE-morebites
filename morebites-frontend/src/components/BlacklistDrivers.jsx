@@ -269,7 +269,7 @@ export default function BlacklistDrivers({ embedded = false }) {
 
       {selected && (
         <>
-          <div className="bl-backdrop" onClick={() => setSelected(null)} role="presentation" />
+          <div className="bl-backdrop" role="presentation" />
           <aside className="bl-drawer" role="dialog" aria-modal="true" aria-label="Driver Details">
             <div className="bl-drawer-head">
               <h2>Driver Details</h2>
@@ -407,7 +407,7 @@ export default function BlacklistDrivers({ embedded = false }) {
       )}
 
       {unblacklistTarget && (
-        <div className="bl-modal-overlay" onClick={() => !unblacklisting && setUnblacklistTarget(null)}>
+        <div className="bl-modal-overlay" role="presentation">
           <div className="bl-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="bl-modal-header">
               <div className="bl-modal-icon-badge restore">

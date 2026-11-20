@@ -17,6 +17,7 @@ import {
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './OrderManagement.css'
 
 const STATUS_OPTIONS = [
@@ -142,14 +143,12 @@ function CreateOrderModal({
   const [loyaltySearching, setLoyaltySearching] = useState(false)
   const [loyaltyNotFound, setLoyaltyNotFound] = useState(false)
   const [loyaltyError, setLoyaltyError] = useState('')
-  const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
   const [activeSizedItem, setActiveSizedItem] = useState(null)
   const [selectedSize, setSelectedSize] = useState(null)
   const [removedIngredientIds, setRemovedIngredientIds] = useState([])
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
-  const typeRef = useRef(null)
   const [submitting, setSubmitting] = useState(false)
   const [checkingOrder, setCheckingOrder] = useState(false)
   const [hasConnectionFailed, setHasConnectionFailed] = useState(false)
@@ -241,14 +240,6 @@ function CreateOrderModal({
       }
     }
   }, [menuCatalog])
-
-  useEffect(() => {
-    function onDoc(e) {
-      if (typeRef.current && !typeRef.current.contains(e.target)) setTypeOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -424,7 +415,7 @@ function CreateOrderModal({
   }
 
   return (
-    <div className="om-modal-backdrop" onClick={submitting || checkingOrder ? undefined : onClose} role="presentation">
+    <div className="om-modal-backdrop" role="presentation">
       <div
         className="om-modal"
         role="dialog"
@@ -580,33 +571,19 @@ function CreateOrderModal({
             <label className="om-field-label" htmlFor="order-type">
               Order Type
             </label>
-            <div className="om-type-select" ref={typeRef}>
-              <button
+            <div className="om-type-select">
+              <CustomSelect
                 id="order-type"
-                type="button"
                 className="om-type-btn"
-                onClick={() => setTypeOpen((v) => !v)}
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value)}
               >
-                <span>{orderType}</span>
-                <LuChevronDown size={16} />
-              </button>
-              {typeOpen && (
-                <div className="om-filter-menu om-type-menu">
-                  {POS_ORDER_TYPES.map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      className={`om-filter-option${orderType === opt ? ' selected' : ''}`}
-                      onClick={() => {
-                        setOrderType(opt)
-                        setTypeOpen(false)
-                      }}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              )}
+                {POS_ORDER_TYPES.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </CustomSelect>
             </div>
 
             <label className="om-field-label" htmlFor="customer-name">
@@ -770,7 +747,6 @@ function CreateOrderModal({
           return (
             <div
               className="om-size-popover-backdrop"
-              onClick={() => setActiveSizedItem(null)}
               role="presentation"
             >
               <div
@@ -1033,7 +1009,7 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   }
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card om-cancel-modal-card"
         role="dialog"
@@ -1683,7 +1659,6 @@ export default function OrderManagement() {
       {viewOrder && (
         <div
           className="om-modal-backdrop"
-          onClick={() => setViewOrder(null)}
           role="presentation"
         >
           <div
@@ -1731,7 +1706,55 @@ export default function OrderManagement() {
               </div>
               <div className="full">
                 <dt>Items</dt>
-                <dd>{viewOrder.items || '—'}</dd>
+                <dd>
+                  {Array.isArray(viewOrder.items_list) && viewOrder.items_list.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {viewOrder.items_list.map((it, idx) => (
+                        <div
+                          key={it.id || idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            padding: '6px 10px',
+                            background: '#F9FAFB',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '8px',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px' }}>
+                              {it.qty}x {it.name}
+                            </div>
+                            {Array.isArray(it.removed_ingredients) && it.removed_ingredients.length > 0 && (
+                              <div style={{ fontSize: '11.5px', color: '#D97706', fontWeight: 500, marginTop: '2px' }}>
+                                Without:{' '}
+                                {it.removed_ingredients
+                                  .map((r) =>
+                                    typeof r === 'string'
+                                      ? r
+                                      : `${r.name}${Number(r.price) > 0 ? ` (-₱${r.price})` : ''}`
+                                  )
+                                  .join(', ')}
+                              </div>
+                            )}
+                            {it.special_instructions && (
+                              <div style={{ fontSize: '11.5px', color: '#6B7280', fontStyle: 'italic', marginTop: '2px' }}>
+                                Note: {it.special_instructions}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                            {peso(it.line_total ?? it.unit_price * it.qty)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    viewOrder.items || '—'
+                  )}
+                </dd>
               </div>
               <div className="full">
                 <dt>Delivery Address</dt>
@@ -1749,7 +1772,8 @@ export default function OrderManagement() {
                     : '—'}
                 </dd>
               </div>
-            </dl>            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
+            </dl>
+            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
               <div className="om-issue-section">
                 <div className="om-issue-heading">
                   <LuTriangleAlert size={14} /> Reported Issues ({viewOrder.reported_issues.length})

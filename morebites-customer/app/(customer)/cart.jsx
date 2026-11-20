@@ -52,6 +52,11 @@ function CartItemCard({ item, onRemove, onDecrease, onIncrease }) {
             Without: {item.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
           </Text>
         ) : null}
+        {item.special_instructions ? (
+          <Text style={styles.itemNote}>
+            Note: {item.special_instructions}
+          </Text>
+        ) : null}
         <Text style={styles.itemPrice}>₱{Number(item.price).toFixed(2)}</Text>
       </View>
 
@@ -241,6 +246,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     fontWeight: "500",
+  },
+  itemNote: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontStyle: "italic",
+    marginTop: 2,
   },
   itemPrice: {
     color: PRIMARY,

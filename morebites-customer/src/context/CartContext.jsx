@@ -17,7 +17,10 @@ function isSameItem(a, b) {
   const removedA = serializeRemoved(a?.removed_ingredients);
   const removedB = serializeRemoved(b?.removed_ingredients);
 
-  return idA === idB && sizeA === sizeB && removedA === removedB;
+  const noteA = a?.special_instructions ? String(a.special_instructions).trim() : "";
+  const noteB = b?.special_instructions ? String(b.special_instructions).trim() : "";
+
+  return idA === idB && sizeA === sizeB && removedA === removedB && noteA === noteB;
 }
 
 export function CartProvider({ children }) {

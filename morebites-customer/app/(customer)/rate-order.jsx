@@ -89,6 +89,9 @@ export default function RateOrderScreen() {
   }, [dbId]);
 
   const goThanks = () => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace({
       pathname: "/(customer)/rate-thanks",
       params: {

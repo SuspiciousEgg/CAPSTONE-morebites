@@ -981,6 +981,7 @@ class CustomerAppController extends Controller
             'food_comment' => $data['food_comment'] ?? null,
             'rider_rating' => $data['rider_rating'] ?? null,
             'rider_comment' => $data['rider_comment'] ?? null,
+            'customer_rating' => $data['rider_rating'] ?? $data['food_rating'] ?? $order->customer_rating,
             'rated_at' => now(),
         ]);
 
@@ -1023,6 +1024,7 @@ class CustomerAppController extends Controller
             'dest_lng' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
             'use_points' => ['nullable', 'boolean'],
+            'points_to_redeem' => ['nullable', 'integer', 'min:0'],
             'expected_points' => ['nullable', 'integer'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
@@ -1031,6 +1033,7 @@ class CustomerAppController extends Controller
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'items.*.removed_ingredients' => ['nullable', 'array'],
+            'items.*.special_instructions' => ['nullable', 'string', 'max:500'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -1098,10 +1101,15 @@ class CustomerAppController extends Controller
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
 
-            // Loyalty points redemption
+            // Loyalty points redemption (supports partial points_to_redeem while enforcing balance & 100% food subtotal caps)
             $pointsUsed = 0;
             $pointsDiscount = 0.0;
-            $usePoints = ! empty($data['use_points']);
+            $requestedPoints = array_key_exists('points_to_redeem', $data) && $data['points_to_redeem'] !== null
+                ? max(0, (int) $data['points_to_redeem'])
+                : null;
+            $usePoints = $requestedPoints !== null
+                ? ($requestedPoints > 0)
+                : ! empty($data['use_points']);
 
             if ($usePoints) {
                 $loyaltySettings = LoyaltySetting::current();
@@ -1122,8 +1130,11 @@ class CustomerAppController extends Controller
                     }
 
                     $pesoVal = (float) $loyaltySettings->peso_value_per_point;
-                    $maxPts = (int) ceil($subtotal / $pesoVal);
-                    $pointsUsed = min($balance, $maxPts);
+                    $maxPts = $pesoVal > 0 ? (int) ceil($subtotal / $pesoVal) : 0;
+                    $maxAllowedPoints = min($balance, $maxPts);
+                    $pointsUsed = $requestedPoints !== null
+                        ? min($requestedPoints, $maxAllowedPoints)
+                        : $maxAllowedPoints;
                     $pointsDiscount = min(round($pointsUsed * $pesoVal, 2), (float) $subtotal);
                 }
             }
@@ -1181,6 +1192,7 @@ class CustomerAppController extends Controller
                     'name' => $item['name'].(! empty($item['size']) ? ' ('.$item['size'].')' : ''),
                     'size' => $item['size'] ?? null,
                     'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
+                    'special_instructions' => ! empty($item['special_instructions']) ? trim((string) $item['special_instructions']) : null,
                     'qty' => $item['qty'],
                     'unit_price' => $item['unit_price'],
                     'line_total' => $item['qty'] * $item['unit_price'],
@@ -1400,6 +1412,7 @@ class CustomerAppController extends Controller
             'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
+            'cancellation_reason' => $o->cancellation_reason,
             'rider_accepted' => $riderAccepted,
             'is_preparing' => $isPreparing,
             'prep_time_min' => $prepSetting->min_prep_time,
@@ -1413,7 +1426,20 @@ class CustomerAppController extends Controller
             'total' => (float) $o->total,
             'delivery_fee' => (float) ($o->delivery_fee ?? app(DeliveryRateService::class)->defaultFee()),
             'service_fee' => (float) ($o->service_fee ?? app(DeliveryRateService::class)->serviceFee()),
-            'itemsLabel' => $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', '),
+            'itemsLabel' => $o->items->map(function ($i) {
+                $removedNames = collect($i->removed_ingredients ?? [])
+                    ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                    ->filter()
+                    ->values();
+                $removedSuffix = $removedNames->isNotEmpty()
+                    ? ' (Without: '.$removedNames->implode(', ').')'
+                    : '';
+                $noteSuffix = ! empty($i->special_instructions)
+                    ? ' [Note: '.$i->special_instructions.']'
+                    : '';
+
+                return $i->qty.'x '.$i->name.$removedSuffix.$noteSuffix;
+            })->implode(', '),
             'items' => $o->items->map(fn ($i) => [
                 'id' => (string) $i->id,
                 'name' => $i->name,
@@ -1422,6 +1448,7 @@ class CustomerAppController extends Controller
                 'price' => (float) $i->unit_price,
                 'line_total' => (float) $i->line_total,
                 'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $firstItem?->name ?: 'Your order',

@@ -49,7 +49,7 @@ export default function PickupConfirmedScreen() {
     setSaving(true);
     try {
       await driverApi.updateStatus(dbId, "Out for Delivery");
-      router.push({
+      router.replace({
         pathname: "/out-for-delivery",
         params: { id: String(order?.id || orderId), dbId: String(dbId) },
       });
@@ -147,23 +147,33 @@ export default function PickupConfirmedScreen() {
         <View style={styles.briefingCard}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Customer</Text>
-            <Text style={styles.detailValue}>James Benedict</Text>
+            <Text style={styles.detailValue}>
+              {order?.customer || "Customer"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Address</Text>
-            <Text style={styles.detailValue}>Dangcagan, Bukidnon</Text>
+            <Text style={styles.detailValue}>
+              {order?.address || order?.location || "Delivery address"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Contact</Text>
-            <Text style={styles.detailValue}>09123456789</Text>
+            <Text style={styles.detailValue}>
+              {order?.contact || "N/A"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Distance</Text>
-            <Text style={styles.detailValue}>2.5km away</Text>
+            <Text style={styles.detailValue}>
+              {order?.distance ? `${order.distance} away` : "—"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Est. time</Text>
-            <Text style={styles.detailValue}>~20 mins</Text>
+            <Text style={styles.detailValue}>
+              {order?.eta_mins ? `~${order.eta_mins} mins` : "~15 mins"}
+            </Text>
           </View>
         </View>
 

@@ -93,6 +93,14 @@
   border-color: #D1D5DB;
 }
 
+.dm-filter-chevron {
+  transition: transform 0.18s ease;
+}
+
+.dm-filter-btn.open .dm-filter-chevron {
+  transform: rotate(180deg);
+}
+
 .dm-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -733,7 +741,7 @@
   font-family: inherit;
   font-size: 13px;
   color: #1C1B18;
-  background: #FFFFFF;
+  background-color: #FFFFFF;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }

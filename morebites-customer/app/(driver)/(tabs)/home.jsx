@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import {
   ActivityIndicator,
@@ -384,7 +384,6 @@ export default function HomeScreen() {
                 <View style={styles.orderTopRow}>
                   <View style={styles.orderNumberRow}>
                     <Text style={styles.orderNumber}>Order {String(order.id || '').startsWith('#') ? order.id : `#${order.id}`}</Text>
-                    <Feather name="package" size={22} color="#F97000" />
                   </View>
                   <Text style={styles.orderAmount}>
                     ₱{Number(order.amount || 0).toFixed(2)}
@@ -453,7 +452,6 @@ export default function HomeScreen() {
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setNotificationsVisible(false)}
         >
           <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.notificationsHeader}>

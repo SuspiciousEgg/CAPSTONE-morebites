@@ -38,7 +38,12 @@ export default function ForgotPasswordScreen() {
         [
           {
             text: "Back to Login",
-            onPress: () => router.replace("/(auth)/login"),
+            onPress: () => {
+              if (router.canDismiss()) {
+                router.dismissAll();
+              }
+              router.replace("/(auth)/login");
+            },
           },
         ]
       );

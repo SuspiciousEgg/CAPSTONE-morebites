@@ -205,6 +205,7 @@ export default function FoodDetailsScreen() {
         name: ing.name,
         price: Number(ing.price || 0),
       })),
+      special_instructions: specialInstructions.trim() || null,
     });
 
     setShowSuccess(true);

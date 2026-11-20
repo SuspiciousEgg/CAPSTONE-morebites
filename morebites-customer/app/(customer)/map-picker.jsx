@@ -305,9 +305,17 @@ export default function MapPickerScreen() {
             {selectedCoordinate ? (
               <Marker
                 coordinate={selectedCoordinate}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title="Delivery Location"
                 draggable
                 onDragEnd={(event) => selectCoordinate(event.nativeEvent.coordinate)}
-              />
+              >
+                <View style={styles.destMarkerOuter}>
+                  <View style={styles.destMarkerInner}>
+                    <Ionicons name="location" size={15} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
             ) : null}
           </MapView>
         ) : (
@@ -350,8 +358,10 @@ export default function MapPickerScreen() {
         <View style={styles.bottomCard}>
           <View style={styles.handle} />
           <View style={styles.addressRow}>
-            <View style={styles.pinCircle}>
-              <Ionicons name="location" size={21} color={PRIMARY} />
+            <View style={styles.destMarkerOuter}>
+              <View style={styles.destMarkerInner}>
+                <Ionicons name="location" size={15} color="#FFFFFF" />
+              </View>
             </View>
             <View style={styles.addressCopy}>
               {selectedCoordinate ? (
@@ -409,8 +419,25 @@ const styles = StyleSheet.create({
   searchAction: { color: PRIMARY, fontFamily: FONT, fontSize: 13, fontWeight: "700" },
   bottomCard: { position: "absolute", right: 0, bottom: 0, left: 0, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 18, borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: "#FFFFFF", shadowColor: "#000000", shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 8 },
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "#D7D7D7", marginBottom: 17 },
-  addressRow: { flexDirection: "row", alignItems: "center" },
-  pinCircle: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "#FFF0E5", marginRight: 12 },
+  addressRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  destMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.22)",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  destMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#EF4444",
+    borderColor: "#FFFFFF",
+    borderRadius: 15,
+    borderWidth: 2,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
   addressCopy: { flex: 1 },
   addressLabel: { fontFamily: FONT, fontSize: 11, color: "#858585" },
   addressText: { marginTop: 2, fontFamily: FONT, fontSize: 14, fontWeight: "700", color: "#252525" },

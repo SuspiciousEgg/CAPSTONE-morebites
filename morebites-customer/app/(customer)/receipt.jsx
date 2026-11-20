@@ -592,6 +592,9 @@ export default function ReceiptScreen() {
 
   const backToHome = () => {
     clearCart();
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace("/(customer)/(tabs)/home");
   };
 

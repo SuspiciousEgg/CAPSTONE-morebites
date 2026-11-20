@@ -141,6 +141,12 @@
 .om-filter-chevron {
   color: #6B7280;
   flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.om-filter-btn.open .om-filter-chevron,
+.om-type-btn.open svg {
+  transform: rotate(180deg);
 }
 
 .om-filter-menu {
@@ -174,18 +180,18 @@
 }
 
 .om-filter-option:hover {
-  background-color: #FFF4E5;
-  color: #FFA500;
+  background-color: #F3F4F6;
+  color: #111827;
 }
 
 .om-filter-option.selected {
-  background-color: #FFF4E5;
-  color: #FFA500;
+  background-color: #2563EB;
+  color: #FFFFFF;
   font-weight: 600;
 }
 
 .om-filter-option.selected:hover {
-  background-color: #FFA500;
+  background-color: #1D4ED8;
   color: #FFFFFF;
 }
 
@@ -1211,15 +1217,12 @@
 .om-type-btn {
   width: 100%;
   height: 38px;
-  padding: 0 14px;
-  background: #FFFFFF;
+  padding: 0 36px 0 14px;
+  background-color: #FFFFFF;
   border: 1px solid #EDEDED;
   border-radius: 8px;
   font-size: 14px;
   color: #1C1B18;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   cursor: pointer;
   font-family: inherit;
 }
@@ -1784,18 +1787,18 @@
 }
 
 .om-cancel-select-option:hover {
-  background-color: #FFF4E5;
-  color: #FFA500;
+  background-color: #F3F4F6;
+  color: #111827;
 }
 
 .om-cancel-select-option.selected {
-  background-color: #FFF4E5;
-  color: #FFA500;
+  background-color: #2563EB;
+  color: #FFFFFF;
   font-weight: 600;
 }
 
 .om-cancel-select-option.selected:hover {
-  background-color: #FFA500;
+  background-color: #1D4ED8;
   color: #FFFFFF;
 }
 

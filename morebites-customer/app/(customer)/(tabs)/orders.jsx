@@ -217,7 +217,7 @@ function OrderDetailsModal({ visible, order, onClose }) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.detailsModalOverlay} onPress={onClose}>
+      <Pressable style={styles.detailsModalOverlay}>
         <Pressable style={styles.detailsSheet} onPress={(event) => event.stopPropagation()}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.detailsHeader}>
@@ -259,6 +259,32 @@ function OrderDetailsModal({ visible, order, onClose }) {
               </View>
             )}
 
+            {order.status === "Cancelled" && order.cancellation_reason ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  backgroundColor: "#FEF2F2",
+                  borderColor: "#FECACA",
+                  borderWidth: 1,
+                  borderRadius: 10,
+                  padding: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: FONT, fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                    Cancellation Reason
+                  </Text>
+                  <Text style={{ fontFamily: FONT, fontSize: 12.5, color: "#B91C1C", marginTop: 1 }}>
+                    {order.cancellation_reason}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             <Text style={styles.sectionTitle}>Items</Text>
             <View style={styles.sectionCard}>
               {(order.items || []).map((item, index) => (
@@ -273,6 +299,23 @@ function OrderDetailsModal({ visible, order, onClose }) {
                   <View style={styles.detailItemInfo}>
                     <Text style={styles.detailItemName}>{item.name}</Text>
                     {item.size ? <Text style={styles.detailItemSize}>Size: {item.size}</Text> : null}
+                    {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
+                      <Text style={{ fontFamily: FONT, fontSize: 11.5, color: "#D97706", fontWeight: "500", marginTop: 2 }}>
+                        Without:{" "}
+                        {item.removed_ingredients
+                          .map((r) =>
+                            typeof r === "string"
+                              ? r
+                              : `${r.name}${Number(r.price) > 0 ? ` (-₱${r.price})` : ""}`
+                          )
+                          .join(", ")}
+                      </Text>
+                    ) : null}
+                    {item.special_instructions ? (
+                      <Text style={{ fontFamily: FONT, fontSize: 11.5, color: "#6B7280", fontStyle: "italic", marginTop: 2 }}>
+                        Note: {item.special_instructions}
+                      </Text>
+                    ) : null}
                     <Text style={styles.detailItemPrice}>₱{item.price}</Text>
                   </View>
                   <Text style={styles.detailQuantity}>x{item.quantity}</Text>
@@ -394,7 +437,7 @@ function NotificationsModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
+      <Pressable style={styles.modalOverlay}>
         <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
           <View style={styles.notificationsHeader}>
             <Text style={styles.notificationsTitle}>Notifications</Text>

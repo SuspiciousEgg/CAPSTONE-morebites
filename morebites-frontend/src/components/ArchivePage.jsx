@@ -20,7 +20,7 @@ function ArchiveRestoreModal({ target, saving, onClose, onConfirm }) {
   const name = target?.item?.name || 'this account'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"

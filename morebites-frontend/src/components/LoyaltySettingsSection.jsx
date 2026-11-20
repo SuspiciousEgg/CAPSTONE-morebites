@@ -8,6 +8,7 @@ import {
   LuRefreshCw,
 } from 'react-icons/lu'
 import { loyaltySettingsApi } from '../api/client'
+import CustomSelect from './CustomSelect'
 
 /*
  * DIAGNOSIS REPORT — Loyalty UI vs. Existing System Design:
@@ -376,7 +377,7 @@ export default function LoyaltySettingsSection() {
 
           <div className="loyalty-history-filter">
             <label className="loyalty-history-filter-label">Filter by type:</label>
-            <select
+            <CustomSelect
               value={historyType}
               onChange={handleTypeChange}
               className="loyalty-history-select"
@@ -386,7 +387,7 @@ export default function LoyaltySettingsSection() {
               <option value="redeem">Redeemed (-)</option>
               <option value="refund">Refunded (+)</option>
               <option value="expire">Expired (-)</option>
-            </select>
+            </CustomSelect>
           </div>
         </div>
 

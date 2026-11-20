@@ -204,7 +204,7 @@ export default function DeliveryRatesSettings() {
       <LoyaltySettingsSection />
 
       {modal && (
-        <div className="dr-backdrop" onClick={() => setModal(null)} role="presentation">
+        <div className="dr-backdrop" role="presentation">
           <div className="dr-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="dr-modal-head">
               <h2>Edit delivery fee</h2>
