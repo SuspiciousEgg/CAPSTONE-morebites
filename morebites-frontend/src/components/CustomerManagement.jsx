@@ -55,10 +55,10 @@ function peso(n) {
 function FilterSelect({ value, options, open, onToggle, onSelect, menuRef, icon: Icon }) {
   return (
     <div className="cm-filter" ref={menuRef}>
-      <button type="button" className="cm-filter-btn" onClick={onToggle}>
+      <button type="button" className={`cm-filter-btn${open ? ' open' : ''}`} onClick={onToggle}>
         {Icon && <Icon size={14} />}
         {value}
-        <LuChevronDown size={14} />
+        <LuChevronDown size={14} className="cm-filter-chevron" />
       </button>
       {open && (
         <div className="cm-menu">

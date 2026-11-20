@@ -17,6 +17,7 @@ import {
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './OrderManagement.css'
 
 const STATUS_OPTIONS = [
@@ -142,14 +143,12 @@ function CreateOrderModal({
   const [loyaltySearching, setLoyaltySearching] = useState(false)
   const [loyaltyNotFound, setLoyaltyNotFound] = useState(false)
   const [loyaltyError, setLoyaltyError] = useState('')
-  const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
   const [activeSizedItem, setActiveSizedItem] = useState(null)
   const [selectedSize, setSelectedSize] = useState(null)
   const [removedIngredientIds, setRemovedIngredientIds] = useState([])
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
-  const typeRef = useRef(null)
   const [submitting, setSubmitting] = useState(false)
   const [checkingOrder, setCheckingOrder] = useState(false)
   const [hasConnectionFailed, setHasConnectionFailed] = useState(false)
@@ -241,14 +240,6 @@ function CreateOrderModal({
       }
     }
   }, [menuCatalog])
-
-  useEffect(() => {
-    function onDoc(e) {
-      if (typeRef.current && !typeRef.current.contains(e.target)) setTypeOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -580,33 +571,19 @@ function CreateOrderModal({
             <label className="om-field-label" htmlFor="order-type">
               Order Type
             </label>
-            <div className="om-type-select" ref={typeRef}>
-              <button
+            <div className="om-type-select">
+              <CustomSelect
                 id="order-type"
-                type="button"
                 className="om-type-btn"
-                onClick={() => setTypeOpen((v) => !v)}
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value)}
               >
-                <span>{orderType}</span>
-                <LuChevronDown size={16} />
-              </button>
-              {typeOpen && (
-                <div className="om-filter-menu om-type-menu">
-                  {POS_ORDER_TYPES.map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      className={`om-filter-option${orderType === opt ? ' selected' : ''}`}
-                      onClick={() => {
-                        setOrderType(opt)
-                        setTypeOpen(false)
-                      }}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              )}
+                {POS_ORDER_TYPES.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </CustomSelect>
             </div>
 
             <label className="om-field-label" htmlFor="customer-name">

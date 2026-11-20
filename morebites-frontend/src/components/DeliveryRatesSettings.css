@@ -728,10 +728,12 @@
 }
 
 .loyalty-history-select {
-  padding: 8px 12px;
+  padding: 8px 36px 8px 12px;
+  min-width: 148px;
+  height: 38px;
   border: 1px solid #EDEDED;
-  border-radius: 8px;
-  background: #FFFFFF;
+  border-radius: 10px;
+  background-color: #FFFFFF;
   font-size: 13px;
   font-weight: 500;
   color: #1C1B18;

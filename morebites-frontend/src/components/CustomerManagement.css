@@ -163,6 +163,14 @@
   border-color: #D1D5DB;
 }
 
+.cm-filter-chevron {
+  transition: transform 0.18s ease;
+}
+
+.cm-filter-btn.open .cm-filter-chevron {
+  transform: rotate(180deg);
+}
+
 .cm-menu {
   position: absolute;
   top: calc(100% + 4px);

@@ -1024,6 +1024,7 @@ class CustomerAppController extends Controller
             'dest_lng' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
             'use_points' => ['nullable', 'boolean'],
+            'points_to_redeem' => ['nullable', 'integer', 'min:0'],
             'expected_points' => ['nullable', 'integer'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
@@ -1100,10 +1101,15 @@ class CustomerAppController extends Controller
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
 
-            // Loyalty points redemption
+            // Loyalty points redemption (supports partial points_to_redeem while enforcing balance & 100% food subtotal caps)
             $pointsUsed = 0;
             $pointsDiscount = 0.0;
-            $usePoints = ! empty($data['use_points']);
+            $requestedPoints = array_key_exists('points_to_redeem', $data) && $data['points_to_redeem'] !== null
+                ? max(0, (int) $data['points_to_redeem'])
+                : null;
+            $usePoints = $requestedPoints !== null
+                ? ($requestedPoints > 0)
+                : ! empty($data['use_points']);
 
             if ($usePoints) {
                 $loyaltySettings = LoyaltySetting::current();
@@ -1124,8 +1130,11 @@ class CustomerAppController extends Controller
                     }
 
                     $pesoVal = (float) $loyaltySettings->peso_value_per_point;
-                    $maxPts = (int) ceil($subtotal / $pesoVal);
-                    $pointsUsed = min($balance, $maxPts);
+                    $maxPts = $pesoVal > 0 ? (int) ceil($subtotal / $pesoVal) : 0;
+                    $maxAllowedPoints = min($balance, $maxPts);
+                    $pointsUsed = $requestedPoints !== null
+                        ? min($requestedPoints, $maxAllowedPoints)
+                        : $maxAllowedPoints;
                     $pointsDiscount = min(round($pointsUsed * $pesoVal, 2), (float) $subtotal);
                 }
             }

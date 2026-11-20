@@ -40,6 +40,7 @@ import {
 } from './Icons'
 import { inventoryApi, reportsApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
@@ -159,9 +160,9 @@ function notifyInventoryChanged() {
 function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
   return (
     <div className="inv-filter" ref={menuRef}>
-      <button type="button" className="inv-filter-btn" onClick={onToggle}>
+      <button type="button" className={`inv-filter-btn${open ? ' open' : ''}`} onClick={onToggle}>
         {value}
-        <LuChevronDown size={15} />
+        <LuChevronDown size={15} className="inv-filter-chevron" />
       </button>
       {open && (
         <div className="inv-menu">
@@ -775,7 +776,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     </button>
                   )}
                 </div>
-                <select
+                <CustomSelect
                   id="inv-category-select"
                   value={form.category}
                   onChange={(e) => {
@@ -789,7 +790,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       {c}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
               </div>
 
               {showNewCatInput && (
@@ -851,7 +852,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <h3 className="inv-form-section-title">ITEM INFORMATION</h3>
                   <label>
                     Subcategory
-                    <select
+                    <CustomSelect
                       value={form.subcategory}
                       onChange={(e) =>
                         setForm((f) => ({
@@ -867,12 +868,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                           {sub}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
                   </label>
                   {detailConfig ? (
                     <label>
                       {detailConfig.label}
-                      <select
+                      <CustomSelect
                         value={form.subcategory_detail}
                         onChange={(e) =>
                           setForm((f) => ({ ...f, subcategory_detail: e.target.value }))
@@ -884,7 +885,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                             {part}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                   ) : null}
                   <label>
@@ -898,7 +899,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <div className="inv-form-grid">
                     <label>
                       Unit Type
-                      <select
+                      <CustomSelect
                         value={form.unit}
                         onChange={(e) => {
                           const nextUnit = e.target.value
@@ -942,7 +943,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                             {u.label}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                     <label>
                       {isEdit ? 'Current Stock' : 'Initial Stock'}

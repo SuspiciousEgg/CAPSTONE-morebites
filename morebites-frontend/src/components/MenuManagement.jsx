@@ -16,6 +16,7 @@ import {
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './MenuManagement.css'
 
 /**
@@ -796,7 +797,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           {/* Category */}
           <div className="menu-form-group">
             <label htmlFor="form-item-cat">Category *</label>
-            <select
+            <CustomSelect
               id="form-item-cat"
               value={form.category}
               onChange={(e) => {
@@ -818,7 +819,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                   {c}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
           </div>
 
           {/* Subcategory (Conditional: Pizza and Meal only, optional) */}
@@ -827,7 +828,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               <label htmlFor="form-item-subcat">
                 Subcategory <span className="menu-form-optional-tag">(Optional)</span>
               </label>
-              <select
+              <CustomSelect
                 id="form-item-subcat"
                 value={form.subcategory || ''}
                 onChange={(e) => setField('subcategory', e.target.value)}
@@ -838,7 +839,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                     {sub}
                   </option>
                 ))}
-              </select>
+              </CustomSelect>
             </div>
           )}
 
@@ -1111,7 +1112,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
                 return (
                   <div key={i} className="menu-recipe-row">
-                    <select
+                    <CustomSelect
                       className="menu-recipe-item-select"
                       value={currentId}
                       onChange={(e) =>
@@ -1139,7 +1140,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                           </option>
                         )
                       })}
-                    </select>
+                    </CustomSelect>
                     <input
                       type="number"
                       step="any"
@@ -1152,7 +1153,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                         updateIngredient(i, 'qty_per_serving', e.target.value)
                       }
                     />
-                    <select
+                    <CustomSelect
                       className={`menu-recipe-unit-select ${isMismatch ? 'unit-incompatible' : ''}`}
                       value={currentUnit}
                       onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
@@ -1168,7 +1169,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                           {u}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
                     <div
                       className="menu-recipe-price-pill"
                       title="Computed as Inventory unit price × portion for this size"
@@ -1478,7 +1479,7 @@ export default function MenuManagement() {
 
         {/* Category Filter Dropdown */}
         <div className="menu-category-wrapper">
-          <select
+          <CustomSelect
             className="menu-category-select"
             value={category}
             onChange={(e) => {
@@ -1493,14 +1494,14 @@ export default function MenuManagement() {
                 {c}
               </option>
             ))}
-          </select>
+          </CustomSelect>
           <LuChevronDown className="menu-select-arrow" size={16} />
         </div>
 
         {/* Subcategory Filter Dropdown (Conditional when selected category has subcategories) */}
         {Boolean(MENU_SUBCATEGORIES[category]) && (
           <div className="menu-category-wrapper">
-            <select
+            <CustomSelect
               className="menu-category-select"
               value={subcategoryFilter}
               onChange={(e) => {
@@ -1514,7 +1515,7 @@ export default function MenuManagement() {
                   {sub}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
             <LuChevronDown className="menu-select-arrow" size={16} />
           </div>
         )}

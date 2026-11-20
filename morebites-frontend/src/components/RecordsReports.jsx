@@ -9,6 +9,7 @@ import {
 import { gasExpensesApi, getStoredUser, menuApi, reportsApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import logoImg from '../assets/logo.png'
 import './RecordsReports.css'
 
@@ -1844,7 +1845,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={salesStatus}
                   onChange={(e) => {
@@ -1858,7 +1859,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Out for Delivery</option>
                   <option>Pending</option>
                   <option>Cancelled</option>
-                </select>
+                </CustomSelect>
               </>
             )}
 
@@ -1902,7 +1903,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={deliveryStatus}
                   onChange={(e) => {
@@ -1914,7 +1915,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Preparing</option>
                   <option>Out for Delivery</option>
                   <option>Completed</option>
-                </select>
+                </CustomSelect>
               </>
             )}
 
@@ -1935,7 +1936,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={customerStatus}
                   onChange={(e) => {
@@ -1947,7 +1948,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Frequent</option>
                   <option>Regular</option>
                   <option>New</option>
-                </select>
+                </CustomSelect>
               </>
             )}
           </div>
@@ -2443,9 +2444,9 @@ export default function RecordsReports({ user: propUser }) {
 
               <div className="reports-form-group">
                 <label className="reports-form-label">Order Status</label>
-                <select
+                <CustomSelect
                   className="reports-select-filter"
-                  style={{ width: '100%', height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px', background: '#FFFFFF', color: '#1F2937' }}
+                  style={{ width: '100%', height: '40px' }}
                   value={salesStatus}
                   onChange={(e) => setSalesStatus(e.target.value)}
                 >
@@ -2455,7 +2456,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Out for Delivery</option>
                   <option>Pending</option>
                   <option>Cancelled</option>
-                </select>
+                </CustomSelect>
                 <p style={{ margin: '4px 0 0 2px', fontSize: '12px', color: '#6B7280' }}>
                   {salesStatus === 'All Statuses'
                     ? 'Exported file will include orders across all statuses.'
@@ -2693,7 +2694,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-history-select"
                   value={historyFormat}
                   onChange={(e) => setHistoryFormat(e.target.value)}
@@ -2702,9 +2703,9 @@ export default function RecordsReports({ user: propUser }) {
                   <option>PDF</option>
                   <option>CSV</option>
                   <option>XLSX</option>
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="reports-history-select"
                   value={historyDate}
                   onChange={(e) => setHistoryDate(e.target.value)}
@@ -2713,7 +2714,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Today</option>
                   <option>This Week</option>
                   <option>This Month</option>
-                </select>
+                </CustomSelect>
               </div>
 
               {/* Rows List */}
@@ -2837,7 +2838,7 @@ export default function RecordsReports({ user: propUser }) {
 
                 <div className="reports-form-group">
                   <label className="reports-form-label">Driver / Rider (Optional)</label>
-                  <select
+                  <CustomSelect
                     className="reports-select-input"
                     value={gasDriverId}
                     onChange={(e) => setGasDriverId(e.target.value)}
@@ -2848,7 +2849,7 @@ export default function RecordsReports({ user: propUser }) {
                         {d.name}
                       </option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 <div className="reports-form-group">

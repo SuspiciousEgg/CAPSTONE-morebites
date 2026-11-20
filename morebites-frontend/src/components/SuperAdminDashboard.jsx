@@ -33,6 +33,7 @@ import {
 } from 'react-icons/lu'
 import { TbClipboardList } from 'react-icons/tb'
 import logo from '../assets/logo.png'
+import CustomSelect from './CustomSelect'
 import {
   IconAccount,
   IconBell,
@@ -1090,7 +1091,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             <div className="sa-card-header">
               <h2 className="sa-card-heading">Sales Overview</h2>
               <div className="sa-sales-controls">
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={salesPeriod}
                   onChange={(e) => setSalesPeriod(e.target.value)}
@@ -1100,9 +1101,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                       {p}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={fromTime}
                   onChange={(e) => setFromTime(e.target.value)}
@@ -1112,9 +1113,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   <option value="From 10:00 AM">From 10:00 AM</option>
                   <option value="From 11:00 AM">From 11:00 AM</option>
                   <option value="From 12:00 PM">From 12:00 PM</option>
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={toTime}
                   onChange={(e) => setToTime(e.target.value)}
@@ -1124,7 +1125,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   <option value="To 10:00 PM">To 10:00 PM</option>
                   <option value="To 11:00 PM">To 11:00 PM</option>
                   <option value="To 12:00 AM">To 12:00 AM</option>
-                </select>
+                </CustomSelect>
               </div>
             </div>
 

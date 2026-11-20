@@ -349,6 +349,7 @@ class TrackingService
                 'price' => (float) $i->unit_price,
                 'line_total' => (float) ($i->line_total ?? ((float) $i->unit_price * (int) $i->qty)),
                 'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $order->items->first()?->name ?: 'Your order',

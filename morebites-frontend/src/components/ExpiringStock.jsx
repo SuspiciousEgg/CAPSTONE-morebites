@@ -9,6 +9,7 @@ import {
 } from './Icons'
 import { expiringStockApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './ExpiringStock.css'
 
 /* ============================================================================
@@ -491,14 +492,14 @@ export default function ExpiringStock() {
               </div>
               <label>
                 Menu item
-                <select value={promoMenuId} onChange={(e) => setPromoMenuId(e.target.value)}>
+                <CustomSelect value={promoMenuId} onChange={(e) => setPromoMenuId(e.target.value)}>
                   <option value="">Select menu item…</option>
                   {(promoRow.linked_menus || []).map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
               </label>
               <label>
                 Target Discount (%)
