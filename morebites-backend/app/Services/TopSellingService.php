@@ -198,8 +198,28 @@ class TopSellingService
                     'name' => $s->name,
                     'originalPrice' => $orig,
                     'price' => $eff,
+                    'ingredients' => $s->ingredients->map(fn ($ing) => [
+                        'id' => $ing->id,
+                        'inventory_item_id' => $ing->inventory_item_id,
+                        'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                        'qty_per_serving' => (float) $ing->qty_per_serving,
+                        'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                        'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                        'price' => $ing->computedPrice(),
+                    ])->values(),
                 ];
             })->values();
+
+            $ingredients = $m->ingredients->map(fn ($ing) => [
+                'id' => $ing->id,
+                'menu_item_size_id' => $ing->menu_item_size_id,
+                'inventory_item_id' => $ing->inventory_item_id,
+                'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                'qty_per_serving' => (float) $ing->qty_per_serving,
+                'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                'price' => $ing->computedPrice(),
+            ])->values();
 
             $origMin = $sizes->min('originalPrice');
             $origMax = $sizes->max('originalPrice');

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuChevronLeft, LuChevronRight, LuSparkles, LuTag, LuTrash2, LuTriangleAlert } from 'react-icons/lu'
+import { LuCheck, LuChevronLeft, LuChevronRight, LuShieldCheck, LuTag, LuTrash2, LuTrendingUp, LuTriangleAlert } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -539,27 +539,31 @@ export default function ExpiringStock() {
         const discountVal = Number(promoDiscount) || 0
 
         return (
-          <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">
-            <div className="exp-modal exp-promo-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="exp-backdrop" role="presentation">
+            <div className="exp-modal exp-promo-modal" role="dialog" aria-modal="true">
               <div className="exp-modal-head">
                 <div>
                   <h2>Smart Expiring-Stock Promo</h2>
-                  <p className="exp-modal-sub">
-                    Batch <strong>{promoRow.batch_no}</strong> · <strong>{promoRow.stock} {promoRow.unit}</strong> of{' '}
-                    <strong>{promoRow.name}</strong> ({formatDaysUntil(promoRow.days_until_expiry)})
-                  </p>
+                  <div className="exp-modal-meta-strip">
+                    <span className="exp-batch-tag">{promoRow.batch_no}</span>
+                    <span>
+                      <strong>{promoRow.stock} {promoRow.unit}</strong> {promoRow.name}
+                    </span>
+                    <span className="exp-meta-dot" aria-hidden="true">·</span>
+                    <span className="exp-meta-expiry">{formatDaysUntil(promoRow.days_until_expiry)}</span>
+                  </div>
                 </div>
-                <button type="button" className="exp-icon-btn" onClick={() => setPromoRow(null)} aria-label="Close">
+                <button type="button" className="exp-icon-btn exp-close-btn" onClick={() => setPromoRow(null)} aria-label="Close">
                   <IconClose />
                 </button>
               </div>
 
-              <div className="exp-modal-body">
-                {/* Smart Dish Picker Ranked by Highest Ingredient Usage */}
+              <div className="exp-modal-body exp-promo-body">
+                {/* 1. Dish Picker Ranked by Highest Ingredient Usage */}
                 <div className="exp-promo-section">
                   <div className="exp-promo-section-head">
                     <span className="exp-section-label">1. Select Dish(es) to Promote</span>
-                    <span className="exp-section-hint">Ranked by highest {promoRow.name} usage</span>
+                    <span className="exp-section-hint">Sorted by highest {promoRow.name} usage</span>
                   </div>
 
                   <div className="exp-dish-list">
@@ -580,62 +584,65 @@ export default function ExpiringStock() {
                           className={`exp-dish-option${checked ? ' selected' : ''}`}
                           onClick={() => togglePromoMenu(m.id)}
                         >
-                          <div className="exp-dish-check">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {}}
-                              tabIndex={-1}
-                              aria-label={`Promote ${m.name}`}
-                            />
-                          </div>
+                          <span className={`exp-custom-check${checked ? ' checked' : ''}`} aria-hidden="true">
+                            {checked && <LuCheck size={12} strokeWidth={3} />}
+                          </span>
                           <div className="exp-dish-main">
                             <div className="exp-dish-top">
                               <span className="exp-dish-name">{m.name}</span>
                               {m.recommended && (
                                 <span className="exp-rec-pill">
-                                  <LuSparkles size={11} /> Recommended · Clears fastest
+                                  <LuTrendingUp size={11} /> Fastest clearance
                                 </span>
                               )}
                             </div>
                             <div className="exp-dish-meta">
-                              <span>Uses {m.usage_summary}</span>
+                              <span>Uses <strong>{m.usage_summary}</strong></span>
                               {m.orders_to_clear_label && (
-                                <span className="exp-clear-pill">
-                                  {m.orders_to_clear_label} to clear batch
-                                </span>
+                                <>
+                                  <span className="exp-meta-dot" aria-hidden="true">·</span>
+                                  <span className="exp-clear-text">
+                                    {m.orders_to_clear_label} to clear
+                                  </span>
+                                </>
                               )}
                             </div>
-                            {discountVal > 0 && (
-                              <div className="exp-dish-price-preview">
-                                <span className="exp-price-orig">{origPriceStr}</span>
-                                <span className="exp-price-arrow">→</span>
-                                <span className="exp-price-promo">{promoPriceStr}</span>
-                              </div>
-                            )}
                           </div>
+                          {discountVal > 0 && (
+                            <div className="exp-dish-price-preview">
+                              <span className="exp-price-orig">{origPriceStr}</span>
+                              <span className="exp-price-promo">{promoPriceStr}</span>
+                            </div>
+                          )}
                         </button>
                       )
                     })}
                   </div>
                 </div>
 
-                {/* Per-Size Batch Clearance Estimator */}
+                {/* Per-Size Batch Clearance Breakdown */}
                 {selectedMenus.length > 0 && (
                   <div className="exp-clearance-box">
-                    <div className="exp-clearance-title">
-                      <LuSparkles size={14} /> Estimated Orders to Clear {promoRow.stock} {promoRow.unit} Batch
+                    <div className="exp-clearance-head">
+                      <span className="exp-clearance-title">
+                        Clearance Estimate · {promoRow.stock} {promoRow.unit} Batch
+                      </span>
+                      <span className="exp-autostop-pill">
+                        <LuShieldCheck size={12} /> Auto-shutoff on depletion
+                      </span>
                     </div>
                     {selectedMenus.map((m) => (
                       <div key={m.id} className="exp-clearance-dish">
-                        <strong>{m.name}:</strong>
+                        <span className="exp-clearance-dish-name">{m.name}</span>
                         <div className="exp-size-pills">
                           {(m.size_estimates || []).map((sz, idx) => (
                             <span key={`${m.id}-${sz.size_id || idx}`} className="exp-size-pill">
                               {sz.size_name ? `${sz.size_name} (${sz.usage_label})` : sz.usage_label}
                               {' · '}
                               <strong>
-                                {sz.orders_to_clear != null ? `~${sz.orders_to_clear} orders` : '—'}
+                                {sz.orders_to_clear != null
+                                  ? `~${sz.orders_to_clear} ${sz.orders_to_clear === 1 ? 'order' : 'orders'}`
+                                  : '—'}
                               </strong>
                             </span>
                           ))}
@@ -643,31 +650,33 @@ export default function ExpiringStock() {
                       </div>
                     ))}
                     <p className="exp-autostop-note">
-                      Auto-shutoff enabled: this promo automatically turns off once Batch {promoRow.batch_no} hits 0 stock or expires, protecting full price on fresh stock.
+                      Automatically ends when Batch {promoRow.batch_no} reaches 0 stock or expires, protecting full price on fresh stock.
                     </p>
                   </div>
                 )}
 
-                {/* Discount % + Urgency Presets */}
+                {/* 2. Discount % + 3. Customer-Facing Label */}
                 <div className="exp-promo-row-2">
-                  <label className="exp-field-block">
-                    <span>
-                      2. Discount (%)
-                      {promoRow.suggested_discount_percent ? (
-                        <em className="exp-suggest-inline"> · Suggested: {promoRow.suggested_discount_percent}%</em>
-                      ) : null}
-                    </span>
-                    <div className="exp-chip-row">
-                      {DISCOUNT_PRESETS.map((pct) => (
-                        <button
-                          key={pct}
-                          type="button"
-                          className={`exp-preset-chip${Number(promoDiscount) === pct ? ' active' : ''}`}
-                          onClick={() => setPromoDiscount(String(pct))}
-                        >
-                          {pct}%
-                        </button>
-                      ))}
+                  <div className="exp-field-block">
+                    <div className="exp-field-top">
+                      <span className="exp-section-label">
+                        2. Discount (%)
+                        {promoRow.suggested_discount_percent ? (
+                          <em className="exp-suggest-inline"> · Suggested {promoRow.suggested_discount_percent}%</em>
+                        ) : null}
+                      </span>
+                      <div className="exp-chip-row">
+                        {DISCOUNT_PRESETS.map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            className={`exp-preset-chip${Number(promoDiscount) === pct ? ' active' : ''}`}
+                            onClick={() => setPromoDiscount(String(pct))}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <input
                       type="number"
@@ -676,24 +685,25 @@ export default function ExpiringStock() {
                       value={promoDiscount}
                       onChange={(e) => setPromoDiscount(e.target.value)}
                       placeholder="Custom %"
+                      aria-label="Discount percentage"
                     />
-                  </label>
+                  </div>
 
-                  <label className="exp-field-block">
-                    <span>
-                      3. Customer-Facing Label
-                    </span>
-                    <div className="exp-chip-row">
-                      {PROMO_LABEL_PRESETS.map((lbl) => (
-                        <button
-                          key={lbl}
-                          type="button"
-                          className={`exp-preset-chip${promoLabel === lbl ? ' active' : ''}`}
-                          onClick={() => setPromoLabel(lbl)}
-                        >
-                          {lbl}
-                        </button>
-                      ))}
+                  <div className="exp-field-block">
+                    <div className="exp-field-top">
+                      <span className="exp-section-label">3. Customer-Facing Label</span>
+                      <div className="exp-chip-row">
+                        {PROMO_LABEL_PRESETS.map((lbl) => (
+                          <button
+                            key={lbl}
+                            type="button"
+                            className={`exp-preset-chip${promoLabel === lbl ? ' active' : ''}`}
+                            onClick={() => setPromoLabel(lbl)}
+                          >
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <input
                       type="text"
@@ -701,14 +711,18 @@ export default function ExpiringStock() {
                       value={promoLabel}
                       onChange={(e) => setPromoLabel(e.target.value)}
                       placeholder="e.g. Today's Special"
+                      aria-label="Customer-facing promo label"
                     />
-                  </label>
+                  </div>
                 </div>
 
                 <div className="exp-label-preview">
-                  <LuTag size={14} />
-                  <span>
-                    Customers see: <strong>{promoLabel.trim() || "Today's Special"} · {discountVal || 0}% OFF</strong> (expiry details stay internal to staff).
+                  <span className="exp-preview-badge">
+                    <LuTag size={12} />
+                    {promoLabel.trim() || "Today's Special"} · {discountVal || 0}% OFF
+                  </span>
+                  <span className="exp-preview-note">
+                    Shown to customers. Expiry &amp; batch details stay internal to staff.
                   </span>
                 </div>
               </div>

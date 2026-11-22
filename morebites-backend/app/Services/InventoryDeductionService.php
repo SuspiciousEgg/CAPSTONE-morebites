@@ -195,9 +195,10 @@ class InventoryDeductionService
             return $fallbackPrice;
         }
 
+        $effectiveBase = $menu->applyPromoPrice($basePrice);
         $deduction = collect($removed)->sum(fn ($r) => (float) ($r['price'] ?? 0.0));
 
-        return max(0.0, round($basePrice - $deduction, 2));
+        return max(0.0, round($effectiveBase - $deduction, 2));
     }
 
     public function aggregateDemandsForLines(iterable $lines): array
@@ -467,6 +468,44 @@ class InventoryDeductionService
         }
 
         return $this->evaluateIngredientsReason($item->ingredients, $qty, $removedIngredients);
+    }
+
+    private function isIngredientRemoved($ingredient, array $removedIngredients): bool
+    {
+        $invId = (int) ($ingredient->inventory_item_id ?? 0);
+        $ingId = (int) ($ingredient->id ?? 0);
+        $ingName = strtolower(trim((string) ($ingredient->inventoryItem?->name ?? '')));
+
+        foreach ($removedIngredients as $r) {
+            if (is_numeric($r)) {
+                $id = (int) $r;
+                if ($id > 0 && ($id === $invId || $id === $ingId)) {
+                    return true;
+                }
+            } elseif (is_string($r)) {
+                $trimmed = trim($r);
+                if (is_numeric($trimmed)) {
+                    $id = (int) $trimmed;
+                    if ($id > 0 && ($id === $invId || $id === $ingId)) {
+                        return true;
+                    }
+                } elseif ($ingName !== '' && strtolower($trimmed) === $ingName) {
+                    return true;
+                }
+            } elseif (is_array($r)) {
+                if (! empty($r['inventory_item_id']) && (int) $r['inventory_item_id'] === $invId) {
+                    return true;
+                }
+                if (! empty($r['id']) && ((int) $r['id'] === $ingId || (int) $r['id'] === $invId)) {
+                    return true;
+                }
+                if (! empty($r['name']) && $ingName !== '' && strtolower(trim((string) $r['name'])) === $ingName) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1, array $removedIngredients = []): ?string
