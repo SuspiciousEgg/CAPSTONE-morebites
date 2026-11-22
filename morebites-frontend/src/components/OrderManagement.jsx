@@ -417,14 +417,41 @@ function CreateOrderModal({
                     >
                       <div className="om-menu-card-top">
                         <div className="om-menu-card-name">{item.name}</div>
-                        {!isAvailable && (
+                        {!isAvailable ? (
                           <span className="om-unavailable-badge">Unavailable</span>
-                        )}
+                        ) : item.promo_active && item.promo_discount_percent ? (
+                          <span
+                            style={{
+                              background: '#FFF4E5',
+                              color: '#EA580C',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: '999px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {item.promo_discount_percent}% OFF
+                          </span>
+                        ) : null}
                       </div>
                       <div className="om-menu-card-meta">
                         {item.category?.toUpperCase()}
                       </div>
                       <div className={`om-menu-card-price${!isAvailable ? ' unavailable' : ''}`}>
+                        {item.promo_active && item.original_price_formatted && (
+                          <span
+                            style={{
+                              textDecoration: 'line-through',
+                              color: '#9CA3AF',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              marginRight: '6px',
+                            }}
+                          >
+                            {item.original_price_formatted}
+                          </span>
+                        )}
                         {formatItemCardPrice(item)}
                       </div>
 

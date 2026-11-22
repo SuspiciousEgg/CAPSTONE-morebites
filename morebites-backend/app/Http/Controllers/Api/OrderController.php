@@ -259,23 +259,30 @@ class OrderController extends Controller
     public function menuOptions()
     {
         $service = app(InventoryDeductionService::class);
+        $service->clearExpiredBatchPromos();
         $service->syncMenuAvailability();
+
+        $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
 
         $items = MenuItem::query()
             ->with(['sizes', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->orderBy('name')
             ->get()
-            ->map(function (MenuItem $m) use ($service) {
+            ->map(function (MenuItem $m) use ($service, $formatNum) {
                 $stockReason = $service->unserviceableReason($m);
                 $stockOk = $stockReason === null;
+                $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
                 $sizes = $m->sizes->map(function ($s) use ($m, $service) {
                     $sizeReason = $service->unserviceableReason($m, 1, $s->name);
+                    $orig = (float) $s->price;
+                    $eff = $m->applyPromoPrice($orig);
 
                     return [
                         'name' => $s->name,
-                        'price' => (float) $s->price,
+                        'original_price' => $orig,
+                        'price' => $eff,
                         'available' => (bool) $m->available && $sizeReason === null,
                         'stockReason' => $sizeReason,
                     ];
@@ -284,23 +291,38 @@ class OrderController extends Controller
                 $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
                 $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
 
+                $origMin = $sizes->min('original_price');
+                $origMax = $sizes->max('original_price');
                 $minPrice = $sizes->min('price');
                 $maxPrice = $sizes->max('price');
-                $effectivePrice = $m->has_sizes && $minPrice !== null ? (float) $minPrice : (float) $m->price;
+
+                $originalEffective = $m->has_sizes && $origMin !== null ? (float) $origMin : (float) $m->price;
+                $effectivePrice = $m->has_sizes && $minPrice !== null ? (float) $minPrice : $m->applyPromoPrice((float) $m->price);
+
+                $originalPriceFormatted = $m->has_sizes && $origMin !== null
+                    ? ($origMin == $origMax
+                        ? '₱'.$formatNum((float) $origMin)
+                        : '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax))
+                    : '₱'.$formatNum((float) $m->price);
 
                 $priceFormatted = $m->has_sizes && $minPrice !== null
                     ? ($minPrice == $maxPrice
-                        ? '₱'.number_format($minPrice, 0)
-                        : '₱'.number_format($minPrice, 0).' - ₱'.number_format($maxPrice, 0))
-                    : '₱'.number_format((float) $m->price, 0);
+                        ? '₱'.$formatNum((float) $minPrice)
+                        : '₱'.$formatNum((float) $minPrice).' - ₱'.$formatNum((float) $maxPrice))
+                    : '₱'.$formatNum($effectivePrice);
 
                 return [
                     'id' => $m->id,
                     'name' => $m->name,
                     'category' => $m->category,
                     'subcategory' => $m->subcategory,
+                    'original_price' => $originalEffective,
+                    'original_price_formatted' => $originalPriceFormatted,
                     'price' => $effectivePrice,
                     'price_formatted' => $priceFormatted,
+                    'promo_active' => $promoActive,
+                    'promo_discount_percent' => $promoActive ? (float) $m->promo_discount_percent : null,
+                    'promo_label' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
                     'available' => $itemAvailable,
                     'stockOk' => $stockOk,
                     'stockReason' => $stockReason,

@@ -852,6 +852,7 @@ class CustomerAppController extends Controller
     public function menu()
     {
         $service = app(InventoryDeductionService::class);
+        $service->clearExpiredBatchPromos();
         $service->syncMenuAvailability();
 
         // Prompt 23: Aggregate real food rating data per menu item from customer orders.
@@ -884,6 +885,8 @@ class CustomerAppController extends Controller
 
     public function topSelling(TopSellingService $service)
     {
+        app(InventoryDeductionService::class)->clearExpiredBatchPromos();
+
         return response()->json(['data' => $service->getTopSelling()]);
     }
 
@@ -1282,17 +1285,34 @@ class CustomerAppController extends Controller
         $stockOk = $service->canServe($m);
         $stockReason = $service->unserviceableReason($m);
         $isAvailable = (bool) ($m->available && $stockOk);
+        $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
-        $sizes = $m->sizes->map(fn ($s) => [
-            'sizeName' => $s->name,
-            'price' => (float) $s->price,
-        ])->values();
+        $sizes = $m->sizes->map(function ($s) use ($m) {
+            $orig = (float) $s->price;
+            $eff = $m->applyPromoPrice($orig);
 
+            return [
+                'sizeName' => $s->name,
+                'originalPrice' => $orig,
+                'price' => $eff,
+            ];
+        })->values();
+
+        $origMin = $sizes->min('originalPrice');
+        $origMax = $sizes->max('originalPrice');
         $min = $sizes->min('price');
         $max = $sizes->max('price');
+
+        $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
+
+        $originalPriceLabel = $m->has_sizes && $sizes->count()
+            ? '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax)
+            : '₱'.$formatNum((float) $m->price);
+
+        $effectiveBase = $m->applyPromoPrice((float) $m->price);
         $priceLabel = $m->has_sizes && $sizes->count()
-            ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
-            : '₱'.number_format((float) $m->price, 0);
+            ? '₱'.$formatNum((float) $min).' - ₱'.$formatNum((float) $max)
+            : '₱'.$formatNum($effectiveBase);
 
         $rating = $ratingStat ? (float) $ratingStat->avg_rating : null;
         $reviewCount = $ratingStat ? (int) $ratingStat->review_count : 0;
@@ -1304,7 +1324,9 @@ class CustomerAppController extends Controller
             'category' => $m->category,
             'subcategory' => $m->subcategory,
             'description' => $m->description,
-            'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
+            'originalPrice' => (float) ($m->has_sizes && $origMin !== null ? $origMin : $m->price),
+            'originalPriceLabel' => $originalPriceLabel,
+            'price' => (float) ($m->has_sizes && $min !== null ? $min : $effectiveBase),
             'priceLabel' => $priceLabel,
             'hasSizes' => (bool) $m->has_sizes,
             'sizes' => $sizes,
@@ -1316,9 +1338,9 @@ class CustomerAppController extends Controller
             'rating' => $rating,
             'reviewCount' => $reviewCount,
             'reviews' => $reviewCount,
-            'promoActive' => (bool) $m->promo_active,
-            'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
-            'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
+            'promoActive' => $promoActive,
+            'promoDiscountPercent' => $promoActive ? (float) $m->promo_discount_percent : null,
+            'promoLabel' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
         ];
     }
 

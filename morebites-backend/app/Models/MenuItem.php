@@ -40,4 +40,15 @@ class MenuItem extends Model
     {
         return $this->hasMany(MenuItemIngredient::class)->whereNull('menu_item_size_id');
     }
+
+    public function applyPromoPrice(float $basePrice): float
+    {
+        if (! $this->promo_active || ! $this->promo_discount_percent || $this->promo_discount_percent <= 0) {
+            return round($basePrice, 2);
+        }
+
+        $discount = min(90.0, max(0.0, (float) $this->promo_discount_percent));
+
+        return round(max(0.0, $basePrice * (1.0 - ($discount / 100.0))), 2);
+    }
 }

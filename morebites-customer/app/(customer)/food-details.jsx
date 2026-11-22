@@ -68,6 +68,10 @@ function getItem(params) {
   return {
     ...item,
     price: Number(item.price) || 0,
+    originalPrice: item.originalPrice != null ? Number(item.originalPrice) : Number(item.price) || 0,
+    promoActive: item.promoActive === true || item.promoActive === "true",
+    promoDiscountPercent: item.promoDiscountPercent != null ? Number(item.promoDiscountPercent) : 0,
+    promoLabel: item.promoLabel || "Today's Special",
     hasSizes: item.hasSizes === true || item.hasSizes === "true",
     sizes: Array.isArray(sizes) ? sizes : [],
     rating,
@@ -79,6 +83,7 @@ export default function FoodDetailsScreen() {
   const params = useLocalSearchParams();
   const item = getItem(params);
   const isAvailable = item.availability !== false && item.available !== false;
+  const hasPromo = Boolean(item.promoActive && item.promoDiscountPercent > 0);
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
   const [selectedSize, setSelectedSize] = useState(item.hasSizes ? item.sizes[0] ?? null : null);
@@ -91,6 +96,9 @@ export default function FoodDetailsScreen() {
   }, []);
 
   const selectedPrice = selectedSize ? Number(selectedSize.price) : item.price;
+  const selectedOriginalPrice = selectedSize
+    ? Number(selectedSize.originalPrice ?? selectedSize.price)
+    : item.originalPrice;
 
   const handleAddToCart = () => {
     if (!isAvailable) {
@@ -140,6 +148,17 @@ export default function FoodDetailsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.foodName}>{item.name}</Text>
+
+        {hasPromo ? (
+          <View style={styles.promoPillRow}>
+            <View style={styles.promoPill}>
+              <Ionicons name="flame" size={14} color="#FFFFFF" />
+              <Text style={styles.promoPillText}>
+                {item.promoLabel} · {item.promoDiscountPercent}% OFF
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.ratingRow}>
           {item.rating != null && item.reviewCount > 0 ? (
@@ -193,7 +212,12 @@ export default function FoodDetailsScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.currentPrice}>₱{selectedPrice}</Text>
+        <View style={styles.priceDisplayRow}>
+          <Text style={styles.currentPrice}>₱{selectedPrice}</Text>
+          {hasPromo && selectedOriginalPrice > selectedPrice ? (
+            <Text style={styles.originalDetailPrice}>₱{selectedOriginalPrice}</Text>
+          ) : null}
+        </View>
 
         <View style={styles.instructionsSection}>
           <Text style={styles.sectionTitle}>Special Instructions</Text>
@@ -285,6 +309,37 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 26,
     fontWeight: "700",
+  },
+  promoPillRow: {
+    flexDirection: "row",
+    marginTop: 8,
+  },
+  promoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  promoPillText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  priceDisplayRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+  },
+  originalDetailPrice: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 16,
+    fontWeight: "600",
+    textDecorationLine: "line-through",
   },
   ratingRow: {
     flexDirection: "row",
