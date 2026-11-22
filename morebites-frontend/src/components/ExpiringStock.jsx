@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuChevronLeft, LuChevronRight, LuTrash2, LuTriangleAlert } from 'react-icons/lu'
+import { LuChevronLeft, LuChevronRight, LuSparkles, LuTag, LuTrash2, LuTriangleAlert } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -124,6 +124,23 @@ function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
   )
 }
 
+const DISCOUNT_PRESETS = [10, 15, 20, 25, 30]
+const PROMO_LABEL_PRESETS = ["Today's Special", 'Flash Deal', "Chef's Pick", 'Limited Deal']
+
+function formatPeso(n) {
+  const num = Number(n || 0)
+  return `₱${num.toLocaleString('en-PH', {
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function applyDiscount(price, pct) {
+  const p = Number(price || 0)
+  const d = Math.min(90, Math.max(0, Number(pct || 0)))
+  return Math.round(Math.max(0, p * (1 - d / 100)) * 100) / 100
+}
+
 export default function ExpiringStock() {
   const [rows, setRows] = useState([])
   const [page, setPage] = useState(1)
@@ -137,8 +154,9 @@ export default function ExpiringStock() {
   const [saving, setSaving] = useState(false)
   const [wasteRow, setWasteRow] = useState(null)
   const [promoRow, setPromoRow] = useState(null)
-  const [promoMenuId, setPromoMenuId] = useState('')
+  const [promoMenuIds, setPromoMenuIds] = useState([])
   const [promoDiscount, setPromoDiscount] = useState('15')
+  const [promoLabel, setPromoLabel] = useState("Today's Special")
 
   const reload = useCallback(async () => {
     const res = await expiringStockApi.list()
@@ -212,9 +230,31 @@ export default function ExpiringStock() {
       alert('This item is expired and can only be marked as Waste.')
       return
     }
+    const menus = row.linked_menus || []
+    const alreadyActiveIds = menus.filter((m) => m.promo_active).map((m) => Number(m.id))
+    const recommendedMenu = menus.find((m) => m.recommended) || menus[0]
+    const initialIds = alreadyActiveIds.length
+      ? alreadyActiveIds
+      : recommendedMenu
+      ? [Number(recommendedMenu.id)]
+      : []
+
+    const activeLabel = menus.find((m) => m.promo_active && m.promo_label)?.promo_label
+    const defaultDiscount =
+      row.promo_discount_percent || row.suggested_discount_percent || 15
+    const defaultLabel = activeLabel || row.suggested_promo_label || "Today's Special"
+
     setPromoRow(row)
-    setPromoMenuId(row.linked_menus?.[0]?.id ? String(row.linked_menus[0].id) : '')
-    setPromoDiscount(String(row.promo_discount_percent || 15))
+    setPromoMenuIds(initialIds)
+    setPromoDiscount(String(defaultDiscount))
+    setPromoLabel(defaultLabel)
+  }
+
+  function togglePromoMenu(menuId) {
+    const numId = Number(menuId)
+    setPromoMenuIds((prev) =>
+      prev.includes(numId) ? prev.filter((id) => id !== numId) : [...prev, numId],
+    )
   }
 
   async function savePromo() {
@@ -224,15 +264,22 @@ export default function ExpiringStock() {
       setPromoRow(null)
       return
     }
-    if (!promoMenuId) {
-      alert('Select a menu item for this promo.')
+    if (!promoMenuIds.length) {
+      alert('Select at least one menu item for this promo.')
+      return
+    }
+    const discountNum = Number(promoDiscount)
+    if (!Number.isFinite(discountNum) || discountNum < 1 || discountNum > 90) {
+      alert('Enter a valid discount between 1% and 90%.')
       return
     }
     setSaving(true)
     try {
       await expiringStockApi.setPromo(promoRow.id, {
-        menu_item_id: Number(promoMenuId),
-        discount_percent: Number(promoDiscount),
+        menu_item_id: promoMenuIds[0],
+        menu_item_ids: promoMenuIds,
+        discount_percent: discountNum,
+        promo_label: promoLabel.trim() || "Today's Special",
       })
       setPromoRow(null)
       await afterAction()
@@ -354,8 +401,17 @@ export default function ExpiringStock() {
                           <ul className="exp-menu-list">
                             {row.linked_menus.map((m) => (
                               <li key={m.id}>
-                                {m.name}
-                                {m.promo_active ? <span className="exp-promo-tag">Promo</span> : null}
+                                <span>{m.name}</span>
+                                {m.recommended ? (
+                                  <span className="exp-best-tag" title="Highest usage of this ingredient per serving">
+                                    Best match
+                                  </span>
+                                ) : null}
+                                {m.promo_active ? (
+                                  <span className="exp-promo-tag">
+                                    {m.promo_discount_percent ? `${m.promo_discount_percent}% OFF` : 'Promo'}
+                                  </span>
+                                ) : null}
                               </li>
                             ))}
                           </ul>
@@ -477,53 +533,205 @@ export default function ExpiringStock() {
         />
       )}
 
-      {promoRow && (
-        <div className="exp-backdrop" role="presentation">
-          <div className="exp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="exp-modal-head">
-              <h2>Flag Item for Promo Review</h2>
-            </div>
-            <div className="exp-modal-body">
-              <p className="exp-modal-lead">
-                Flag a menu item that uses <strong>{promoRow.name}</strong> for promo consideration.
-              </p>
-              <div className="exp-promo-notice">
-                This records a staff decision to discount this item — it does not yet apply automatically anywhere. Price changes must be set manually in Menu Management if you choose to discount this item.
+      {promoRow && (() => {
+        const menus = promoRow.linked_menus || []
+        const selectedMenus = menus.filter((m) => promoMenuIds.includes(Number(m.id)))
+        const discountVal = Number(promoDiscount) || 0
+
+        return (
+          <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">
+            <div className="exp-modal exp-promo-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+              <div className="exp-modal-head">
+                <div>
+                  <h2>Smart Expiring-Stock Promo</h2>
+                  <p className="exp-modal-sub">
+                    Batch <strong>{promoRow.batch_no}</strong> · <strong>{promoRow.stock} {promoRow.unit}</strong> of{' '}
+                    <strong>{promoRow.name}</strong> ({formatDaysUntil(promoRow.days_until_expiry)})
+                  </p>
+                </div>
+                <button type="button" className="exp-icon-btn" onClick={() => setPromoRow(null)} aria-label="Close">
+                  <IconClose />
+                </button>
               </div>
-              <label>
-                Menu item
-                <CustomSelect value={promoMenuId} onChange={(e) => setPromoMenuId(e.target.value)}>
-                  <option value="">Select menu item…</option>
-                  {(promoRow.linked_menus || []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </CustomSelect>
-              </label>
-              <label>
-                Target Discount (%)
-                <span className="exp-input-hint">For staff recordkeeping only; does not change prices automatically.</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="90"
-                  value={promoDiscount}
-                  onChange={(e) => setPromoDiscount(e.target.value)}
-                />
-              </label>
-            </div>
-            <div className="exp-modal-foot">
-              <button type="button" className="exp-btn-cancel" onClick={() => setPromoRow(null)}>
-                Cancel
-              </button>
-              <button type="button" className="exp-btn-primary" onClick={savePromo} disabled={saving}>
-                {saving ? 'Saving…' : 'Flag for Promo'}
-              </button>
+
+              <div className="exp-modal-body">
+                {/* Smart Dish Picker Ranked by Highest Ingredient Usage */}
+                <div className="exp-promo-section">
+                  <div className="exp-promo-section-head">
+                    <span className="exp-section-label">1. Select Dish(es) to Promote</span>
+                    <span className="exp-section-hint">Ranked by highest {promoRow.name} usage</span>
+                  </div>
+
+                  <div className="exp-dish-list">
+                    {menus.map((m) => {
+                      const checked = promoMenuIds.includes(Number(m.id))
+                      const hasRange = m.min_price !== m.max_price
+                      const origPriceStr = hasRange
+                        ? `${formatPeso(m.min_price)}–${formatPeso(m.max_price)}`
+                        : formatPeso(m.min_price)
+                      const promoPriceStr = hasRange
+                        ? `${formatPeso(applyDiscount(m.min_price, discountVal))}–${formatPeso(applyDiscount(m.max_price, discountVal))}`
+                        : formatPeso(applyDiscount(m.min_price, discountVal))
+
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className={`exp-dish-option${checked ? ' selected' : ''}`}
+                          onClick={() => togglePromoMenu(m.id)}
+                        >
+                          <div className="exp-dish-check">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {}}
+                              tabIndex={-1}
+                              aria-label={`Promote ${m.name}`}
+                            />
+                          </div>
+                          <div className="exp-dish-main">
+                            <div className="exp-dish-top">
+                              <span className="exp-dish-name">{m.name}</span>
+                              {m.recommended && (
+                                <span className="exp-rec-pill">
+                                  <LuSparkles size={11} /> Recommended · Clears fastest
+                                </span>
+                              )}
+                            </div>
+                            <div className="exp-dish-meta">
+                              <span>Uses {m.usage_summary}</span>
+                              {m.orders_to_clear_label && (
+                                <span className="exp-clear-pill">
+                                  {m.orders_to_clear_label} to clear batch
+                                </span>
+                              )}
+                            </div>
+                            {discountVal > 0 && (
+                              <div className="exp-dish-price-preview">
+                                <span className="exp-price-orig">{origPriceStr}</span>
+                                <span className="exp-price-arrow">→</span>
+                                <span className="exp-price-promo">{promoPriceStr}</span>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Per-Size Batch Clearance Estimator */}
+                {selectedMenus.length > 0 && (
+                  <div className="exp-clearance-box">
+                    <div className="exp-clearance-title">
+                      <LuSparkles size={14} /> Estimated Orders to Clear {promoRow.stock} {promoRow.unit} Batch
+                    </div>
+                    {selectedMenus.map((m) => (
+                      <div key={m.id} className="exp-clearance-dish">
+                        <strong>{m.name}:</strong>
+                        <div className="exp-size-pills">
+                          {(m.size_estimates || []).map((sz, idx) => (
+                            <span key={`${m.id}-${sz.size_id || idx}`} className="exp-size-pill">
+                              {sz.size_name ? `${sz.size_name} (${sz.usage_label})` : sz.usage_label}
+                              {' · '}
+                              <strong>
+                                {sz.orders_to_clear != null ? `~${sz.orders_to_clear} orders` : '—'}
+                              </strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <p className="exp-autostop-note">
+                      Auto-shutoff enabled: this promo automatically turns off once Batch {promoRow.batch_no} hits 0 stock or expires, protecting full price on fresh stock.
+                    </p>
+                  </div>
+                )}
+
+                {/* Discount % + Urgency Presets */}
+                <div className="exp-promo-row-2">
+                  <label className="exp-field-block">
+                    <span>
+                      2. Discount (%)
+                      {promoRow.suggested_discount_percent ? (
+                        <em className="exp-suggest-inline"> · Suggested: {promoRow.suggested_discount_percent}%</em>
+                      ) : null}
+                    </span>
+                    <div className="exp-chip-row">
+                      {DISCOUNT_PRESETS.map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className={`exp-preset-chip${Number(promoDiscount) === pct ? ' active' : ''}`}
+                          onClick={() => setPromoDiscount(String(pct))}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={promoDiscount}
+                      onChange={(e) => setPromoDiscount(e.target.value)}
+                      placeholder="Custom %"
+                    />
+                  </label>
+
+                  <label className="exp-field-block">
+                    <span>
+                      3. Customer-Facing Label
+                    </span>
+                    <div className="exp-chip-row">
+                      {PROMO_LABEL_PRESETS.map((lbl) => (
+                        <button
+                          key={lbl}
+                          type="button"
+                          className={`exp-preset-chip${promoLabel === lbl ? ' active' : ''}`}
+                          onClick={() => setPromoLabel(lbl)}
+                        >
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={60}
+                      value={promoLabel}
+                      onChange={(e) => setPromoLabel(e.target.value)}
+                      placeholder="e.g. Today's Special"
+                    />
+                  </label>
+                </div>
+
+                <div className="exp-label-preview">
+                  <LuTag size={14} />
+                  <span>
+                    Customers see: <strong>{promoLabel.trim() || "Today's Special"} · {discountVal || 0}% OFF</strong> (expiry details stay internal to staff).
+                  </span>
+                </div>
+              </div>
+
+              <div className="exp-modal-foot">
+                <button type="button" className="exp-btn-cancel" onClick={() => setPromoRow(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="exp-btn-primary"
+                  onClick={savePromo}
+                  disabled={saving || promoMenuIds.length === 0}
+                >
+                  {saving
+                    ? 'Activating…'
+                    : `Activate Promo${promoMenuIds.length > 1 ? ` (${promoMenuIds.length} items)` : ''}`}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

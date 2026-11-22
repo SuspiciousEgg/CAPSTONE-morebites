@@ -186,38 +186,35 @@ class TopSellingService
             $stockReason = $stockOk ? '' : $this->inventoryService->outOfStockReason($m);
             $isAvailable = (bool) $m->available && ! (bool) $m->archived && $stockOk;
 
-            $sizes = $m->sizes->map(fn ($s) => [
-                'id' => (string) $s->id,
-                'sizeName' => $s->name,
-                'name' => $s->name,
-                'price' => (float) $s->price,
-                'ingredients' => $s->ingredients->map(fn ($ing) => [
-                    'id' => $ing->id,
-                    'inventory_item_id' => $ing->inventory_item_id,
-                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
-                    'qty_per_serving' => (float) $ing->qty_per_serving,
-                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
-                    'price' => $ing->computedPrice(),
-                ])->values(),
-            ])->values();
+            $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
-            $ingredients = $m->ingredients->map(fn ($ing) => [
-                'id' => $ing->id,
-                'menu_item_size_id' => $ing->menu_item_size_id,
-                'inventory_item_id' => $ing->inventory_item_id,
-                'name' => $ing->inventoryItem?->name ?? 'Ingredient',
-                'qty_per_serving' => (float) $ing->qty_per_serving,
-                'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
-                'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
-                'price' => $ing->computedPrice(),
-            ])->values();
+            $sizes = $m->sizes->map(function ($s) use ($m) {
+                $orig = (float) $s->price;
+                $eff = $m->applyPromoPrice($orig);
 
+                return [
+                    'id' => (string) $s->id,
+                    'sizeName' => $s->name,
+                    'name' => $s->name,
+                    'originalPrice' => $orig,
+                    'price' => $eff,
+                ];
+            })->values();
+
+            $origMin = $sizes->min('originalPrice');
+            $origMax = $sizes->max('originalPrice');
             $min = $sizes->min('price');
             $max = $sizes->max('price');
+            $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
+
+            $originalPriceLabel = $m->has_sizes && $sizes->count()
+                ? '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax)
+                : '₱'.$formatNum((float) $m->price);
+
+            $effectiveBase = $m->applyPromoPrice((float) $m->price);
             $priceLabel = $m->has_sizes && $sizes->count()
-                ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
-                : '₱'.number_format((float) $m->price, 0);
+                ? '₱'.$formatNum((float) $min).' - ₱'.$formatNum((float) $max)
+                : '₱'.$formatNum($effectiveBase);
 
             $stat = $ratingStats->get($m->id);
             $rating = $stat ? (float) $stat->avg_rating : null;
@@ -252,7 +249,9 @@ class TopSellingService
                 'product_id' => $m->id,
                 'db_id' => $m->id,
                 'name' => $m->name,
-                'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
+                'originalPrice' => (float) ($m->has_sizes && $origMin !== null ? $origMin : $m->price),
+                'originalPriceLabel' => $originalPriceLabel,
+                'price' => (float) ($m->has_sizes && $min !== null ? $min : $effectiveBase),
                 'image' => Media::url($m->image),
                 'category' => $m->category,
                 'description' => $m->description,
@@ -267,9 +266,9 @@ class TopSellingService
                 'rating' => $rating,
                 'reviewCount' => $reviewCount,
                 'reviews' => $reviewCount,
-                'promoActive' => (bool) $m->promo_active,
-                'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
-                'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
+                'promoActive' => $promoActive,
+                'promoDiscountPercent' => $promoActive ? (float) $m->promo_discount_percent : null,
+                'promoLabel' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
                 'units' => $units,
                 'units_sold' => $units,
                 'prior_units' => $priorUnits,

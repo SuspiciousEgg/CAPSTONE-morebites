@@ -70,6 +70,10 @@ function getItem(params) {
   return {
     ...item,
     price: Number(item.price) || 0,
+    originalPrice: item.originalPrice != null ? Number(item.originalPrice) : Number(item.price) || 0,
+    promoActive: item.promoActive === true || item.promoActive === "true",
+    promoDiscountPercent: item.promoDiscountPercent != null ? Number(item.promoDiscountPercent) : 0,
+    promoLabel: item.promoLabel || "Today's Special",
     hasSizes: item.hasSizes === true || item.hasSizes === "true",
     sizes: Array.isArray(sizes) ? sizes : [],
     ingredients: Array.isArray(ingredients) ? ingredients : [],
@@ -87,6 +91,7 @@ export default function FoodDetailsScreen() {
     [initialItem, hydratedData]
   );
   const isAvailable = item.availability !== false && item.available !== false;
+  const hasPromo = Boolean(item.promoActive && item.promoDiscountPercent > 0);
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
   const [selectedSize, setSelectedSize] = useState(item.hasSizes ? item.sizes[0] ?? null : null);
@@ -99,85 +104,10 @@ export default function FoodDetailsScreen() {
     return () => clearTimeout(navigationTimer.current);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await customerApi.menu();
-        const menuList = Array.isArray(res?.data) ? res.data : [];
-        const match = menuList.find(
-          (m) =>
-            String(m.id) === String(initialItem.id) ||
-            (m.db_id != null && String(m.db_id) === String(initialItem.db_id ?? initialItem.id)) ||
-            String(m.name || "").trim().toLowerCase() === String(initialItem.name || "").trim().toLowerCase()
-        );
-        if (!cancelled && match) {
-          setHydratedData({
-            sizes: Array.isArray(match.sizes) && match.sizes.length > 0 ? match.sizes : initialItem.sizes,
-            ingredients:
-              Array.isArray(match.ingredients) && match.ingredients.length > 0
-                ? match.ingredients
-                : initialItem.ingredients,
-          });
-          if (Array.isArray(match.sizes) && match.sizes.length > 0) {
-            setSelectedSize((prev) => {
-              const targetName = prev?.sizeName || prev?.name;
-              return (
-                match.sizes.find((s) => (s.sizeName || s.name) === targetName) ||
-                match.sizes[0]
-              );
-            });
-          }
-        }
-      } catch {
-        // Keep route params fallback if offline
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialItem.id, initialItem.name]);
-
-  const activeIngredients = useMemo(() => {
-    if (selectedSize && Array.isArray(selectedSize.ingredients) && selectedSize.ingredients.length > 0) {
-      return selectedSize.ingredients;
-    }
-    const allIngs = Array.isArray(item.ingredients) ? item.ingredients : [];
-    if (selectedSize?.id != null) {
-      const bySizeId = allIngs.filter(
-        (ing) => ing.menu_item_size_id != null && String(ing.menu_item_size_id) === String(selectedSize.id)
-      );
-      if (bySizeId.length > 0) return bySizeId;
-    }
-    const baseIngs = allIngs.filter((ing) => ing.menu_item_size_id == null);
-    return baseIngs.length > 0 ? baseIngs : allIngs;
-  }, [selectedSize, item.ingredients]);
-
-  const basePrice = selectedSize ? Number(selectedSize.price) : item.price;
-
-  const removedIngredients = useMemo(() => {
-    return activeIngredients.filter((ing) =>
-      removedIngredientIds.includes(ing.inventory_item_id ?? ing.id)
-    );
-  }, [activeIngredients, removedIngredientIds]);
-
-  const removedDeduction = useMemo(() => {
-    return removedIngredients.reduce((sum, ing) => sum + Number(ing.price || 0), 0);
-  }, [removedIngredients]);
-
-  const effectivePrice = Math.max(0, basePrice - removedDeduction);
-
-  const toggleIngredient = (ing) => {
-    const key = ing.inventory_item_id ?? ing.id;
-    setRemovedIngredientIds((prev) =>
-      prev.includes(key) ? prev.filter((id) => id !== key) : [...prev, key]
-    );
-  };
-
-  const handleSelectSize = (size) => {
-    setSelectedSize(size);
-    setRemovedIngredientIds([]);
-  };
+  const selectedPrice = selectedSize ? Number(selectedSize.price) : item.price;
+  const selectedOriginalPrice = selectedSize
+    ? Number(selectedSize.originalPrice ?? selectedSize.price)
+    : item.originalPrice;
 
   const handleAddToCart = () => {
     if (!isAvailable) {
@@ -236,6 +166,17 @@ export default function FoodDetailsScreen() {
       >
         <Text style={styles.foodName}>{item.name}</Text>
 
+        {hasPromo ? (
+          <View style={styles.promoPillRow}>
+            <View style={styles.promoPill}>
+              <Ionicons name="flame" size={14} color="#FFFFFF" />
+              <Text style={styles.promoPillText}>
+                {item.promoLabel} · {item.promoDiscountPercent}% OFF
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.ratingRow}>
           {item.rating != null && item.reviewCount > 0 ? (
             <>
@@ -288,68 +229,11 @@ export default function FoodDetailsScreen() {
           </View>
         ) : null}
 
-        {activeIngredients.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.ingredientSectionHeader}>
-              <Text style={styles.sectionTitle}>Ingredients</Text>
-              <Text style={styles.ingredientSubtext}>Tap to remove from your meal</Text>
-            </View>
-            <View style={styles.ingredientsList}>
-              {activeIngredients.map((ing) => {
-                const key = ing.inventory_item_id ?? ing.id;
-                const isRemoved = removedIngredientIds.includes(key);
-                const ingPrice = Number(ing.price || 0);
-
-                return (
-                  <Pressable
-                    key={key}
-                    style={({ pressed }) => [
-                      styles.ingredientCard,
-                      isRemoved && styles.ingredientCardRemoved,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={() => toggleIngredient(ing)}
-                    hitSlop={4}
-                  >
-                    <View style={styles.ingredientLeft}>
-                      <View style={[styles.ingredientStatusIcon, isRemoved && styles.ingredientStatusIconRemoved]}>
-                        <Ionicons
-                          name={isRemoved ? "close" : "checkmark"}
-                          size={13}
-                          color={isRemoved ? "#DC2626" : "#16A34A"}
-                        />
-                      </View>
-                      <Text style={[styles.ingredientName, isRemoved && styles.ingredientNameRemoved]}>
-                        {ing.name}
-                      </Text>
-                    </View>
-                    {ingPrice > 0 ? (
-                      <View style={[styles.ingredientPriceBadge, isRemoved && styles.ingredientPriceBadgeRemoved]}>
-                        <Text style={[styles.ingredientPriceText, isRemoved && styles.ingredientPriceTextRemoved]}>
-                          {isRemoved
-                            ? `-₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`
-                            : `₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.ingredientIncludedText}>
-                        {isRemoved ? "Omitted" : "Included"}
-                      </Text>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.priceContainer}>
-          <Text style={styles.currentPrice}>₱{effectivePrice.toFixed(2)}</Text>
-          {removedDeduction > 0 && (
-            <Text style={styles.originalPrice}>
-              ₱{basePrice.toFixed(2)} (save ₱{removedDeduction.toFixed(2)})
-            </Text>
-          )}
+        <View style={styles.priceDisplayRow}>
+          <Text style={styles.currentPrice}>₱{selectedPrice}</Text>
+          {hasPromo && selectedOriginalPrice > selectedPrice ? (
+            <Text style={styles.originalDetailPrice}>₱{selectedOriginalPrice}</Text>
+          ) : null}
         </View>
 
         <View style={styles.instructionsSection}>
@@ -442,6 +326,37 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 26,
     fontWeight: "700",
+  },
+  promoPillRow: {
+    flexDirection: "row",
+    marginTop: 8,
+  },
+  promoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  promoPillText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  priceDisplayRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+  },
+  originalDetailPrice: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 16,
+    fontWeight: "600",
+    textDecorationLine: "line-through",
   },
   ratingRow: {
     flexDirection: "row",

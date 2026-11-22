@@ -764,6 +764,11 @@ class InventoryDeductionService
                         ]);
 
                         $needed -= $deductQty;
+
+                        // Auto-end expiring-stock promo the moment this batch is depleted via orders
+                        if ($newBatchStock <= 0.00001) {
+                            $this->handleDepletedBatchPromo($batch, $inventory);
+                        }
                     }
 
                     $inventory->recalculateStockFromBatches();
@@ -929,5 +934,125 @@ class InventoryDeductionService
         $order->loadMissing('items');
 
         return array_values($this->aggregateDemandsForLines($order->items));
+    }
+
+    /**
+     * When a promoted expiring batch is completely sold through (stock reaches 0),
+     * automatically resolve its promo disposition and deactivate customer-facing promos
+     * on linked menu items unless another non-expired batch still has an active promo.
+     */
+    protected function handleDepletedBatchPromo(\App\Models\InventoryBatch $batch, InventoryItem $inventory): void
+    {
+        $activePromo = \App\Models\InventoryDisposition::query()
+            ->where('inventory_batch_id', $batch->id)
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->latest('id')
+            ->first();
+
+        if (! $activePromo) {
+            return;
+        }
+
+        $existingNote = trim((string) ($activePromo->notes ?? ''));
+        $suffix = 'Auto-resolved: batch cleared via orders.';
+        $activePromo->update([
+            'disposition' => \App\Models\InventoryDisposition::RESOLVED,
+            'resolved_at' => now(),
+            'notes' => $existingNote !== '' ? "{$existingNote} | {$suffix}" : $suffix,
+        ]);
+
+        $this->clearLinkedPromosIfNoOtherActivePromoBatch($inventory->id, $batch->id);
+
+        \App\Models\ActivityLog::query()->create([
+            'actor' => 'System',
+            'action' => "Auto-ended promo for {$inventory->name} (Batch {$batch->batch_no} cleared)",
+        ]);
+    }
+
+    /**
+     * Safeguard: deactivate customer-facing menu promos tied to batches that have
+     * already passed their expiry date or hit zero stock, without resolving overdue
+     * batches (overdue batches still require explicit Waste disposal).
+     */
+    public function clearExpiredBatchPromos(): void
+    {
+        if (! MenuItem::query()->where('promo_active', true)->exists()) {
+            return;
+        }
+
+        $today = now()->toDateString();
+
+        $stalePromos = \App\Models\InventoryDisposition::query()
+            ->with('batch')
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->get()
+            ->filter(function ($disp) use ($today) {
+                $batch = $disp->batch;
+                if (! $batch) {
+                    return true;
+                }
+                if ((float) $batch->stock <= 0.00001) {
+                    return true;
+                }
+
+                return $batch->expiry_date !== null && $batch->expiry_date->toDateString() < $today;
+            });
+
+        foreach ($stalePromos as $disp) {
+            $batch = $disp->batch;
+            $invId = $disp->inventory_item_id;
+
+            // If depleted (not overdue), auto-resolve disposition
+            if ($batch && (float) $batch->stock <= 0.00001 && ! $batch->isExpired()) {
+                $disp->update([
+                    'disposition' => \App\Models\InventoryDisposition::RESOLVED,
+                    'resolved_at' => now(),
+                ]);
+            }
+
+            if ($invId) {
+                $this->clearLinkedPromosIfNoOtherActivePromoBatch($invId, $batch?->id);
+            }
+        }
+    }
+
+    protected function clearLinkedPromosIfNoOtherActivePromoBatch(int $inventoryItemId, ?int $excludeBatchId = null): void
+    {
+        $today = now()->toDateString();
+
+        $hasOtherActive = \App\Models\InventoryDisposition::query()
+            ->where('inventory_item_id', $inventoryItemId)
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->when($excludeBatchId, fn ($q) => $q->where('inventory_batch_id', '!=', $excludeBatchId))
+            ->whereHas('batch', function ($q) use ($today) {
+                $q->where('stock', '>', 0)
+                    ->where(function ($sub) use ($today) {
+                        $sub->whereNull('expiry_date')
+                            ->orWhere('expiry_date', '>=', $today);
+                    });
+            })
+            ->exists();
+
+        if ($hasOtherActive) {
+            return;
+        }
+
+        $menuIds = MenuItemIngredient::query()
+            ->where('inventory_item_id', $inventoryItemId)
+            ->pluck('menu_item_id')
+            ->unique();
+
+        if ($menuIds->isNotEmpty()) {
+            MenuItem::query()
+                ->whereIn('id', $menuIds)
+                ->update([
+                    'promo_active' => false,
+                    'promo_discount_percent' => null,
+                    'promo_label' => null,
+                ]);
+        }
     }
 }
