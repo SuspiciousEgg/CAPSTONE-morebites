@@ -12,9 +12,11 @@ import {
   LuImage,
   LuTrash2,
   LuTriangleAlert,
+  LuCopy,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './MenuManagement.css'
 
 /**
@@ -128,6 +130,26 @@ function areUnitsCompatible(unitA, unitB) {
   return catA === catB
 }
 
+function convertUnitQty(qty, fromUnit, toUnit) {
+  const q = Number(qty)
+  if (!Number.isFinite(q) || q <= 0) return 0
+  const from = normalizeUnitName(fromUnit)
+  const to = normalizeUnitName(toUnit || fromUnit)
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return q
+  if (from === 'g' && to === 'kg') return q / 1000
+  if (from === 'kg' && to === 'g') return q * 1000
+  if (from === 'ml' && to === 'L') return q / 1000
+  if (from === 'L' && to === 'ml') return q * 1000
+  return q
+}
+
+function computeIngredientPortionPrice(unitPrice, qtyPerServing, recipeUnit, inventoryUnit) {
+  const uPrice = Number(unitPrice || 0)
+  if (!Number.isFinite(uPrice) || uPrice <= 0) return 0
+  const qtyInStockUnit = convertUnitQty(qtyPerServing, recipeUnit, inventoryUnit)
+  return Math.round(uPrice * qtyInStockUnit * 100) / 100
+}
+
 function getSelectableUnits(inventoryUnit) {
   const normInv = normalizeUnitName(inventoryUnit)
   const cat = getUnitCategory(normInv)
@@ -155,17 +177,35 @@ function getSelectableUnits(inventoryUnit) {
 }
 
 function mapIngredientRows(list) {
-  return (list || []).map((row) => ({
-    inventory_item_id: String(row.inventory_item_id || ''),
-    qty_per_serving:
+  return (list || []).map((row) => {
+    const qtyStr =
       row.qty_per_serving != null && row.qty_per_serving !== ''
         ? String(Number(row.qty_per_serving))
-        : '1',
-    name: row.name || '',
-    unit: row.unit || row.inventory_unit || '',
-    inventory_unit: row.inventory_unit || row.unit || '',
-    stock: row.stock ?? '',
-  }))
+        : '1'
+    const recipeUnit = row.unit || row.inventory_unit || ''
+    const invUnit = row.inventory_unit || row.unit || ''
+    const invPrice =
+      row.inventory_price != null && row.inventory_price !== ''
+        ? Number(row.inventory_price)
+        : 0
+    const computed =
+      invPrice > 0
+        ? computeIngredientPortionPrice(invPrice, qtyStr, recipeUnit, invUnit)
+        : row.price != null && row.price !== ''
+          ? Number(row.price)
+          : 0
+
+    return {
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: qtyStr,
+      inventory_price: invPrice,
+      price: String(computed),
+      name: row.name || '',
+      unit: recipeUnit,
+      inventory_unit: invUnit,
+      stock: row.stock ?? '',
+    }
+  })
 }
 
 function emptyForm() {
@@ -230,6 +270,8 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   const [form, setForm] = useState(() => buildInitialForm(initial))
   const [activeSizeIndex, setActiveSizeIndex] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
+  const copyMenuRef = useRef(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -273,7 +315,44 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
   const safeActiveSizeIndex = Math.min(activeSizeIndex, Math.max(0, (form.sizes || []).length - 1))
 
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target)) {
+        setCopyMenuOpen(false)
+      }
+    }
+    if (copyMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [copyMenuOpen])
+
+  useEffect(() => {
+    setCopyMenuOpen(false)
+  }, [safeActiveSizeIndex])
+
   function updateIngredient(index, key, value) {
+    const syncRowComputedPrice = (row) => {
+      const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+      const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+      const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+      const recipeUnit = row.unit || invUnit || 'pcs'
+      row.inventory_price = unitPrice
+      if (unitPrice > 0) {
+        row.price = String(
+          computeIngredientPortionPrice(
+            unitPrice,
+            row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+            recipeUnit,
+            invUnit,
+          ),
+        )
+      }
+      return row
+    }
+
     if (form.hasSizes) {
       setForm((prev) => {
         const nextSizes = prev.sizes.map((size, sIdx) => {
@@ -287,12 +366,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                 nextRow.name = inv.name
                 nextRow.stock = inv.stock
                 nextRow.inventory_unit = inv.unit
+                nextRow.inventory_price = Number(inv.price || 0)
                 if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                   nextRow.unit = inv.unit || 'pcs'
                 }
               }
             }
-            return nextRow
+            return syncRowComputedPrice(nextRow)
           })
           return { ...size, ingredients: nextIngs }
         })
@@ -310,12 +390,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               nextRow.name = inv.name
               nextRow.stock = inv.stock
               nextRow.inventory_unit = inv.unit
+              nextRow.inventory_price = Number(inv.price || 0)
               if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
                 nextRow.unit = inv.unit || 'pcs'
               }
             }
           }
-          return nextRow
+          return syncRowComputedPrice(nextRow)
         }),
       }))
     }
@@ -328,7 +409,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           if (sIdx !== safeActiveSizeIndex) return size
           const nextIngs = [
             ...(size.ingredients || []),
-            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
           ]
           return { ...size, ingredients: nextIngs }
         })
@@ -339,7 +420,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...prev,
         ingredients: [
           ...prev.ingredients,
-          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0' },
         ],
       }))
     }
@@ -363,46 +444,49 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }
   }
 
-  function hasIngredientChanges() {
-    const normalize = (list) =>
-      (list || [])
-        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
-        .map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving:
-            row.qty_per_serving === '' || row.qty_per_serving == null
-              ? 1
-              : Number(row.qty_per_serving),
-          unit: row.unit || '',
-        }))
-
-    if (form.hasSizes) {
-      const current = form.sizes.map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      const init = (initial?.sizes || []).map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      return JSON.stringify(current) !== JSON.stringify(init)
-    }
-
-    return (
-      JSON.stringify(normalize(form.ingredients)) !==
-      JSON.stringify(normalize(initial?.ingredients))
+  function copyIngredientsFrom(sourceIndex) {
+    const sourceSize = form.sizes[sourceIndex]
+    if (!sourceSize) return
+    const sourceIngs = (sourceSize.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
     )
-  }
-
-  async function handleDismiss() {
-    if (saving) return
-    if (mode === 'edit' && hasIngredientChanges()) {
-      await submit()
+    if (!sourceIngs.length) {
+      alert(`No ingredients found in ${sourceSize.name.trim() || `Size ${sourceIndex + 1}`}.`)
       return
     }
-    onClose()
+
+    const currentSize = form.sizes[safeActiveSizeIndex]
+    const currentName = currentSize?.name?.trim() || `Size ${safeActiveSizeIndex + 1}`
+    const sourceName = sourceSize.name?.trim() || `Size ${sourceIndex + 1}`
+
+    const currentIngs = (currentSize?.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
+    )
+    if (currentIngs.length > 0) {
+      const ok = window.confirm(
+        `Replace current ingredients in "${currentName}" with the ${sourceIngs.length} ingredients from "${sourceName}"?`
+      )
+      if (!ok) return
+    }
+
+    const cloned = sourceIngs.map((row) => ({
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: String(row.qty_per_serving || '1'),
+      inventory_price: Number(row.inventory_price || 0),
+      price: String(row.price != null && row.price !== '' ? row.price : '0'),
+      name: row.name || '',
+      unit: row.unit || row.inventory_unit || '',
+      inventory_unit: row.inventory_unit || row.unit || '',
+      stock: row.stock ?? '',
+    }))
+
+    setForm((prev) => {
+      const nextSizes = prev.sizes.map((size, sIdx) => {
+        if (sIdx !== safeActiveSizeIndex) return size
+        return { ...size, ingredients: cloned }
+      })
+      return { ...prev, sizes: nextSizes }
+    })
   }
 
   async function submit(e) {
@@ -493,11 +577,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         processedSizes.push({
           name: s.name.trim(),
           price: Number(s.price),
-          ingredients: recipeRows.map((row) => ({
-            inventory_item_id: Number(row.inventory_item_id),
-            qty_per_serving: Number(row.qty_per_serving),
-            unit: row.unit || undefined,
-          })),
+          ingredients: recipeRows.map((row) => {
+            const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+            const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+            const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+            const recipeUnit = row.unit || invUnit || 'pcs'
+            const effectivePrice =
+              unitPrice > 0
+                ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit)
+                : Number(row.price || 0)
+            return {
+              inventory_item_id: Number(row.inventory_item_id),
+              qty_per_serving: Number(row.qty_per_serving),
+              unit: row.unit || undefined,
+              price: effectivePrice,
+            }
+          }),
         })
       }
 
@@ -554,11 +649,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         subcategory,
         price: Number(form.price),
         sizes: [],
-        ingredients: recipeRows.map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving: Number(row.qty_per_serving),
-          unit: row.unit || undefined,
-        })),
+        ingredients: recipeRows.map((row) => {
+          const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+          const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+          const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+          const recipeUnit = row.unit || invUnit || 'pcs'
+          const effectivePrice =
+            unitPrice > 0
+              ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit)
+              : Number(row.price || 0)
+          return {
+            inventory_item_id: Number(row.inventory_item_id),
+            qty_per_serving: Number(row.qty_per_serving),
+            unit: row.unit || undefined,
+            price: effectivePrice,
+          }
+        }),
       }
     }
 
@@ -580,8 +686,21 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     activeIngredientsList.map((r) => r.inventory_item_id).filter(Boolean),
   )
 
+  const availableSourceSizes = useMemo(() => {
+    if (!form.hasSizes || !Array.isArray(form.sizes)) return []
+    return form.sizes
+      .map((s, idx) => ({ ...s, idx }))
+      .filter(
+        (s) =>
+          s.idx !== safeActiveSizeIndex &&
+          (s.name || '').trim() !== '' &&
+          Array.isArray(s.ingredients) &&
+          s.ingredients.some((row) => String(row.inventory_item_id || '').trim() !== ''),
+      )
+  }, [form.hasSizes, form.sizes, safeActiveSizeIndex])
+
   return (
-    <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-content"
         role="dialog"
@@ -590,14 +709,6 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
       >
         <div className="menu-modal-header">
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="menu-modal-close"
-            onClick={handleDismiss}
-            aria-label="Close modal"
-          >
-            <LuX size={18} />
-          </button>
         </div>
 
         <form className="menu-form" onSubmit={submit}>
@@ -686,7 +797,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           {/* Category */}
           <div className="menu-form-group">
             <label htmlFor="form-item-cat">Category *</label>
-            <select
+            <CustomSelect
               id="form-item-cat"
               value={form.category}
               onChange={(e) => {
@@ -708,7 +819,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                   {c}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
           </div>
 
           {/* Subcategory (Conditional: Pizza and Meal only, optional) */}
@@ -717,7 +828,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               <label htmlFor="form-item-subcat">
                 Subcategory <span className="menu-form-optional-tag">(Optional)</span>
               </label>
-              <select
+              <CustomSelect
                 id="form-item-subcat"
                 value={form.subcategory || ''}
                 onChange={(e) => setField('subcategory', e.target.value)}
@@ -728,7 +839,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                     {sub}
                   </option>
                 ))}
-              </select>
+              </CustomSelect>
             </div>
           )}
 
@@ -911,12 +1022,78 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
             {form.hasSizes && (
               <div className="menu-recipe-size-banner">
-                <span>
-                  Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
-                </span>
-                <span className="banner-note">
-                  Directly entered amounts for this size only (no multipliers).
-                </span>
+                <div className="menu-recipe-banner-left">
+                  <span>
+                    Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
+                  </span>
+                  <span className="banner-note">
+                    Directly entered amounts for this size only (no multipliers).
+                  </span>
+                </div>
+                {availableSourceSizes.length === 1 ? (
+                  <button
+                    type="button"
+                    className="menu-recipe-copy-btn"
+                    onClick={() => copyIngredientsFrom(availableSourceSizes[0].idx)}
+                    title={`Copy ingredients and prices from ${availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}`}
+                  >
+                    <LuCopy size={13} />
+                    <span>Copy from {availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}</span>
+                  </button>
+                ) : availableSourceSizes.length > 1 ? (
+                  <div className="menu-recipe-copy-dropdown" ref={copyMenuRef}>
+                    <button
+                      type="button"
+                      className={`menu-recipe-copy-btn ${copyMenuOpen ? 'active' : ''}`}
+                      onClick={() => setCopyMenuOpen((prev) => !prev)}
+                      aria-expanded={copyMenuOpen}
+                      title="Copy ingredients from another size"
+                    >
+                      <LuCopy size={13} />
+                      <span>Copy from...</span>
+                      <LuChevronDown
+                        size={12}
+                        className={`menu-recipe-copy-caret ${copyMenuOpen ? 'open' : ''}`}
+                      />
+                    </button>
+                    {copyMenuOpen && (
+                      <div className="menu-recipe-copy-menu">
+                        <div className="menu-recipe-copy-menu-header">Select Size to Copy</div>
+                        {availableSourceSizes.map((s) => {
+                          const count = s.ingredients.filter((r) => r.inventory_item_id).length
+                          const sizeLabel = s.name.trim() || `Size ${s.idx + 1}`
+                          return (
+                            <button
+                              key={s.idx}
+                              type="button"
+                              className="menu-recipe-copy-menu-item"
+                              onClick={() => {
+                                setCopyMenuOpen(false)
+                                copyIngredientsFrom(s.idx)
+                              }}
+                            >
+                              <LuCopy size={12} className="copy-item-icon" />
+                              <span className="copy-item-name">{sizeLabel}</span>
+                              <span className="copy-item-badge">
+                                {count} {count === 1 ? 'item' : 'items'}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {activeIngredientsList.length > 0 && (
+              <div className="menu-recipe-columns-header">
+                <span className="col-ingredient">Ingredient</span>
+                <span className="col-qty">Portion</span>
+                <span className="col-unit">Unit</span>
+                <span className="col-price">Price (₱)</span>
+                <span className="col-action"></span>
               </div>
             )}
 
@@ -935,7 +1112,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
                 return (
                   <div key={i} className="menu-recipe-row">
-                    <select
+                    <CustomSelect
                       className="menu-recipe-item-select"
                       value={currentId}
                       onChange={(e) =>
@@ -953,13 +1130,17 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                         const optId = String(opt.id)
                         const taken =
                           selectedIds.has(optId) && optId !== currentId
+                        const priceLabel =
+                          opt.price > 0
+                            ? ` · ₱${Number(opt.price) % 1 === 0 ? Number(opt.price) : Number(opt.price).toFixed(2)}${opt.unit ? `/${opt.unit}` : ''}`
+                            : ''
                         return (
                           <option key={optId} value={optId} disabled={taken}>
-                            {opt.name} ({opt.stock} {opt.unit})
+                            {opt.name} ({opt.stock} {opt.unit}){priceLabel}
                           </option>
                         )
                       })}
-                    </select>
+                    </CustomSelect>
                     <input
                       type="number"
                       step="any"
@@ -972,7 +1153,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                         updateIngredient(i, 'qty_per_serving', e.target.value)
                       }
                     />
-                    <select
+                    <CustomSelect
                       className={`menu-recipe-unit-select ${isMismatch ? 'unit-incompatible' : ''}`}
                       value={currentUnit}
                       onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
@@ -988,7 +1169,22 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                           {u}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
+                    <div
+                      className="menu-recipe-price-pill"
+                      title="Computed as Inventory unit price × portion for this size"
+                    >
+                      ₱{(
+                        (pickedInv?.price ?? row.inventory_price ?? 0) > 0
+                          ? computeIngredientPortionPrice(
+                              pickedInv?.price ?? row.inventory_price ?? 0,
+                              row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+                              currentUnit,
+                              invUnit,
+                            )
+                          : Number(row.price || 0)
+                      ).toFixed(2)}
+                    </div>
                     <button
                       type="button"
                       className="menu-remove-size-btn"
@@ -1033,12 +1229,12 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 }
 
-function ConfirmModal({ type, item, onClose, onConfirm }) {
+function ConfirmModal({ type, item, onClose, onConfirm, saving = false }) {
   const [step, setStep] = useState(1)
   const name = item?.name || 'this item'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -1071,7 +1267,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               : `Are you sure you really want to restore "${name}" back to the active menu?`}
         </p>
         <div className="menu-confirm-actions">
-          <button type="button" className="menu-modal-btn cancel" onClick={onClose}>
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
             Cancel
           </button>
           {step === 1 ? (
@@ -1079,6 +1275,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={() => setStep(2)}
+              disabled={saving}
             >
               {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
             </button>
@@ -1087,8 +1284,15 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={onConfirm}
+              disabled={saving}
             >
-              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+              {saving
+                ? type === 'archive'
+                  ? 'Archiving…'
+                  : 'Restoring…'
+                : type === 'archive'
+                  ? 'Confirm Archive'
+                  : 'Confirm Restore'}
             </button>
           )}
         </div>
@@ -1107,6 +1311,8 @@ export default function MenuManagement() {
   const [page, setPage] = useState(1)
   const [formState, setFormState] = useState(null)
   const [confirm, setConfirm] = useState(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
 
   const reloadMenu = useCallback(() => {
     menuApi
@@ -1173,6 +1379,8 @@ export default function MenuManagement() {
   async function toggleAvailable(item) {
     if (item.archived) return
     if (item.stockOk === false) return
+    if (togglingId === item.id) return
+    setTogglingId(item.id)
     try {
       const { data } = await menuApi.toggleAvailability(item.id)
       const updated = data?.data || data
@@ -1180,6 +1388,8 @@ export default function MenuManagement() {
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Could not update availability.')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -1224,7 +1434,8 @@ export default function MenuManagement() {
   }
 
   async function runConfirm() {
-    if (!confirm) return
+    if (!confirm || confirmSaving) return
+    setConfirmSaving(true)
     try {
       if (confirm.type === 'archive') {
         const { data } = await menuApi.archive(confirm.item.id)
@@ -1239,6 +1450,8 @@ export default function MenuManagement() {
       setConfirm(null)
     } catch (err) {
       console.error(err)
+    } finally {
+      setConfirmSaving(false)
     }
   }
 
@@ -1266,7 +1479,7 @@ export default function MenuManagement() {
 
         {/* Category Filter Dropdown */}
         <div className="menu-category-wrapper">
-          <select
+          <CustomSelect
             className="menu-category-select"
             value={category}
             onChange={(e) => {
@@ -1281,14 +1494,14 @@ export default function MenuManagement() {
                 {c}
               </option>
             ))}
-          </select>
+          </CustomSelect>
           <LuChevronDown className="menu-select-arrow" size={16} />
         </div>
 
         {/* Subcategory Filter Dropdown (Conditional when selected category has subcategories) */}
         {Boolean(MENU_SUBCATEGORIES[category]) && (
           <div className="menu-category-wrapper">
-            <select
+            <CustomSelect
               className="menu-category-select"
               value={subcategoryFilter}
               onChange={(e) => {
@@ -1302,7 +1515,7 @@ export default function MenuManagement() {
                   {sub}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
             <LuChevronDown className="menu-select-arrow" size={16} />
           </div>
         )}
@@ -1490,7 +1703,7 @@ export default function MenuManagement() {
                           className={`menu-toggle-switch ${
                             item.available && !isArchived ? 'on' : 'off'
                           }`}
-                          disabled={isArchived || item.stockOk === false}
+                          disabled={isArchived || item.stockOk === false || togglingId === item.id}
                           onClick={() => toggleAvailable(item)}
                           aria-label={`Toggle availability for ${item.name}`}
                           title={
@@ -1632,7 +1845,10 @@ export default function MenuManagement() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}
-          onClose={() => setConfirm(null)}
+          saving={confirmSaving}
+          onClose={() => {
+            if (!confirmSaving) setConfirm(null)
+          }}
           onConfirm={runConfirm}
         />
       )}

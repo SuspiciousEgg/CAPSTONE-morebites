@@ -7,7 +7,20 @@ function isSameItem(a, b) {
   const idB = String(b?.id ?? b?.db_id ?? "");
   const sizeA = a?.size ? String(a.size).trim() : "";
   const sizeB = b?.size ? String(b.size).trim() : "";
-  return idA === idB && sizeA === sizeB;
+
+  const serializeRemoved = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((r) => String(r?.inventory_item_id ?? r?.id ?? r?.name ?? r))
+      .sort()
+      .join(",");
+
+  const removedA = serializeRemoved(a?.removed_ingredients);
+  const removedB = serializeRemoved(b?.removed_ingredients);
+
+  const noteA = a?.special_instructions ? String(a.special_instructions).trim() : "";
+  const noteB = b?.special_instructions ? String(b.special_instructions).trim() : "";
+
+  return idA === idB && sizeA === sizeB && removedA === removedB && noteA === noteB;
 }
 
 export function CartProvider({ children }) {
@@ -29,23 +42,37 @@ export function CartProvider({ children }) {
     });
   };
 
-  const removeFromCart = (id, size) => {
-    const target = { id, size };
+  const removeFromCart = (idOrItem, size, removed_ingredients) => {
+    const target =
+      typeof idOrItem === "object" && idOrItem !== null
+        ? idOrItem
+        : { id: idOrItem, size, removed_ingredients };
+
     setCartItems((currentItems) =>
       currentItems.filter((item) => !isSameItem(item, target))
     );
   };
 
-  const updateQuantity = (id, size, quantity) => {
-    if (quantity <= 0) {
-      removeFromCart(id, size);
+  const updateQuantity = (idOrItem, size, quantity, removed_ingredients) => {
+    let target;
+    let nextQty;
+
+    if (typeof idOrItem === "object" && idOrItem !== null) {
+      target = idOrItem;
+      nextQty = typeof size === "number" ? size : idOrItem.quantity;
+    } else {
+      target = { id: idOrItem, size, removed_ingredients };
+      nextQty = quantity;
+    }
+
+    if (nextQty <= 0) {
+      removeFromCart(target);
       return;
     }
 
-    const target = { id, size };
     setCartItems((currentItems) =>
       currentItems.map((item) =>
-        isSameItem(item, target) ? { ...item, quantity } : item
+        isSameItem(item, target) ? { ...item, quantity: nextQty } : item
       )
     );
   };

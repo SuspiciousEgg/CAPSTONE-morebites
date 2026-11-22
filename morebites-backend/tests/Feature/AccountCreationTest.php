@@ -87,5 +87,58 @@ class AccountCreationTest extends TestCase
         $this->assertNotNull($created->license_document);
         $this->assertStringContainsString('/storage/documents/', $created->license_document);
     }
+
+    public function test_super_admin_can_update_profile_photo_on_existing_account(): void
+    {
+        $superAdmin = User::factory()->create([
+            'role' => 'super_admin',
+            'role_access' => ['admin', 'super_admin'],
+            'status' => 'Active',
+        ]);
+
+        $admin = User::factory()->create([
+            'first_name' => 'Existing',
+            'last_name' => 'Admin',
+            'name' => 'Existing Admin',
+            'email' => 'existing.admin@test.local',
+            'phone' => '09123334444',
+            'role' => 'admin',
+            'role_access' => ['admin'],
+            'status' => 'Active',
+            'photo' => null,
+        ]);
+
+        $base64Image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        $response = $this->actingAs($superAdmin)->putJson('/api/accounts/'.$admin->id, [
+            'first_name' => 'Existing',
+            'last_name' => 'Admin',
+            'email' => 'existing.admin@test.local',
+            'phone' => '09123334444',
+            'photo' => $base64Image,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json('data');
+        $this->assertNotEmpty($data['photo']);
+        $this->assertStringContainsString('/storage/avatars/', $data['photo']);
+
+        $admin->refresh();
+        $this->assertNotNull($admin->photo);
+        $this->assertStringContainsString('/storage/avatars/', $admin->photo);
+
+        // Now test removing the photo
+        $removeResponse = $this->actingAs($superAdmin)->putJson('/api/accounts/'.$admin->id, [
+            'first_name' => 'Existing',
+            'last_name' => 'Admin',
+            'email' => 'existing.admin@test.local',
+            'phone' => '09123334444',
+            'photo' => null,
+        ]);
+
+        $removeResponse->assertOk();
+        $admin->refresh();
+        $this->assertNull($admin->photo);
+    }
 }
 

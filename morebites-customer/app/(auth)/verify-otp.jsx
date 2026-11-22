@@ -23,6 +23,8 @@ export default function VerifyOtpScreen() {
   const email = Array.isArray(rawEmail) ? rawEmail[0] : rawEmail;
   const rawChannel = params.channel;
   const channel = Array.isArray(rawChannel) ? rawChannel[0] : rawChannel;
+  const rawMessage = params.message;
+  const genericConfirmation = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
 
   const isEmail = channel === "email" || (identifier && identifier.includes("@")) || Boolean(email);
   const targetLabel = email || identifier || "";
@@ -165,7 +167,7 @@ export default function VerifyOtpScreen() {
     try {
       const res = await customerApi.verifyPasswordResetOtp(String(identifier), entered);
       const resetToken = res?.reset_token || "";
-      router.push({
+      router.replace({
         pathname: "/(auth)/reset-password",
         params: {
           phone: String(identifier),
@@ -188,23 +190,35 @@ export default function VerifyOtpScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {isEmail ? (
-          <View style={[styles.icon, { justifyContent: "center", alignItems: "center" }]}>
-            <Ionicons name="mail-open-outline" size={72} color="#F97000" />
-          </View>
-        ) : (
-          <Image
-            source={require("../../assets/images/telephone.png")}
-            style={styles.icon}
-          />
-        )}
+        <Image
+          source={
+            isEmail
+              ? require("../../assets/images/email.png")
+              : require("../../assets/images/telephone.png")
+          }
+          style={styles.icon}
+        />
         <Text style={styles.title}>{isEmail ? "Verify your email" : "Verify your number"}</Text>
         <Text style={styles.subtitle}>
           {isEmail
-            ? `Enter the 6-digit verification code sent to ${targetLabel || "your email"}`
+            ? genericConfirmation || "If an account exists with this email, we’ve sent a verification code."
             : "Enter the 6-digit code sent to your phone number"}
         </Text>
         <View style={styles.divider} />
+
+        {isEmail ? (
+          <View style={styles.confirmBanner}>
+            <Ionicons
+              name="mail-outline"
+              size={18}
+              color="#065F46"
+              style={{ marginRight: 8 }}
+            />
+            <Text style={styles.confirmBannerText}>
+              {genericConfirmation || "If an account exists with this email, we’ve sent a verification code."}
+            </Text>
+          </View>
+        ) : null}
 
         {bannerError ? (
           <View style={styles.errorBanner}>
@@ -259,7 +273,7 @@ export default function VerifyOtpScreen() {
           </Text>
         ) : (
           <View style={styles.resendRow}>
-            <Text style={styles.timerText}>Didn&apos;t receive any code? </Text>
+            <Text style={styles.resendPromptText}>Didn&apos;t receive any code? </Text>
             <TouchableOpacity onPress={resend} disabled={resending}>
               <Text style={styles.resendText}>
                 {resending ? "Sending..." : "Resend Code"}
@@ -314,6 +328,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F0F0",
     height: 1,
     marginTop: 16,
+  },
+  confirmBanner: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  confirmBannerText: {
+    flex: 1,
+    color: "#065F46",
+    fontFamily: FONT,
+    fontSize: 13,
+    lineHeight: 18,
   },
   errorBanner: {
     marginTop: 14,
@@ -400,11 +431,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 12,
   },
+  resendPromptText: {
+    color: "#8F8F8F",
+    fontFamily: FONT,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   resendText: {
     color: "#F97000",
     fontFamily: FONT,
     fontSize: 12,
     fontWeight: "700",
+    lineHeight: 18,
   },
   back: {
     alignItems: "center",

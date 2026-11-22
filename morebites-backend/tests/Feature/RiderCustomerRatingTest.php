@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-class RiderCustomerRatingPrompt84Test extends TestCase
+class RiderCustomerRatingTest extends TestCase
 {
     use RefreshDatabase;
 

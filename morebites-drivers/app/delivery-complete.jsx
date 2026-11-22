@@ -1,6 +1,8 @@
+import { useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
+  BackHandler,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,9 +30,22 @@ export default function DeliveryCompleteScreen() {
     ? params.total[0]
     : params.total || "—";
 
-  const backToDashboard = () => {
+  const backToDashboard = useCallback(() => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace("/(tabs)/delivered");
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        backToDashboard();
+        return true;
+      });
+      return () => sub.remove();
+    }, [backToDashboard])
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -66,9 +81,7 @@ export default function DeliveryCompleteScreen() {
       >
         {/* Hero Success Section */}
         <View style={styles.successSection}>
-          <View style={styles.checkmarkCircle}>
-            <Ionicons name="checkmark" size={52} color="#FFFFFF" />
-          </View>
+          <Ionicons name="checkmark-circle" size={80} color="#22C55E" />
           <Text style={styles.successTitle}>Delivery Complete</Text>
           <Text style={styles.successSubtitle}>
             Order {String(orderId || '').startsWith('#') ? orderId : `#${orderId}`} · {customer}
@@ -191,26 +204,16 @@ const styles = StyleSheet.create({
   },
   successSection: {
     alignItems: "center",
-    backgroundColor: "#E8F5E9",
-    borderRadius: 16,
     marginBottom: 24,
     paddingHorizontal: 20,
-    paddingVertical: 36,
-  },
-  checkmarkCircle: {
-    alignItems: "center",
-    backgroundColor: "#22C55E",
-    borderRadius: 40,
-    height: 80,
-    justifyContent: "center",
-    marginBottom: 16,
-    width: 80,
+    paddingVertical: 16,
   },
   successTitle: {
-    color: "#22C55E",
+    color: "#121212",
     fontFamily: FONT,
     fontSize: 24,
     fontWeight: "700",
+    marginTop: 14,
   },
   successSubtitle: {
     color: "#4B5563",

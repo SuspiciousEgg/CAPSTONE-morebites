@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   Alert,
+  Animated,
   Image,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,14 +30,48 @@ export default function ConfirmDeliveryScreen() {
   const currentStep = statusStep(order?.status || "Delivered");
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [showUploadBadge, setShowUploadBadge] = useState(false);
+  const badgeOpacity = useRef(new Animated.Value(0)).current;
+  const badgeTimerRef = useRef(null);
   const [rating, setRating] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  const incidentAcknowledgedParam = params.incidentAcknowledged === "1";
+  const [ackModalVisible, setAckModalVisible] = useState(false);
+  const [hasAcknowledged, setHasAcknowledged] = useState(incidentAcknowledgedParam);
+
+  const reportedList = Array.isArray(order?.reported_issues) ? order.reported_issues : [];
+  const hasIncident =
+    Boolean(order?.has_reported_issue) ||
+    reportedList.length > 0 ||
+    params.hasIncident === "1";
 
   useEffect(() => {
     reload();
   }, [reload]);
 
   const isReadyToComplete = paymentConfirmed && Boolean(photo);
+
+  useEffect(() => {
+    return () => {
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
+  }, []);
+
+  const triggerUploadBadge = () => {
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    badgeOpacity.setValue(1);
+    setShowUploadBadge(true);
+    badgeTimerRef.current = setTimeout(() => {
+      Animated.timing(badgeOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setShowUploadBadge(false);
+      });
+    }, 2000);
+  };
 
   const takeOrPickPhoto = async () => {
     const selected = await pickImage({
@@ -44,16 +81,20 @@ export default function ConfirmDeliveryScreen() {
     });
     if (selected?.uri) {
       setPhoto(selected);
+      triggerUploadBadge();
     }
   };
 
-  const confirmAndComplete = async () => {
-    if (!isReadyToComplete || !dbId) return;
+  const executeCompleteDelivery = async () => {
+    if (!isReadyToComplete || !dbId || saving) return;
     setSaving(true);
     try {
       const res = await driverApi.updateStatus(dbId, "Delivered", photo, rating > 0 ? rating : null);
       const data = res.data || {};
       const mins = data.eta_mins ?? order?.eta_mins;
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace({
         pathname: "/(driver)/delivery-complete",
         params: {
@@ -69,6 +110,21 @@ export default function ConfirmDeliveryScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const confirmAndComplete = () => {
+    if (!isReadyToComplete || !dbId || saving) return;
+    if (hasIncident && !hasAcknowledged) {
+      setAckModalVisible(true);
+      return;
+    }
+    executeCompleteDelivery();
+  };
+
+  const handleConfirmAck = () => {
+    setHasAcknowledged(true);
+    setAckModalVisible(false);
+    executeCompleteDelivery();
   };
 
   return (
@@ -191,16 +247,18 @@ export default function ConfirmDeliveryScreen() {
           onPress={takeOrPickPhoto}
         >
           {photo ? (
-            <View style={styles.photoUploadedContainer}>
+            <>
               <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-              <View style={styles.photoCaptionRow}>
-                <View style={styles.photoCaptionLeft}>
-                  <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+              {showUploadBadge ? (
+                <Animated.View
+                  style={[styles.photoUploadedBadge, { opacity: badgeOpacity }]}
+                  pointerEvents="none"
+                >
                   <Text style={styles.photoUploadedText}>Photo attached</Text>
-                </View>
-                <Text style={styles.photoTapToChangeText}>Tap to change</Text>
-              </View>
-            </View>
+                  <Ionicons name="checkmark" size={20} color="#22C55E" />
+                </Animated.View>
+              ) : null}
+            </>
           ) : (
             <View style={styles.photoPlaceholder}>
               <Ionicons name="camera" size={44} color="#9CA3AF" />
@@ -210,6 +268,11 @@ export default function ConfirmDeliveryScreen() {
             </View>
           )}
         </TouchableOpacity>
+        {photo ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={takeOrPickPhoto}>
+            <Text style={styles.photoTapToChangeText}>Tap to change</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Customer Rating Section */}
         <Text style={styles.sectionTitle}>Customer Rating</Text>
@@ -241,8 +304,8 @@ export default function ConfirmDeliveryScreen() {
             styles.completeButton,
             isReadyToComplete && styles.completeButtonActive,
           ]}
-          activeOpacity={isReadyToComplete ? 0.85 : 1}
-          disabled={!isReadyToComplete}
+          activeOpacity={isReadyToComplete && !saving ? 0.85 : 1}
+          disabled={!isReadyToComplete || saving}
           onPress={confirmAndComplete}
         >
           <Text style={styles.completeButtonText}>
@@ -256,6 +319,59 @@ export default function ConfirmDeliveryScreen() {
           </Text>
         ) : null}
       </View>
+
+      {/* Soft Acknowledgment Modal Before Completing Delivery After Incident (Prompt 123) */}
+      <Modal
+        visible={ackModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAckModalVisible(false)}
+      >
+        <Pressable
+          style={styles.ackModalBackdrop}
+        >
+          <Pressable style={styles.ackModalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.ackIconWrap}>
+              <Ionicons name="warning-outline" size={32} color="#D97706" />
+            </View>
+            <Text style={styles.ackModalTitle}>Issue Reported</Text>
+            <Text style={styles.ackModalBody}>
+              An issue was reported for this order. Confirm you’d like to complete delivery anyway.
+            </Text>
+
+            {reportedList.length > 0 ? (
+              <View style={styles.ackIncidentSummary}>
+                <Text style={styles.ackIncidentLabel}>Reported Incident:</Text>
+                <Text style={styles.ackIncidentText}>
+                  {reportedList[0]?.issue || "Delivery issue reported during transit"}
+                  {reportedList[0]?.notes ? ` — "${reportedList[0].notes}"` : ""}
+                </Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.ackNoticeSubtext}>
+              This will not block delivery. Management will review the reported incident afterward.
+            </Text>
+
+            <View style={styles.ackActionsRow}>
+              <TouchableOpacity
+                style={styles.ackCancelButton}
+                activeOpacity={0.7}
+                onPress={() => setAckModalVisible(false)}
+              >
+                <Text style={styles.ackCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.ackConfirmButton}
+                activeOpacity={0.85}
+                onPress={handleConfirmAck}
+              >
+                <Text style={styles.ackConfirmButtonText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -382,7 +498,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   paymentAmount: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 28,
     fontWeight: "800",
@@ -390,7 +506,9 @@ const styles = StyleSheet.create({
   },
   confirmPaymentBtn: {
     alignItems: "center",
-    backgroundColor: "#A7F3D0",
+    backgroundColor: "#E8F5E9",
+    borderColor: "#22C55E",
+    borderWidth: 1,
     borderRadius: 8,
     flexDirection: "row",
     gap: 4,
@@ -402,7 +520,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
   },
   confirmPaymentBtnText: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
@@ -420,19 +538,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderStyle: "dashed",
     borderWidth: 1,
-    height: 150,
+    height: 185,
     justifyContent: "center",
-    marginBottom: 14,
+    marginBottom: 8,
     overflow: "hidden",
+    position: "relative",
   },
   photoBoxUploaded: {
-    alignItems: "stretch",
     backgroundColor: "#E8F5E9",
     borderColor: "#22C55E",
-    height: "auto",
-    justifyContent: "flex-start",
-    overflow: "visible",
-    padding: 10,
+    borderStyle: "solid",
   },
   photoPlaceholder: {
     alignItems: "center",
@@ -444,42 +559,37 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 8,
   },
-  photoUploadedContainer: {
-    alignItems: "stretch",
-    width: "100%",
-  },
   photoPreview: {
-    borderRadius: 10,
-    height: 185,
+    height: "100%",
     resizeMode: "cover",
     width: "100%",
   },
-  photoCaptionRow: {
+  photoUploadedBadge: {
     alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "space-between",
-    paddingBottom: 2,
-    paddingHorizontal: 4,
-    paddingTop: 10,
-  },
-  photoCaptionLeft: {
-    alignItems: "center",
+    backgroundColor: "#E8F5E9",
+    borderColor: "#22C55E",
+    borderRadius: 9,
+    borderWidth: 1,
+    bottom: 12,
     flexDirection: "row",
     gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: "absolute",
   },
   photoUploadedText: {
-    color: "#14532D",
+    color: "#22C55E",
     fontFamily: FONT,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
   },
   photoTapToChangeText: {
-    color: "#15803D",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "600",
+    marginBottom: 12,
+    textAlign: "right",
   },
   ratingRow: {
     flexDirection: "row",
@@ -523,5 +633,116 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 8,
     textAlign: "center",
+  },
+  ackModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  ackModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 22,
+    width: "100%",
+    maxWidth: 380,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  ackIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  ackModalTitle: {
+    fontFamily: FONT,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  ackModalBody: {
+    fontFamily: FONT,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 14,
+  },
+  ackIncidentSummary: {
+    width: "100%",
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  ackIncidentLabel: {
+    fontFamily: FONT,
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#B45309",
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  ackIncidentText: {
+    fontFamily: FONT,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  ackNoticeSubtext: {
+    fontFamily: FONT,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#64748B",
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  ackActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  ackCancelButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackCancelButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  ackConfirmButton: {
+    flex: 1.3,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#F97000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackConfirmButtonText: {
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

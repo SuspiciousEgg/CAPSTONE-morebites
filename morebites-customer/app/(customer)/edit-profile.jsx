@@ -55,6 +55,7 @@ export default function EditProfileScreen() {
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [focusedField, setFocusedField] = useState("");
   const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
 
   useEffect(() => {
@@ -128,8 +129,9 @@ export default function EditProfileScreen() {
   };
 
   const saveChanges = async () => {
-    if (!validate()) return;
+    if (saving || !validate()) return;
 
+    setSaving(true);
     try {
       const trimmedName = fullName.trim();
       let apiUser = null;
@@ -180,6 +182,8 @@ export default function EditProfileScreen() {
       navigationTimer.current = setTimeout(() => router.back(), 1500);
     } catch (err) {
       Alert.alert("Update failed", err.message || "Could not save profile changes.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -263,8 +267,12 @@ export default function EditProfileScreen() {
           onBlur={() => setFocusedField("")}
         />
 
-        <Pressable style={styles.saveButton} onPress={saveChanges}>
-          <Text style={styles.saveButtonText}>Save Changes</Text>
+        <Pressable
+          style={[styles.saveButton, saving && { opacity: 0.7 }]}
+          onPress={saveChanges}
+          disabled={saving}
+        >
+          <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save Changes"}</Text>
         </Pressable>
       </ScrollView>
 

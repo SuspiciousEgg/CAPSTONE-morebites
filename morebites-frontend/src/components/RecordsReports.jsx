@@ -9,6 +9,8 @@ import {
 import { gasExpensesApi, getStoredUser, menuApi, reportsApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import logoImg from '../assets/logo.png'
 import './RecordsReports.css'
 
 function peso(n) {
@@ -43,20 +45,571 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
-function exportCsv(filename, headers, rows) {
+function formatUserRole(role) {
+  if (!role) return 'Owner'
+  const r = String(role).toLowerCase().trim()
+  if (r === 'super_admin' || r === 'owner') return 'Owner'
+  if (r === 'admin' || r === 'supervisor') return 'Admin/Supervisor'
+  if (r === 'cashier') return 'Cashier'
+  if (r === 'driver' || r === 'rider') return 'Rider'
+  return r.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function getSignerInfo(user) {
+  const currentUser = user || getStoredUser()
+  const name =
+    currentUser?.name ||
+    [currentUser?.first_name || currentUser?.firstName, currentUser?.last_name || currentUser?.lastName]
+      .filter(Boolean)
+      .join(' ') ||
+    'John Owner'
+  const role = formatUserRole(currentUser?.role || 'super_admin')
+  return { name, role, label: `${name} (${role})` }
+}
+
+function getPreparedByString(user) {
+  const signer = getSignerInfo(user)
+  return `Prepared by: ${signer.label}`
+}
+
+function openDeliveryTransactionPrintWindow(reportData, preparedBy) {
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    console.warn('Pop-up window was blocked by the browser. Please allow popups to view the printable delivery report.')
+    return
+  }
+
+  const generatedAt = new Date().toLocaleString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  const signer = getSignerInfo(reportData?.user)
+  let cleanPreparedBy = ''
+  if (typeof preparedBy === 'string' && preparedBy.trim()) {
+    cleanPreparedBy = preparedBy.replace(/^prepared\s*by:\s*/i, '').trim()
+  }
+  const displaySignerName = signer.name
+  const displaySignerRole = signer.role
+  const displayPreparedBy = cleanPreparedBy || `${displaySignerName} (${displaySignerRole})`
+
+  let logoUrl = ''
+  try {
+    const sidebarLogo = document.querySelector('.sa-logo')
+    if (sidebarLogo && sidebarLogo.complete && sidebarLogo.naturalWidth) {
+      const canvas = document.createElement('canvas')
+      canvas.width = sidebarLogo.naturalWidth
+      canvas.height = sidebarLogo.naturalHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(sidebarLogo, 0, 0)
+      logoUrl = canvas.toDataURL('image/png')
+    }
+  } catch {
+    // Canvas security or context error fallback
+  }
+  if (!logoUrl) {
+    logoUrl =
+      typeof window !== 'undefined'
+        ? new URL(logoImg, window.location.origin).href
+        : logoImg
+  }
+
+  const groups = reportData?.groups || []
+  let groupsHtml = ''
+
+  if (groups.length === 0) {
+    groupsHtml = `
+      <div style="padding: 40px; text-align: center; color: #64748B; font-size: 13px; border: 1px dashed #CBD5E1; border-radius: 6px; margin: 20px 0;">
+        No delivery transactions recorded for the selected period.
+      </div>
+    `
+  } else {
+    groups.forEach((g, idx) => {
+      let totalQty = 0
+      const rowsHtml = (g.rows || [])
+        .map((row) => {
+          const qty = Number(row[2]) || 1
+          totalQty += qty
+          const remarks = String(row[5] || '')
+          const isSuccess = remarks.toLowerCase().includes('success')
+          const remarksClass = isSuccess ? 'remarks-success' : 'remarks-issue'
+          return `
+        <tr>
+          <td class="col-customer">${escapeXml(row[0])}</td>
+          <td class="col-dr">#${escapeXml(row[1])}</td>
+          <td class="col-qty">${qty}</td>
+          <td class="col-address">${escapeXml(row[3])}</td>
+          <td class="col-time">${escapeXml(row[4])}</td>
+          <td class="col-remarks ${remarksClass}">${escapeXml(row[5])}</td>
+        </tr>
+      `
+        })
+        .join('')
+
+      groupsHtml += `
+        <div class="transaction-group">
+          <div class="group-header-row">
+            <span class="group-title">Transaction Group #${idx + 1}</span>
+            <span class="group-summary-meta">
+              <span><strong>${g.rows.length}</strong> ${g.rows.length === 1 ? 'Delivery' : 'Deliveries'}</span>
+              <span class="dot-sep">•</span>
+              <span><strong>${totalQty}</strong> Items Total</span>
+            </span>
+          </div>
+
+          <div class="section-banner">DELIVERY INFORMATION</div>
+          <table class="info-table">
+            <tbody>
+              <tr>
+                <td class="info-label">Vehicle Type</td>
+                <td class="info-value">${escapeXml(g.truckName || 'Motorcycle')}</td>
+                <td class="info-label">Driver Name</td>
+                <td class="info-value">${escapeXml(g.rider || 'Unassigned')}</td>
+              </tr>
+              <tr>
+                <td class="info-label">Plate Number</td>
+                <td class="info-value">${escapeXml(g.plateNumber || 'N/A')}</td>
+                <td class="info-label">Delivery Date</td>
+                <td class="info-value">${escapeXml(g.formattedDate || g.date || '')}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-banner">DELIVERY TRANSACTIONS</div>
+          <table class="transactions-table">
+            <thead>
+              <tr>
+                <th class="col-customer">Customer Name</th>
+                <th class="col-dr">D.R. Number</th>
+                <th class="col-qty">Quantity</th>
+                <th class="col-address">Customer Address</th>
+                <th class="col-time">Time</th>
+                <th class="col-remarks">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `
+    })
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Delivery Transaction Report — Lynloves Morebites</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 12mm 14mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0F172A;
+      background: #FFFFFF;
+      padding: 24px 32px;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    /* Screen-Only Action Bar (Sits cleanly ABOVE the document) */
+    .top-action-bar {
+      background: #0F172A;
+      color: #FFFFFF;
+      padding: 10px 24px;
+      margin: -24px -32px 24px -32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #EA580C;
+    }
+    .top-action-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #F8FAFC;
+    }
+    .top-action-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #F97000;
+    }
+    .top-action-right {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-print {
+      background: #EA580C;
+      color: #FFFFFF;
+      border: none;
+      padding: 7px 18px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .btn-print:hover {
+      background: #C2410C;
+    }
+    .btn-close {
+      background: #334155;
+      color: #F8FAFC;
+      border: 1px solid #475569;
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-close:hover {
+      background: #475569;
+    }
+
+    /* Institutional Formal Header */
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #0F172A;
+      margin-bottom: 20px;
+    }
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-logo {
+      width: 54px;
+      height: 54px;
+      object-fit: contain;
+      border-radius: 6px;
+    }
+    .brand-name {
+      font-size: 19px;
+      font-weight: 800;
+      color: #0F172A;
+      letter-spacing: -0.3px;
+      line-height: 1.15;
+    }
+    .brand-tagline {
+      font-size: 11px;
+      color: #C2410C;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .brand-location {
+      font-size: 9.5px;
+      color: #64748B;
+      margin-top: 2px;
+    }
+    .report-meta-block {
+      text-align: right;
+    }
+    .report-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0F172A;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .report-meta-table {
+      margin-left: auto;
+      border-collapse: collapse;
+      font-size: 9.5px;
+    }
+    .report-meta-table td {
+      padding: 1.5px 4px;
+    }
+    .meta-lbl {
+      color: #64748B;
+      font-weight: 500;
+      text-align: right;
+    }
+    .meta-val {
+      color: #0F172A;
+      font-weight: 600;
+      text-align: right;
+    }
+
+    /* Transaction Group Layout */
+    .transaction-group {
+      margin-bottom: 24px;
+      page-break-inside: avoid;
+    }
+    .group-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed #CBD5E1;
+    }
+    .group-title {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #1E293B;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .group-summary-meta {
+      font-size: 10px;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot-sep {
+      color: #CBD5E1;
+    }
+
+    /* Section Header Banners (Matches Formal Navy Reference) */
+    .section-banner {
+      background-color: #0F1E36;
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.8px;
+      padding: 6px 10px;
+      text-transform: uppercase;
+    }
+
+    /* Delivery Info Key-Value Table */
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      border: 1px solid #CBD5E1;
+    }
+    .info-table td {
+      padding: 6px 10px;
+      border: 1px solid #CBD5E1;
+      font-size: 10.5px;
+    }
+    .info-label {
+      width: 16%;
+      font-weight: 600;
+      color: #475569;
+      background-color: #F8FAFC;
+    }
+    .info-value {
+      width: 34%;
+      color: #0F172A;
+      font-weight: 600;
+      background-color: #FFFFFF;
+    }
+
+    /* Delivery Transactions Table */
+    .transactions-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #CBD5E1;
+    }
+    .transactions-table th {
+      background-color: #F8FAFC;
+      color: #334155;
+      font-weight: 700;
+      font-size: 9.5px;
+      padding: 7px 10px;
+      text-align: left;
+      border: 1px solid #CBD5E1;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .transactions-table td {
+      padding: 7px 10px;
+      border: 1px solid #CBD5E1;
+      font-size: 10px;
+      color: #1E293B;
+      vertical-align: middle;
+    }
+    .transactions-table tbody tr:nth-child(even) td {
+      background-color: #FAFAFA;
+    }
+    .col-customer { width: 18%; font-weight: 600; color: #0F172A; }
+    .col-dr { width: 12%; font-weight: 600; color: #0F172A; }
+    .col-qty { width: 9%; text-align: center; }
+    .col-address { width: 23%; }
+    .col-time { width: 11%; white-space: nowrap; }
+    .col-remarks { width: 27%; }
+    .remarks-success {
+      color: #15803D;
+    }
+    .remarks-issue {
+      color: #B91C1C;
+      font-weight: 600;
+    }
+
+    /* Formal Sign-off Section at Bottom of Document */
+    .report-signoff-grid {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 36px;
+      padding-top: 16px;
+      border-top: 1px solid #CBD5E1;
+      page-break-inside: avoid;
+    }
+    .signoff-box {
+      width: 42%;
+    }
+    .signoff-label {
+      font-size: 9.5px;
+      font-weight: 600;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 28px;
+    }
+    .signoff-line {
+      border-bottom: 1px solid #0F172A;
+      margin-bottom: 4px;
+    }
+    .signoff-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0F172A;
+    }
+    .signoff-role {
+      font-size: 9.5px;
+      color: #64748B;
+      margin-top: 1px;
+    }
+    .report-system-notice {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 8.5px;
+      color: #94A3B8;
+      border-top: 1px dashed #E2E8F0;
+      padding-top: 8px;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: transparent;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="top-action-bar no-print">
+    <div class="top-action-left">
+      <span>Lynloves Morebites — Delivery Transaction Report Preview</span>
+    </div>
+    <div class="top-action-right">
+      <button class="btn-print" onclick="window.print()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 6px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        Print / Save as PDF
+      </button>
+      <button class="btn-close" onclick="window.close()">Close</button>
+    </div>
+  </div>
+
+  <div class="report-header">
+    <div class="brand-block">
+      <img src="${logoUrl}" alt="Lynloves MoreBites Logo" class="brand-logo" onerror="this.style.display='none'" />
+      <div class="brand-text">
+        <h1 class="brand-name">Lynloves Morebites</h1>
+        <p class="brand-tagline">Delivery Tracking &amp; Incident Reporting System</p>
+        <p class="brand-location">Poblacion, Dangcagan, Bukidnon</p>
+      </div>
+    </div>
+    <div class="report-meta-block">
+      <h2 class="report-title">DELIVERY TRANSACTION REPORT</h2>
+      <table class="report-meta-table">
+        <tbody>
+          <tr>
+            <td class="meta-lbl">Generated:</td>
+            <td class="meta-val">${generatedAt}</td>
+          </tr>
+          <tr>
+            <td class="meta-lbl">Prepared By:</td>
+            <td class="meta-val">${escapeXml(displayPreparedBy)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  ${groupsHtml}
+
+  <div class="report-signoff-grid">
+    <div class="signoff-box">
+      <p class="signoff-label">Prepared &amp; Exported By:</p>
+      <div class="signoff-line"></div>
+      <p class="signoff-name">${escapeXml(displaySignerName)}</p>
+      <p class="signoff-role">${escapeXml(displaySignerRole)}</p>
+    </div>
+    <div class="signoff-box">
+      <p class="signoff-label">Audited &amp; Acknowledged By:</p>
+      <div class="signoff-line"></div>
+      <p class="signoff-name">${displaySignerRole === 'Owner' ? 'Admin/Supervisor' : 'Owner'}</p>
+      <p class="signoff-role">Lynloves Morebites</p>
+    </div>
+  </div>
+
+  <div class="report-system-notice">
+    This report was generated by the Lynloves MoreBites Delivery Tracking &amp; Incident Reporting System on ${generatedAt} for internal record-keeping.
+  </div>
+
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    });
+  </script>
+</body>
+</html>`
+
+  printWindow.document.open()
+  printWindow.document.write(html)
+  printWindow.document.close()
+}
+
+function exportCsv(filename, headers, rows, options = {}) {
   const lines = rows.map((row) =>
     row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','),
   )
-  const blob = new Blob([[headers.join(','), ...lines].join('\n')], {
+  const topLines = options?.isGrouped
+    ? [`"${String(options.title || 'Delivery Transaction Report').replace(/"/g, '""')}"`, '']
+    : [headers.join(',')]
+  const blob = new Blob([[...topLines, ...lines].join('\n')], {
     type: 'text/csv;charset=utf-8;',
   })
   downloadBlob(blob, filename)
   return blob
 }
 
-async function exportXlsx(filename, title, headers, rows) {
+async function exportXlsx(filename, title, headers, rows, options = {}) {
+  const sheetRows = options?.isGrouped
+    ? [[title, '', '', '', ''], ['', '', '', '', ''], ...rows]
+    : [headers, ...rows]
+
   if (typeof window !== 'undefined' && window.XLSX) {
-    const ws = window.XLSX.utils.aoa_to_sheet([headers, ...rows])
+    const ws = window.XLSX.utils.aoa_to_sheet(sheetRows)
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, ws, 'Report')
     const wbout = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
@@ -75,10 +628,7 @@ async function exportXlsx(filename, title, headers, rows) {
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
  <Worksheet ss:Name="Report">
   <Table>
-   <Row>
-    ${headers.map((h) => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}
-   </Row>
-   ${rows
+   ${sheetRows
      .map(
        (r) =>
          `<Row>${r
@@ -129,30 +679,8 @@ async function exportXlsx(filename, title, headers, rows) {
  * ============================================================================
  */
 
-function formatUserRole(role) {
-  if (!role) return 'Owner'
-  const r = String(role).toLowerCase().trim()
-  if (r === 'super_admin' || r === 'owner') return 'Owner'
-  if (r === 'admin') return 'Admin'
-  if (r === 'supervisor') return 'Supervisor'
-  if (r === 'cashier') return 'Cashier'
-  if (r === 'driver') return 'Driver'
-  return r.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-}
 
-function getPreparedByString(user) {
-  const currentUser = user || getStoredUser()
-  const name =
-    currentUser?.name ||
-    [currentUser?.first_name || currentUser?.firstName, currentUser?.last_name || currentUser?.lastName]
-      .filter(Boolean)
-      .join(' ') ||
-    'John Owner'
-  const role = formatUserRole(currentUser?.role || 'super_admin')
-  return `Prepared by: ${name} (${role})`
-}
-
-async function exportPdf(filename, title, headers, rows, preparedBy) {
+async function exportPdf(filename, title, headers, rows, preparedBy, options = {}) {
   const preparedByText = preparedBy || getPreparedByString()
   const enc = new TextEncoder()
 
@@ -207,35 +735,76 @@ async function exportPdf(filename, title, headers, rows, preparedBy) {
   }
 
   const headerSep = '-'.repeat(Math.min(95, headers.join(' | ').length))
-  const dataLines = rows.map((r) => r.join(' | '))
-
   const ROWS_PER_PAGE_FIRST = 38
   const ROWS_PER_PAGE_SUB = 45
 
   const pagesData = []
-  const remaining = [...dataLines]
 
-  // Page 1 with Title, Timestamp, Prepared By, and Headers
-  const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
-  pagesData.push([
-    title,
-    `Generated: ${new Date().toLocaleString()}`,
-    preparedByText,
-    '',
-    headers.join(' | '),
-    headerSep,
-    ...page1Rows,
-  ])
+  if (options?.isGrouped && Array.isArray(options.groups)) {
+    const groupedLines = []
+    if (options.groups.length === 0) {
+      groupedLines.push('No delivery transactions found for the selected period.')
+    } else {
+      options.groups.forEach((g, idx) => {
+        groupedLines.push('')
+        groupedLines.push(`Transaction Group #${idx + 1}`)
+        groupedLines.push('=================================================================================')
+        groupedLines.push('DELIVERY INFORMATION')
+        groupedLines.push(`Vehicle Type: ${g.truckName || 'Motorcycle'}      Driver Name: ${g.rider || 'Unassigned'}`)
+        groupedLines.push(`Plate Number: ${g.plateNumber || 'N/A'}          Delivery Date: ${g.formattedDate || g.date || ''}`)
+        groupedLines.push('=================================================================================')
+        groupedLines.push('DELIVERY TRANSACTIONS')
+        groupedLines.push(headers.join(' | '))
+        groupedLines.push(headerSep)
+        g.rows.forEach((r) => groupedLines.push(r.join(' | ')))
+      })
+    }
 
-  // Subsequent pages with Continued title and Headers
-  while (remaining.length > 0) {
-    const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
+    const remaining = [...groupedLines]
+    const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
     pagesData.push([
-      `${title} (Continued)`,
+      'Lynloves Morebites',
+      'Delivery Tracking & Incident Reporting',
+      title,
+      `Generated: ${new Date().toLocaleString()}`,
+      preparedByText,
+      ...page1Rows,
+    ])
+
+    while (remaining.length > 0) {
+      const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
+      pagesData.push([
+        'Lynloves Morebites - Delivery Transaction Report (Continued)',
+        '',
+        ...subRows,
+      ])
+    }
+  } else {
+    const dataLines = rows.map((r) => r.join(' | '))
+    const remaining = [...dataLines]
+
+    // Page 1 with Title, Timestamp, Prepared By, and Headers
+    const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
+    pagesData.push([
+      title,
+      `Generated: ${new Date().toLocaleString()}`,
+      preparedByText,
+      '',
       headers.join(' | '),
       headerSep,
-      ...subRows,
+      ...page1Rows,
     ])
+
+    // Subsequent pages with Continued title and Headers
+    while (remaining.length > 0) {
+      const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
+      pagesData.push([
+        `${title} (Continued)`,
+        headers.join(' | '),
+        headerSep,
+        ...subRows,
+      ])
+    }
   }
 
   const numPages = pagesData.length
@@ -399,6 +968,8 @@ export default function RecordsReports({ user: propUser }) {
   const [gasDriverId, setGasDriverId] = useState('')
   const [gasNote, setGasNote] = useState('')
   const [gasSubmitting, setGasSubmitting] = useState(false)
+  const [deletingGasId, setDeletingGasId] = useState(null)
+  const [exportingTop, setExportingTop] = useState(false)
   const [gasError, setGasError] = useState('')
   const [salesSearch, setSalesSearch] = useState('')
   const [salesStatus, setSalesStatus] = useState('Completed')
@@ -506,6 +1077,111 @@ export default function RecordsReports({ user: propUser }) {
     const sourceCustomer = recordsOverride?.customer_records ?? customerRecords
     const sourceTopItems = recordsOverride?.top_items ?? topItems
     const statusSuffix = salesStatus !== 'All Statuses' ? ` - ${salesStatus}` : ''
+
+    if (formatType === 'Delivery Transaction Report') {
+      const headers = ['Customer Name', 'D.R. Number', 'Quantity', 'Customer Address', 'Time', 'Remarks']
+      const groupedMap = new Map()
+
+      const sortedDeliveries = [...sourceDelivery].sort((a, b) => {
+        const riderA = String(a.rider || a.driver || 'Unassigned')
+        const riderB = String(b.rider || b.driver || 'Unassigned')
+        const cmpRider = riderA.localeCompare(riderB)
+        if (cmpRider !== 0) return cmpRider
+        const dateA = String(a.delivery_date || a.datetime || '')
+        const dateB = String(b.delivery_date || b.datetime || '')
+        return dateA.localeCompare(dateB)
+      })
+
+      for (const r of sortedDeliveries) {
+        const riderName = r.rider || r.driver || 'Unassigned'
+        const delivDate = r.delivery_date || (r.datetime ? String(r.datetime).slice(0, 10) : getLocalTodayString())
+        const groupKey = `${riderName}___${delivDate}`
+        if (!groupedMap.has(groupKey)) {
+          let formattedDateStr = delivDate
+          try {
+            const d = new Date(delivDate)
+            if (!isNaN(d.getTime())) {
+              formattedDateStr = d.toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })
+            }
+          } catch {}
+
+          groupedMap.set(groupKey, {
+            rider: riderName,
+            date: delivDate,
+            formattedDate: formattedDateStr,
+            truckName: r.vehicle_name || r.truck_name || 'Motorcycle',
+            plateNumber: r.plate_number || r.plate_no || 'N/A',
+            rows: [],
+          })
+        }
+
+        let remarksText = r.remarks
+        if (!remarksText) {
+          if (String(r.status || '').toLowerCase() === 'cancelled') {
+            remarksText = r.cancellation_reason
+              ? `Cancelled: ${r.cancellation_reason}`
+              : 'Order cancelled'
+          } else if (Array.isArray(r.reported_issues) && r.reported_issues.length > 0) {
+            remarksText = r.reported_issues
+              .map((iss) => {
+                const label = String(iss.issue || 'Delivery Issue').trim()
+                const notes = String(iss.notes || '').trim()
+                if (notes) {
+                  return label.toLowerCase() === 'other' ? `Other: ${notes}` : `${label} (${notes})`
+                }
+                return label
+              })
+              .join('; ')
+          } else {
+            remarksText = 'Delivery completed successfully without any incidents.'
+          }
+        }
+
+        const drNumber = String(r.dr_number || r.id || '').replace(/^#ORD-/, '') || String(r.id || '')
+        const delivTime = r.delivery_time || r.time || '--'
+        const qty = Number(r.quantity ?? 1)
+
+        groupedMap.get(groupKey).rows.push([
+          r.customer || 'Customer',
+          drNumber,
+          String(qty),
+          r.address || 'N/A',
+          delivTime,
+          remarksText,
+        ])
+      }
+
+      const groups = Array.from(groupedMap.values())
+      const flatGroupedRows = []
+      if (groups.length === 0) {
+        flatGroupedRows.push(['No delivery transactions found', '—', '—', '—', '—', '—'])
+      } else {
+        groups.forEach((g, idx) => {
+          if (idx > 0) {
+            flatGroupedRows.push(['', '', '', '', '', ''])
+          }
+          flatGroupedRows.push([`Transaction Group #${idx + 1}`, '', '', '', '', ''])
+          flatGroupedRows.push(['DELIVERY INFORMATION', '', '', '', '', ''])
+          flatGroupedRows.push(['Vehicle Type:', g.truckName, 'Driver Name:', g.rider, '', ''])
+          flatGroupedRows.push(['Plate Number:', g.plateNumber, 'Delivery Date:', g.formattedDate, '', ''])
+          flatGroupedRows.push(['DELIVERY TRANSACTIONS', '', '', '', '', ''])
+          flatGroupedRows.push(headers)
+          g.rows.forEach((row) => flatGroupedRows.push(row))
+        })
+      }
+
+      return {
+        title: `Delivery Transaction Report${statusSuffix} (${rangeLabel})`,
+        headers,
+        rows: flatGroupedRows,
+        groups,
+        isGrouped: true,
+      }
+    }
 
     if (formatType === 'Sales Per Delivery Person' || formatType === 'Delivery Records' || formatType === 'Delivery Summary Report') {
       const headers = ['Order ID', 'Driver Name', 'Date & Time', 'Delivery Time', 'Distance', 'Delivery Fee', 'Status']
@@ -622,16 +1298,20 @@ export default function RecordsReports({ user: propUser }) {
   }
 
   async function triggerFileDownload(fileName, formatType, rangeLabel, exportType, recordsOverride = null) {
-    const { title, headers, rows: reportRows } = getReportData(formatType, rangeLabel, recordsOverride)
+    const { title, headers, rows: reportRows, groups, isGrouped } = getReportData(formatType, rangeLabel, recordsOverride)
     const normalizedExport = (exportType || 'PDF').toUpperCase()
     let blob = null
     const preparedBy = getPreparedByString(currentUser)
+    const exportOptions = { title, groups, isGrouped: Boolean(isGrouped) }
     if (normalizedExport === 'CSV') {
-      blob = exportCsv(fileName, headers, reportRows)
+      blob = exportCsv(fileName, headers, reportRows, exportOptions)
     } else if (normalizedExport === 'PDF') {
-      blob = await exportPdf(fileName, title, headers, reportRows, preparedBy)
+      if (formatType === 'Delivery Transaction Report') {
+        openDeliveryTransactionPrintWindow({ title, headers, groups, rangeLabel, user: currentUser }, preparedBy)
+      }
+      blob = await exportPdf(fileName, title, headers, reportRows, preparedBy, exportOptions)
     } else {
-      blob = await exportXlsx(fileName, title, headers, reportRows)
+      blob = await exportXlsx(fileName, title, headers, reportRows, exportOptions)
     }
     return blob
   }
@@ -648,6 +1328,7 @@ export default function RecordsReports({ user: propUser }) {
     const selectedTo = reportToDate
     const selectedFormat = format
     const selectedExportAs = exportAs
+    const ext = selectedExportAs === 'XLSX' || selectedExportAs === 'Excel' ? 'xlsx' : selectedExportAs === 'CSV' ? 'csv' : 'pdf'
     const rangeLabel = `${selectedFrom} to ${selectedTo}`
     const statusSlug = salesStatus !== 'All Statuses' ? `_${salesStatus.replace(/\s+/g, '_')}` : ''
     const fileName = `${selectedFormat.replace(/\s+/g, '_')}${statusSlug}_${selectedFrom}_to_${selectedTo}.${ext}`
@@ -960,15 +1641,19 @@ export default function RecordsReports({ user: propUser }) {
   }
 
   const handleDeleteGasExpense = async (id) => {
+    if (deletingGasId === id) return
     if (!window.confirm('Are you sure you want to remove this gas expense entry?')) {
       return
     }
+    setDeletingGasId(id)
     try {
       await gasExpensesApi.delete(id)
       setGasExpenses((prev) => prev.filter((item) => item.id !== id))
     } catch (err) {
       console.error('Failed to delete gas expense:', err)
       alert(err.response?.data?.message || 'Failed to delete gas expense.')
+    } finally {
+      setDeletingGasId(null)
     }
   }
 
@@ -1160,7 +1845,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={salesStatus}
                   onChange={(e) => {
@@ -1174,7 +1859,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Out for Delivery</option>
                   <option>Pending</option>
                   <option>Cancelled</option>
-                </select>
+                </CustomSelect>
               </>
             )}
 
@@ -1218,7 +1903,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={deliveryStatus}
                   onChange={(e) => {
@@ -1230,7 +1915,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Preparing</option>
                   <option>Out for Delivery</option>
                   <option>Completed</option>
-                </select>
+                </CustomSelect>
               </>
             )}
 
@@ -1251,7 +1936,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-select-filter"
                   value={customerStatus}
                   onChange={(e) => {
@@ -1263,41 +1948,25 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Frequent</option>
                   <option>Regular</option>
                   <option>New</option>
-                </select>
+                </CustomSelect>
               </>
             )}
           </div>
 
-          {tab === 'all' && (
+          {(tab === 'all' || tab === 'delivery') && (
             <button
               type="button"
               className="reports-btn-generate"
-              onClick={() => setGenerateOpen(true)}
+              onClick={() => {
+                if (tab === 'delivery') {
+                  setFormat('Delivery Transaction Report')
+                }
+                setGenerateOpen(true)
+              }}
             >
               <IconFile />
               Generate Report
             </button>
-          )}
-
-          {tab === 'delivery' && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="reports-btn-gas-add"
-                onClick={() => setGasModalOpen(true)}
-              >
-                <LuPlus size={16} />
-                Log Gas Expense
-              </button>
-              <button
-                type="button"
-                className="reports-btn-gas-history"
-                onClick={() => setGasHistoryOpen(true)}
-              >
-                <LuFuel size={16} />
-                Gas Log ({deliveryFinanceCalculated.expenseCount})
-              </button>
-            </div>
           )}
         </div>
 
@@ -1344,7 +2013,12 @@ export default function RecordsReports({ user: propUser }) {
                           <span className={`reports-badge ${payClass}`}>{payMethod}</span>
                         </td>
                         <td>
-                          <span className={`reports-badge ${statusClass}`}>{r.status}</span>
+                          <span
+                            className={`reports-badge ${statusClass}`}
+                            title={r.cancellation_reason ? `Reason: ${r.cancellation_reason}` : undefined}
+                          >
+                            {r.status}
+                          </span>
                         </td>
                       </tr>
                     )
@@ -1359,53 +2033,38 @@ export default function RecordsReports({ user: propUser }) {
               {/* Delivery Finance Side-by-Side Comparison Banner */}
               <div className="reports-delivery-finance-banner">
                 <div className="reports-finance-metrics">
-                  <div className="reports-finance-card income">
-                    <div className="reports-finance-icon">
-                      <LuFuel size={18} style={{ transform: 'rotate(180deg)' }} />
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Delivery Fees Collected</span>
-                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.feesCollected)}</span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.completedDeliveries} completed {deliveryFinanceCalculated.completedDeliveries === 1 ? 'delivery' : 'deliveries'}
-                      </span>
-                    </div>
+                  <div className="reports-finance-card">
+                    <span className="reports-finance-label">Delivery Fees Collected</span>
+                    <span className="reports-finance-value">{peso(deliveryFinanceCalculated.feesCollected)}</span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.completedDeliveries} completed {deliveryFinanceCalculated.completedDeliveries === 1 ? 'delivery' : 'deliveries'}
+                    </span>
                   </div>
 
                   <div className="reports-finance-operator">−</div>
 
-                  <div className="reports-finance-card expense">
-                    <div className="reports-finance-icon">
-                      <LuFuel size={18} />
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Gas / Fuel Expenses</span>
-                      <span className="reports-finance-value">{peso(deliveryFinanceCalculated.totalGasExpense)}</span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.expenseCount} {deliveryFinanceCalculated.expenseCount === 1 ? 'entry' : 'entries'} logged
-                      </span>
-                    </div>
+                  <div className="reports-finance-card">
+                    <span className="reports-finance-label">Gas / Fuel Expenses</span>
+                    <span className="reports-finance-value">{peso(deliveryFinanceCalculated.totalGasExpense)}</span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.expenseCount} {deliveryFinanceCalculated.expenseCount === 1 ? 'entry' : 'entries'} logged
+                    </span>
                   </div>
 
                   <div className="reports-finance-operator">=</div>
 
                   <div className={`reports-finance-card margin ${deliveryFinanceCalculated.netMargin >= 0 ? 'positive' : 'negative'}`}>
-                    <div className="reports-finance-icon">
-                      {deliveryFinanceCalculated.netMargin >= 0 ? '📈' : '📉'}
-                    </div>
-                    <div className="reports-finance-info">
-                      <span className="reports-finance-label">Net Delivery Margin</span>
-                      <span className="reports-finance-value">
-                        {deliveryFinanceCalculated.netMargin >= 0
-                          ? `+${peso(deliveryFinanceCalculated.netMargin)}`
-                          : `-${peso(Math.abs(deliveryFinanceCalculated.netMargin))}`}
-                      </span>
-                      <span className="reports-finance-sub">
-                        {deliveryFinanceCalculated.feesCollected > 0
-                          ? `${Math.round((deliveryFinanceCalculated.netMargin / deliveryFinanceCalculated.feesCollected) * 100)}% margin`
-                          : 'Inflow vs gas cost'}
-                      </span>
-                    </div>
+                    <span className="reports-finance-label">Net Delivery Margin</span>
+                    <span className="reports-finance-value">
+                      {deliveryFinanceCalculated.netMargin >= 0
+                        ? `+${peso(deliveryFinanceCalculated.netMargin)}`
+                        : `-${peso(Math.abs(deliveryFinanceCalculated.netMargin))}`}
+                    </span>
+                    <span className="reports-finance-sub">
+                      {deliveryFinanceCalculated.feesCollected > 0
+                        ? `${Math.round((deliveryFinanceCalculated.netMargin / deliveryFinanceCalculated.feesCollected) * 100)}% margin`
+                        : 'Inflow vs gas cost'}
+                    </span>
                   </div>
                 </div>
 
@@ -1437,13 +2096,14 @@ export default function RecordsReports({ user: propUser }) {
                     <th>Duration</th>
                     <th>Distance</th>
                     <th>Delivery Fee</th>
+                    <th>Remarks</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <EmptyState
                           icon="truck"
                           title="No delivery records found"
@@ -1455,6 +2115,18 @@ export default function RecordsReports({ user: propUser }) {
                     paginatedRows.map((r) => {
                       const statusClass = getStatusBadgeClass(r.status)
                       const displayId = r.id?.startsWith('#') ? r.id : `#${r.id}`
+                      const isCancelled = String(r.status || '').toLowerCase() === 'cancelled'
+                      const hasIssue =
+                        isCancelled || (Array.isArray(r.reported_issues) && r.reported_issues.length > 0)
+                      const remarksText =
+                        r.remarks ||
+                        (isCancelled
+                          ? r.cancellation_reason
+                            ? `Cancelled: ${r.cancellation_reason}`
+                            : 'Order cancelled'
+                          : hasIssue
+                            ? r.reported_issues.map((i) => i.issue).join('; ')
+                            : 'Delivered successfully')
                       return (
                         <tr key={r.id}>
                           <td>{r.datetime}</td>
@@ -1464,6 +2136,17 @@ export default function RecordsReports({ user: propUser }) {
                           <td>{r.time || '-- mins'}</td>
                           <td>{r.distance || '-- km'}</td>
                           <td className="reports-total-amount">{peso(r.delivery_fee ?? 40)}</td>
+                          <td>
+                            <span
+                              style={{
+                                fontSize: '12.5px',
+                                fontWeight: hasIssue ? 600 : 500,
+                                color: hasIssue ? '#DC2626' : '#374151',
+                              }}
+                            >
+                              {remarksText}
+                            </span>
+                          </td>
                           <td>
                             <span className={`reports-badge ${statusClass}`}>{r.status}</span>
                           </td>
@@ -1689,7 +2372,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* Generate Report Modal */}
       {generateOpen && (
-        <div className="reports-modal-overlay" onClick={handleCancel} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container"
             onClick={(e) => e.stopPropagation()}
@@ -1701,14 +2384,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">Generate Report</h2>
                 <p className="reports-modal-subtitle">Choose format, date range, and sections to export.</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={handleCancel}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">
@@ -1769,9 +2444,9 @@ export default function RecordsReports({ user: propUser }) {
 
               <div className="reports-form-group">
                 <label className="reports-form-label">Order Status</label>
-                <select
+                <CustomSelect
                   className="reports-select-filter"
-                  style={{ width: '100%', height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px', background: '#FFFFFF', color: '#1F2937' }}
+                  style={{ width: '100%', height: '40px' }}
                   value={salesStatus}
                   onChange={(e) => setSalesStatus(e.target.value)}
                 >
@@ -1781,7 +2456,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Out for Delivery</option>
                   <option>Pending</option>
                   <option>Cancelled</option>
-                </select>
+                </CustomSelect>
                 <p style={{ margin: '4px 0 0 2px', fontSize: '12px', color: '#6B7280' }}>
                   {salesStatus === 'All Statuses'
                     ? 'Exported file will include orders across all statuses.'
@@ -1816,7 +2491,12 @@ export default function RecordsReports({ user: propUser }) {
               <div className="reports-form-group">
                 <label className="reports-form-label">Report Template</label>
                 <div className="reports-radio-group">
-                  {['Sales Summary Report', 'Sales Per Delivery Person', 'Full Report'].map((opt) => (
+                  {[
+                    'Sales Summary Report',
+                    'Sales Per Delivery Person',
+                    'Delivery Transaction Report',
+                    'Full Report',
+                  ].map((opt) => (
                     <label key={opt} className="reports-radio-item">
                       <input
                         type="radio"
@@ -1856,7 +2536,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* Top 10 Selling Items — Full List Modal */}
       {topOpen && (
-        <div className="reports-modal-overlay" onClick={() => setTopOpen(false)} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container large"
             style={{ maxWidth: '780px' }}
@@ -1869,14 +2549,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">Top 10 Selling Items — Full List</h2>
                 <p className="reports-modal-subtitle">Ranked by all units ordered</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setTopOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body" style={{ padding: '0 24px 16px' }}>
@@ -1933,7 +2605,10 @@ export default function RecordsReports({ user: propUser }) {
               <button
                 type="button"
                 className="reports-btn-primary"
+                disabled={exportingTop}
                 onClick={async () => {
+                  if (exportingTop) return
+                  setExportingTop(true)
                   const headers = ['Rank', 'Item Name', 'Category', 'Units Sold', 'Trend']
                   const reportRows = topItems.slice(0, 10).map((item, i) => [
                     `#${i + 1}`,
@@ -1975,10 +2650,12 @@ export default function RecordsReports({ user: propUser }) {
                     ])
                   } catch (e) {
                     console.warn('Failed to log top selling items export:', e)
+                  } finally {
+                    setExportingTop(false)
                   }
                 }}
               >
-                Export This List
+                {exportingTop ? 'Exporting...' : 'Export This List'}
               </button>
             </div>
           </div>
@@ -1987,7 +2664,7 @@ export default function RecordsReports({ user: propUser }) {
 
       {/* All Exported Reports Modal */}
       {exportsOpen && (
-        <div className="reports-modal-overlay" onClick={() => setExportsOpen(false)} role="presentation">
+        <div className="reports-modal-overlay" role="presentation">
           <div
             className="reports-modal-container large"
             style={{ maxWidth: '720px' }}
@@ -2000,14 +2677,6 @@ export default function RecordsReports({ user: propUser }) {
                 <h2 className="reports-modal-title">All Exported Reports</h2>
                 <p className="reports-modal-subtitle">History of generated and downloaded report files</p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setExportsOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">
@@ -2025,7 +2694,7 @@ export default function RecordsReports({ user: propUser }) {
                   />
                 </div>
 
-                <select
+                <CustomSelect
                   className="reports-history-select"
                   value={historyFormat}
                   onChange={(e) => setHistoryFormat(e.target.value)}
@@ -2034,9 +2703,9 @@ export default function RecordsReports({ user: propUser }) {
                   <option>PDF</option>
                   <option>CSV</option>
                   <option>XLSX</option>
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="reports-history-select"
                   value={historyDate}
                   onChange={(e) => setHistoryDate(e.target.value)}
@@ -2045,7 +2714,7 @@ export default function RecordsReports({ user: propUser }) {
                   <option>Today</option>
                   <option>This Week</option>
                   <option>This Month</option>
-                </select>
+                </CustomSelect>
               </div>
 
               {/* Rows List */}
@@ -2117,9 +2786,6 @@ export default function RecordsReports({ user: propUser }) {
       {gasModalOpen && (
         <div
           className="reports-modal-overlay"
-          onClick={() => {
-            if (!gasSubmitting) setGasModalOpen(false)
-          }}
           role="presentation"
         >
           <div
@@ -2138,15 +2804,6 @@ export default function RecordsReports({ user: propUser }) {
                   Record fuel or gas expense for delivery runs.
                 </p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setGasModalOpen(false)}
-                disabled={gasSubmitting}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <form onSubmit={handleSaveGasExpense}>
@@ -2181,7 +2838,7 @@ export default function RecordsReports({ user: propUser }) {
 
                 <div className="reports-form-group">
                   <label className="reports-form-label">Driver / Rider (Optional)</label>
-                  <select
+                  <CustomSelect
                     className="reports-select-input"
                     value={gasDriverId}
                     onChange={(e) => setGasDriverId(e.target.value)}
@@ -2192,7 +2849,7 @@ export default function RecordsReports({ user: propUser }) {
                         {d.name}
                       </option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 <div className="reports-form-group">
@@ -2239,7 +2896,6 @@ export default function RecordsReports({ user: propUser }) {
       {gasHistoryOpen && (
         <div
           className="reports-modal-overlay"
-          onClick={() => setGasHistoryOpen(false)}
           role="presentation"
         >
           <div
@@ -2258,47 +2914,18 @@ export default function RecordsReports({ user: propUser }) {
                   Review and manage fuel cost entries recorded by staff.
                 </p>
               </div>
-              <button
-                type="button"
-                className="reports-modal-close-btn"
-                onClick={() => setGasHistoryOpen(false)}
-                aria-label="Close"
-              >
-                <IconClose />
-              </button>
             </div>
 
             <div className="reports-modal-body">
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '16px',
-                  padding: '12px 16px',
-                  background: '#FFF7ED',
-                  borderRadius: '10px',
-                  border: '1px solid #FFEDD5',
-                }}
-              >
+              <div className="reports-gas-summary-card">
                 <div>
-                  <span style={{ fontSize: '13px', color: '#9A3412', fontWeight: 600 }}>
+                  <span className="reports-gas-summary-title">
                     Total Gas Expenses: {peso(deliveryFinanceCalculated.totalGasExpense)}
                   </span>
-                  <span style={{ fontSize: '12px', color: '#C2410C', marginLeft: '8px' }}>
+                  <span className="reports-gas-summary-count">
                     ({deliveryFinanceCalculated.expenseCount} entries {startDate || endDate ? 'in selected range' : 'all-time'})
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="reports-btn-gas-add"
-                  style={{ padding: '6px 14px', fontSize: '12.5px' }}
-                  onClick={() => {
-                    setGasModalOpen(true)
-                  }}
-                >
-                  <LuPlus size={14} /> Log Gas Expense
-                </button>
               </div>
 
               {deliveryFinanceCalculated.filteredGasExpenses.length === 0 ? (
@@ -2334,6 +2961,7 @@ export default function RecordsReports({ user: propUser }) {
                               className="reports-btn-gas-delete"
                               title="Delete entry"
                               aria-label={`Delete gas expense on ${e.expense_date}`}
+                              disabled={deletingGasId === e.id}
                               onClick={() => handleDeleteGasExpense(e.id)}
                             >
                               <LuTrash2 size={16} />

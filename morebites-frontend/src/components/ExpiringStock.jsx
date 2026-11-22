@@ -9,6 +9,7 @@ import {
 } from './Icons'
 import { expiringStockApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
 import './ExpiringStock.css'
 
 /* ============================================================================
@@ -76,7 +77,7 @@ function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
   const qtyLabel = `${row?.stock ?? 0} ${row?.unit || ''}`.trim()
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -434,7 +435,7 @@ export default function ExpiringStock() {
                               isOverdue
                                 ? 'This item is expired and can only be marked as Waste.'
                                 : row.linked_menus?.length
-                                ? 'Create promo'
+                                ? 'Flag for promo review'
                                 : 'No linked menu items'
                             }
                           >

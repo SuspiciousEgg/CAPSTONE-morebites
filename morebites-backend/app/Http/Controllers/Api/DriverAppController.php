@@ -128,6 +128,7 @@ class DriverAppController extends Controller
         }
 
         abort_if($order->status === 'Completed', 422, 'Customer rating cannot be modified after the order is completed.');
+        abort_if($order->status === 'Cancelled', 422, 'Cancelled orders cannot be updated.');
 
         $data = $request->validate([
             'status' => ['required', 'string', Rule::in(self::DRIVER_STATUSES)],
@@ -144,11 +145,10 @@ class DriverAppController extends Controller
 
         $payload = ['status' => $status];
         if ($status === 'Completed') {
-            $payload['delivered_at'] = now();
+            $deliveredAt = now();
+            $payload['delivered_at'] = $deliveredAt;
             $payload['payment_status'] = 'Paid';
-            if ($order->assigned_at) {
-                $payload['delivery_minutes'] = max(1, $order->assigned_at->diffInMinutes(now()));
-            }
+            $payload = array_merge($payload, $order->calculateLateDeliveryPayload($deliveredAt));
             if ($request->hasFile('proof_of_delivery')) {
                 $path = $request->file('proof_of_delivery')->store('proofs', 'public');
                 $payload['proof_of_delivery'] = '/storage/'.$path;
@@ -159,6 +159,10 @@ class DriverAppController extends Controller
         }
 
         $order->update($payload);
+
+        if (in_array($status, ['Picked Up', 'Out for Delivery'], true)) {
+            app(\App\Services\TrackingService::class)->ensureRoute($order->fresh()->load('driver'));
+        }
 
         ActivityLog::query()->create([
             'actor' => $user->name,
@@ -265,7 +269,7 @@ class DriverAppController extends Controller
 
         $active = Order::query()
             ->where('driver_id', $user->id)
-            ->whereIn('status', ['Assigned', 'Picked Up', 'Out for Delivery'])
+            ->whereIn('status', ['Picked Up', 'Out for Delivery'])
             ->latest()
             ->first();
 
@@ -294,7 +298,7 @@ class DriverAppController extends Controller
 
         $data = $request->validate([
             'issue' => ['required', 'string', 'max:255'],
-            'notes' => ['nullable', 'string', 'max:1000'],
+            'notes' => ['required', 'string', 'max:1000'],
         ]);
 
         ActivityLog::query()->create([
@@ -309,7 +313,13 @@ class DriverAppController extends Controller
             $data['notes'] ?? null
         );
 
-        return response()->json(['message' => 'Issue reported']);
+        $issues = $order->reportedIssues();
+
+        return response()->json([
+            'message' => 'Issue reported',
+            'has_reported_issue' => count($issues) > 0,
+            'reported_issues' => $issues,
+        ]);
     }
 
     private function driverUser(Request $request): User
@@ -419,6 +429,7 @@ class DriverAppController extends Controller
             'address' => $o->delivery_address ?: 'N/A',
             'contact' => $o->customer?->phone ?: '',
             'status' => $displayStatus,
+            'cancellation_reason' => $o->cancellation_reason,
             'distance' => number_format((float) $distanceKm, 1).'km',
             'distance_km' => (float) $distanceKm,
             'eta_mins' => (int) $etaMins,
@@ -427,17 +438,43 @@ class DriverAppController extends Controller
             'payment_status' => $o->payment_status,
             'items' => $o->items->map(fn ($i) => [
                 'name' => $i->name,
+                'size' => $i->size,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'qty' => (int) $i->qty,
                 'unit_price' => (float) $i->unit_price,
                 'line_total' => (float) $i->line_total,
                 'label' => $i->name.' x'.$i->qty,
             ])->values(),
-            'items_label' => $o->items->map(fn ($i) => $i->name.' x'.$i->qty)->implode(' + '),
+            'items_label' => $o->items->map(function ($i) {
+                $removedNames = collect($i->removed_ingredients ?? [])
+                    ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                    ->filter()
+                    ->values();
+                $removedSuffix = $removedNames->isNotEmpty()
+                    ? ' (Without: '.$removedNames->implode(', ').')'
+                    : '';
+                $noteSuffix = ! empty($i->special_instructions)
+                    ? ' [Note: '.$i->special_instructions.']'
+                    : '';
+
+                return $i->name.' x'.$i->qty.$removedSuffix.$noteSuffix;
+            })->implode(' + '),
             'created_at' => $o->created_at?->toIso8601String(),
             'assigned_at' => $o->assigned_at?->toIso8601String(),
             'delivered_at' => $o->delivered_at?->toIso8601String(),
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
-            'customer_rating' => $o->customer_rating ? (int) $o->customer_rating : null,
+            'customer_rating' => ($o->rider_rating ?? $o->customer_rating) ? (int) ($o->rider_rating ?? $o->customer_rating) : null,
+            'rider_rating' => $o->rider_rating ? (int) $o->rider_rating : null,
+            'food_rating' => $o->food_rating ? (int) $o->food_rating : null,
+            'reported_issues' => $o->reportedIssues(),
+            'has_reported_issue' => count($o->reportedIssues()) > 0,
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $etaMins),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
             'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
             'route' => is_array($o->route_coordinates) ? $o->route_coordinates : [],

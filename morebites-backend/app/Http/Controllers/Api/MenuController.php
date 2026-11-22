@@ -296,6 +296,7 @@ class MenuController extends Controller
             ],
             'sizes.*.ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
             'sizes.*.ingredients.*.unit' => ['nullable', 'string', 'max:20'],
+            'sizes.*.ingredients.*.price' => ['nullable', 'numeric', 'min:0'],
             'ingredients' => ['nullable', 'array'],
             'ingredients.*.menu_item_size_id' => ['nullable', 'integer'],
             'ingredients.*.size_name' => ['nullable', 'string'],
@@ -306,6 +307,7 @@ class MenuController extends Controller
             ],
             'ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
             'ingredients.*.unit' => ['nullable', 'string', 'max:20'],
+            'ingredients.*.price' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         if (!empty($validated['has_sizes']) && !empty($validated['sizes'])) {
@@ -417,12 +419,23 @@ class MenuController extends Controller
                             ? (float) $row['qty_per_serving']
                             : 1.0;
                         $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+                        $invItem = InventoryItem::find($inventoryId);
+                        $invPrice = (float) ($invItem?->price ?? 0.0);
+                        $recipeUnit = $unit ?: $invItem?->unit;
+                        $stockUnit = $invItem?->unit;
+                        $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                            ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                            : $qty;
+                        $price = $invPrice > 0
+                            ? round($invPrice * $qtyInStockUnit, 2)
+                            : (isset($row['price']) && (float) $row['price'] >= 0 ? round((float) $row['price'], 2) : 0.0);
 
                         $item->ingredients()->create([
                             'menu_item_size_id' => $matchingSize->id,
                             'inventory_item_id' => $inventoryId,
                             'qty_per_serving' => $qty,
                             'unit' => $unit,
+                            'price' => $price,
                         ]);
                     }
                 }
@@ -456,12 +469,23 @@ class MenuController extends Controller
                         ? (float) $row['qty_per_serving']
                         : 1.0;
                     $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+                    $invItem = InventoryItem::find((int) $row['inventory_item_id']);
+                    $invPrice = (float) ($invItem?->price ?? 0.0);
+                    $recipeUnit = $unit ?: $invItem?->unit;
+                    $stockUnit = $invItem?->unit;
+                    $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                        ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                        : $qty;
+                    $price = $invPrice > 0
+                        ? round($invPrice * $qtyInStockUnit, 2)
+                        : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
                     $item->ingredients()->create([
                         'menu_item_size_id' => $sizeId,
                         'inventory_item_id' => (int) $row['inventory_item_id'],
                         'qty_per_serving' => $qty,
                         'unit' => $unit,
+                        'price' => $price,
                     ]);
                 }
 
@@ -484,12 +508,23 @@ class MenuController extends Controller
                 ? (float) $row['qty_per_serving']
                 : 1.0;
             $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+            $invItem = InventoryItem::find($inventoryId);
+            $invPrice = (float) ($invItem?->price ?? 0.0);
+            $recipeUnit = $unit ?: $invItem?->unit;
+            $stockUnit = $invItem?->unit;
+            $qtyInStockUnit = ($invItem && UnitConverter::isCompatible($recipeUnit, $stockUnit))
+                ? UnitConverter::convert($qty, $recipeUnit, $stockUnit)
+                : $qty;
+            $price = $invPrice > 0
+                ? round($invPrice * $qtyInStockUnit, 2)
+                : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
             $item->ingredients()->create([
                 'menu_item_size_id' => null,
                 'inventory_item_id' => $inventoryId,
                 'qty_per_serving' => $qty,
                 'unit' => $unit,
+                'price' => $price,
             ]);
         }
     }
@@ -528,6 +563,8 @@ class MenuController extends Controller
                         'name' => $inv?->name,
                         'unit' => $ing->unit ?: $inv?->unit,
                         'inventory_unit' => $inv?->unit,
+                        'inventory_price' => (float) ($inv?->price ?? 0),
+                        'price' => $ing->computedPrice(),
                         'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                     ];
                 })->values(),
@@ -544,6 +581,8 @@ class MenuController extends Controller
                     'name' => $inv?->name,
                     'unit' => $ing->unit ?: $inv?->unit,
                     'inventory_unit' => $inv?->unit,
+                    'inventory_price' => (float) ($inv?->price ?? 0),
+                    'price' => $ing->computedPrice(),
                     'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                 ];
             })->values(),

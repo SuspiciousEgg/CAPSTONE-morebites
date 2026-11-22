@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import {
   Alert,
+  BackHandler,
   StyleSheet,
   Text,
   TextInput,
@@ -49,6 +50,20 @@ export default function LoginScreen() {
       setLoginError(String(params.error));
     }
   }, [params?.phone, params?.registered, params?.error]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+      return () => sub.remove();
+    }, [])
+  );
+
+  const resetToHome = (targetHome) => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace(targetHome);
+  };
 
   const signIn = async () => {
     const cleanPhone = phoneValue.replace(/\s/g, "");
@@ -126,7 +141,7 @@ export default function LoginScreen() {
               text: "This Was Me",
               onPress: async () => {
                 await addTrustedDevice(cleanPhone, deviceId);
-                router.replace(targetHome);
+                resetToHome(targetHome);
               },
             },
             {
@@ -144,7 +159,7 @@ export default function LoginScreen() {
           { cancelable: false }
         );
       } else {
-        router.replace(targetHome);
+        resetToHome(targetHome);
       }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";

@@ -24,20 +24,28 @@ use App\Http\Controllers\Api\StoreSettingController;
 use App\Http\Controllers\Api\TrackingController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/mobile/login', [MobileAuthController::class, 'login']);
-Route::post('/driver/login', [DriverAppController::class, 'login']);
-Route::post('/customer/register', [CustomerAppController::class, 'register']);
-Route::post('/customer/login', [CustomerAppController::class, 'login']);
+Route::middleware('throttle:login')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/mobile/login', [MobileAuthController::class, 'login']);
+    Route::post('/driver/login', [DriverAppController::class, 'login']);
+    Route::post('/customer/login', [CustomerAppController::class, 'login']);
+});
+
+Route::post('/customer/register', [CustomerAppController::class, 'register'])
+    ->middleware('throttle:registration');
+
 Route::post('/customer/forgot-password', [CustomerAppController::class, 'requestPasswordResetOtp']);
 Route::post('/customer/verify-otp', [CustomerAppController::class, 'verifyPasswordResetOtp']);
 Route::post('/customer/reset-password', [CustomerAppController::class, 'resetPasswordWithToken']);
-Route::get('/customer/menu', [CustomerAppController::class, 'menu']);
-Route::get('/menu/top-selling', [CustomerAppController::class, 'topSelling']);
-Route::get('/delivery-rates', [DeliveryRateController::class, 'index']);
-Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware('throttle:api')->group(function () {
+    Route::get('/customer/menu', [CustomerAppController::class, 'menu']);
+    Route::get('/menu/top-selling', [CustomerAppController::class, 'topSelling']);
+    Route::get('/delivery-rates', [DeliveryRateController::class, 'index']);
+    Route::get('/delivery-rates/quote', [DeliveryRateController::class, 'quote']);
+});
+
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/customer/me', [CustomerAppController::class, 'me']);
     Route::patch('/customer/profile', [CustomerAppController::class, 'updateProfile']);
     Route::get('/customer/loyalty', [CustomerAppController::class, 'loyalty']);
@@ -92,6 +100,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('page.access:Orders')->group(function () {
         Route::get('/orders/lookup-loyalty', [OrderController::class, 'lookupLoyalty']);
         Route::get('/orders/menu-options', [OrderController::class, 'menuOptions']);
+        Route::get('/orders/by-key/{key}', [OrderController::class, 'showByKey']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::post('/orders', [OrderController::class, 'store']);
         Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);

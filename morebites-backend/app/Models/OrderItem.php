@@ -9,6 +9,7 @@ class OrderItem extends Model
 {
     protected $fillable = [
         'order_id', 'menu_item_id', 'name', 'size',
+        'removed_ingredients', 'special_instructions',
         'qty', 'unit_price', 'line_total',
     ];
 
@@ -17,11 +18,17 @@ class OrderItem extends Model
         return [
             'unit_price' => 'float',
             'line_total' => 'float',
+            'removed_ingredients' => 'array',
         ];
     }
 
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function menuItem(): BelongsTo
+    {
+        return $this->belongsTo(MenuItem::class, 'menu_item_id');
     }
 }

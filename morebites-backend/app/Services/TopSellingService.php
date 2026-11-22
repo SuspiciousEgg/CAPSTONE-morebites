@@ -114,13 +114,14 @@ class TopSellingService
 
         $priorUnitsMap = $priorSalesRows->pluck('units_sold', 'id')->all();
 
-        // If any products have recorded sales within the window, return them ranked by units sold
-        if ($salesRows->count() >= 1) {
+        // If at least 3 distinct products have recorded sales within the window (or >= 1 when explicit range requested in Reports)
+        $minRequired = $hasExplicitRange ? 1 : 3;
+        if ($salesRows->count() >= $minRequired) {
             $unitsMap = $salesRows->pluck('units_sold', 'id')->all();
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
 
             $items = MenuItem::query()
-                ->with(['sizes', 'ingredients.inventoryItem'])
+                ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
                 ->whereIn('id', $itemIds)
                 ->get()
                 ->sortBy(fn ($m) => array_search($m->id, $itemIds))
@@ -135,7 +136,7 @@ class TopSellingService
 
         // 2. Fallback Tier 1: Return menu items where is_featured is true
         $featuredItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('is_featured', true)
@@ -148,7 +149,7 @@ class TopSellingService
 
         // 3. Fallback Tier 2: Return most recently created active menu items, newest first
         $newestItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('available', true)
@@ -257,6 +258,7 @@ class TopSellingService
                 'priceLabel' => $priceLabel,
                 'hasSizes' => (bool) $m->has_sizes,
                 'sizes' => $sizes,
+                'ingredients' => $ingredients,
                 'available' => $isAvailable,
                 'availability' => $isAvailable,
                 'stockOk' => $stockOk,

@@ -171,6 +171,24 @@ class StaffOrderCancellationTest extends TestCase
             ->first();
         $this->assertNotNull($driverNotif);
         $this->assertStringContainsString('Bad weather', $driverNotif->message);
+
+        // Verify ActivityLog records the cancellation reason
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'Order #ORD-CANC-001 status updated to Cancelled (Bad weather)',
+        ]);
+
+        // Verify Reports API surfaces cancellation_reason in all_records and delivery_records remarks
+        $reportRes = $this->getJson('/api/reports');
+        $reportRes->assertStatus(200);
+
+        $allRecord = collect($reportRes->json('data.all_records'))->firstWhere('id', '#ORD-CANC-001');
+        $this->assertNotNull($allRecord);
+        $this->assertEquals('Bad weather', $allRecord['cancellation_reason']);
+
+        $deliveryRecord = collect($reportRes->json('data.delivery_records'))->firstWhere('id', '#ORD-CANC-001');
+        $this->assertNotNull($deliveryRecord);
+        $this->assertEquals('Bad weather', $deliveryRecord['cancellation_reason']);
+        $this->assertEquals('Cancelled: Bad weather', $deliveryRecord['remarks']);
     }
 
     public function test_driver_cannot_cancel_order_via_order_controller(): void
@@ -324,5 +342,57 @@ class StaffOrderCancellationTest extends TestCase
         $res2->assertStatus(200);
         // Stock should still be 1.0, not double-restocked to 1.2
         $this->assertEquals(1.0, $batch->fresh()->stock);
+    }
+
+    public function test_cancelled_and_completed_orders_reject_invalid_state_transitions(): void
+    {
+        $order = Order::query()->create([
+            'order_code' => '#ORD-CANC-006',
+            'customer_name' => 'Customer Maria',
+            'order_type' => 'Online Order',
+            'driver_id' => $this->driverUser->id,
+            'total' => 250,
+            'status' => 'Cancelled',
+            'cancellation_reason' => 'Customer request',
+        ]);
+
+        // 1. Assigned driver cannot progress a Cancelled order back to Picked Up or Delivered
+        Sanctum::actingAs($this->driverUser);
+        $driverRes = $this->postJson("/api/driver/orders/{$order->id}/status", [
+            'status' => 'Picked Up',
+        ]);
+        $driverRes->assertStatus(422);
+        $this->assertEquals('Cancelled', $order->fresh()->status);
+
+        // 2. Staff cannot reopen a Cancelled order back to Preparing or Completed
+        $this->staff->update(['allowed_pages' => ['Orders', 'Dispatch']]);
+        Sanctum::actingAs($this->staff);
+        $reopenRes = $this->patchJson("/api/orders/{$order->id}/status", [
+            'status' => 'Preparing',
+        ]);
+        $reopenRes->assertStatus(422);
+        $this->assertEquals('Cancelled', $order->fresh()->status);
+
+        // 3. Dispatcher cannot assign a rider to a Cancelled order
+        $assignRes = $this->postJson("/api/dispatch/{$order->id}/assign", [
+            'rider_name' => $this->driverUser->name,
+        ]);
+        $assignRes->assertStatus(422);
+        $this->assertEquals('Cancelled', $order->fresh()->status);
+
+        // 4. Staff cannot cancel an already Completed order
+        $completedOrder = Order::query()->create([
+            'order_code' => '#ORD-CANC-007',
+            'customer_name' => 'Customer Maria',
+            'order_type' => 'Online Order',
+            'total' => 250,
+            'status' => 'Completed',
+        ]);
+        $cancelCompletedRes = $this->patchJson("/api/orders/{$completedOrder->id}/status", [
+            'status' => 'Cancelled',
+            'cancellation_reason' => 'Duplicate order',
+        ]);
+        $cancelCompletedRes->assertStatus(422);
+        $this->assertEquals('Completed', $completedOrder->fresh()->status);
     }
 }

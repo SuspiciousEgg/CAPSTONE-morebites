@@ -124,9 +124,24 @@ class OrderController extends Controller
         ]);
     }
 
+    public function showByKey(string $key)
+    {
+        $order = Order::query()
+            ->where('idempotency_key', $key)
+            ->with(['items'])
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        return response()->json(['data' => $this->transform($order)]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
+            'idempotency_key' => ['nullable', 'string', 'max:191'],
             'customer_name' => ['required', 'string'],
             'order_type' => ['required', 'string', 'in:Dine-in,Takeout'],
             'status' => ['nullable', 'string'],
@@ -135,10 +150,23 @@ class OrderController extends Controller
             'items.*.name' => ['required', 'string'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.size' => ['nullable', 'string'],
+            'items.*.removed_ingredients' => ['nullable', 'array'],
+            'items.*.special_instructions' => ['nullable', 'string', 'max:500'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'delivery_address' => ['nullable', 'string'],
         ]);
+
+        $idempotencyKey = $data['idempotency_key'] ?? null;
+        if (! empty($idempotencyKey)) {
+            $existingOrder = Order::query()
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+
+            if ($existingOrder) {
+                return response()->json(['data' => $this->transform($existingOrder->load('items'))], 200);
+            }
+        }
 
         $service = app(InventoryDeductionService::class);
         $service->validateCartAvailability($data['items']);
@@ -150,53 +178,93 @@ class OrderController extends Controller
          * under concurrent requests. Order IDs are now generated via a true database
          * auto-increment column (`order_sequences`), zero-padded to 5 digits: #ORD-00028.
          */
-        $order = DB::transaction(function () use ($data, $request) {
-            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+        try {
+            $order = DB::transaction(function () use ($data, $request, $idempotencyKey) {
+                if (! empty($idempotencyKey)) {
+                    $existingOrder = Order::query()
+                        ->where('idempotency_key', $idempotencyKey)
+                        ->lockForUpdate()
+                        ->first();
 
-            $order = Order::query()->create([
-                'order_code' => Order::generateOrderCode(),
-                'customer_id' => null,
-                'loyalty_customer_id' => $data['loyalty_customer_id'] ?? null,
-                'customer_name' => $data['customer_name'],
-                'order_type' => $data['order_type'],
-                'total' => $total,
-                'status' => $data['status'] ?? 'Preparing',
-                'payment_method' => 'COD',
-                'payment_status' => 'Paid',
-                'delivery_address' => $data['delivery_address'] ?? null,
-            ]);
+                    if ($existingOrder) {
+                        return $existingOrder->load('items');
+                    }
+                }
 
-            foreach ($data['items'] as $item) {
-                $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
-                $name = ! empty($item['size']) && ! $hasSizeInName
-                    ? $item['name'].' ('.$item['size'].')'
-                    : $item['name'];
+                $deductionService = app(InventoryDeductionService::class);
+                $resolvedItems = collect($data['items'])->map(function ($item) use ($deductionService) {
+                    $snapshottedRemoved = $deductionService->snapshotRemovedIngredientsForLine($item);
+                    $effectiveUnitPrice = $deductionService->resolveEffectiveUnitPriceForLine($item, $snapshottedRemoved);
 
-                OrderItem::query()->create([
-                    'order_id' => $order->id,
-                    'menu_item_id' => $item['menu_item_id'] ?? null,
-                    'name' => $name,
-                    'size' => $item['size'] ?? null,
-                    'qty' => $item['qty'],
-                    'unit_price' => $item['unit_price'],
-                    'line_total' => $item['qty'] * $item['unit_price'],
+                    return array_merge($item, [
+                        '_snapshotted_removed' => $snapshottedRemoved,
+                        'unit_price' => $effectiveUnitPrice,
+                    ]);
+                })->all();
+
+                $total = collect($resolvedItems)->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+
+                $order = Order::query()->create([
+                    'order_code' => Order::generateOrderCode(),
+                    'idempotency_key' => $idempotencyKey,
+                    'customer_id' => null,
+                    'loyalty_customer_id' => $data['loyalty_customer_id'] ?? null,
+                    'customer_name' => $data['customer_name'],
+                    'order_type' => $data['order_type'],
+                    'total' => $total,
+                    'status' => $data['status'] ?? 'Preparing',
+                    'payment_method' => 'COD',
+                    'payment_status' => 'Paid',
+                    'delivery_address' => $data['delivery_address'] ?? null,
                 ]);
+
+                foreach ($resolvedItems as $item) {
+                    $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
+                    $name = ! empty($item['size']) && ! $hasSizeInName
+                        ? $item['name'].' ('.$item['size'].')'
+                        : $item['name'];
+
+                    OrderItem::query()->create([
+                        'order_id' => $order->id,
+                        'menu_item_id' => $item['menu_item_id'] ?? null,
+                        'name' => $name,
+                        'size' => $item['size'] ?? null,
+                        'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
+                        'special_instructions' => ! empty($item['special_instructions']) ? trim((string) $item['special_instructions']) : null,
+                        'qty' => $item['qty'],
+                        'unit_price' => $item['unit_price'],
+                        'line_total' => $item['qty'] * $item['unit_price'],
+                    ]);
+                }
+
+                $actor = $request->user()?->name ?: 'Staff';
+                ActivityLog::query()->create([
+                    'actor' => $actor,
+                    'action' => 'Created order '.$order->order_code,
+                ]);
+
+                app(InventoryDeductionService::class)->deductForOrder($order);
+
+                Notification::createOrderNotification($order);
+
+                return $order->load('items');
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if (! empty($idempotencyKey)) {
+                $existingOrder = Order::query()
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->first();
+
+                if ($existingOrder) {
+                    return response()->json(['data' => $this->transform($existingOrder->load('items'))], 200);
+                }
             }
+            throw $e;
+        }
 
-            $actor = $request->user()?->name ?: 'Staff';
-            ActivityLog::query()->create([
-                'actor' => $actor,
-                'action' => 'Created order '.$order->order_code,
-            ]);
+        $statusCode = (! empty($idempotencyKey) && $order->wasRecentlyCreated === false) ? 200 : 201;
 
-            app(InventoryDeductionService::class)->deductForOrder($order);
-
-            Notification::createOrderNotification($order);
-
-            return $order->load('items');
-        });
-
-        return response()->json(['data' => $this->transform($order)], 201);
+        return response()->json(['data' => $this->transform($order)], $statusCode);
     }
 
     public function updateStatus(Request $request, Order $order)
@@ -219,6 +287,18 @@ class OrderController extends Controller
             if ($order->status === 'Cancelled') {
                 return response()->json(['data' => $this->transform($order->load('items'))]);
             }
+
+            if (in_array($order->status, ['Completed', 'Delivered'], true)) {
+                return response()->json([
+                    'message' => 'Completed orders cannot be cancelled.',
+                    'errors' => ['status' => ['Completed orders cannot be cancelled.']],
+                ], 422);
+            }
+        } elseif ($order->status === 'Cancelled') {
+            return response()->json([
+                'message' => 'Cancelled orders cannot be reopened or updated.',
+                'errors' => ['status' => ['Cancelled orders cannot be reopened or updated.']],
+            ], 422);
         }
 
         $previous = $order->status;
@@ -228,8 +308,10 @@ class OrderController extends Controller
         }
 
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
+            $deliveredAt = $order->delivered_at ?? now();
+            $updatePayload['delivered_at'] = $deliveredAt;
             if ($order->order_type === 'Online Order') {
-                $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+                $updatePayload = array_merge($updatePayload, $order->calculateLateDeliveryPayload($deliveredAt));
             }
             $updatePayload['payment_status'] = 'Paid';
         }
@@ -247,9 +329,12 @@ class OrderController extends Controller
         if ($data['status'] !== $previous) {
             Notification::createOrderNotification($order);
             $actor = $user?->name ?: 'Staff';
+            $reasonSuffix = ($data['status'] === 'Cancelled' && $order->cancellation_reason)
+                ? " ({$order->cancellation_reason})"
+                : '';
             ActivityLog::query()->create([
                 'actor' => $actor,
-                'action' => "Order {$order->order_code} status updated to {$data['status']}",
+                'action' => "Order {$order->order_code} status updated to {$data['status']}{$reasonSuffix}",
             ]);
         }
 
@@ -265,7 +350,7 @@ class OrderController extends Controller
         $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
 
         $items = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->orderBy('name')
             ->get()
@@ -285,8 +370,28 @@ class OrderController extends Controller
                         'price' => $eff,
                         'available' => (bool) $m->available && $sizeReason === null,
                         'stockReason' => $sizeReason,
+                        'ingredients' => $s->ingredients->map(fn ($ing) => [
+                            'id' => $ing->id,
+                            'inventory_item_id' => $ing->inventory_item_id,
+                            'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                            'qty_per_serving' => (float) $ing->qty_per_serving,
+                            'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                            'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                            'price' => $ing->computedPrice(),
+                        ])->values(),
                     ];
                 })->values();
+
+                $ingredients = $m->ingredients->map(fn ($ing) => [
+                    'id' => $ing->id,
+                    'menu_item_size_id' => $ing->menu_item_size_id,
+                    'inventory_item_id' => $ing->inventory_item_id,
+                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                    'qty_per_serving' => (float) $ing->qty_per_serving,
+                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                    'price' => $ing->computedPrice(),
+                ])->values();
 
                 $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
                 $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
@@ -328,6 +433,7 @@ class OrderController extends Controller
                     'stockReason' => $stockReason,
                     'has_sizes' => (bool) $m->has_sizes,
                     'sizes' => $sizes,
+                    'ingredients' => $ingredients,
                 ];
             })
             ->values();
@@ -337,7 +443,20 @@ class OrderController extends Controller
 
     private function transform(Order $o): array
     {
-        $itemsLabel = $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', ');
+        $itemsLabel = $o->items->map(function ($i) {
+            $removedNames = collect($i->removed_ingredients ?? [])
+                ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                ->filter()
+                ->values();
+            $removedSuffix = $removedNames->isNotEmpty()
+                ? ' (Without: '.$removedNames->implode(', ').')'
+                : '';
+            $noteSuffix = ! empty($i->special_instructions)
+                ? ' [Note: '.$i->special_instructions.']'
+                : '';
+
+            return $i->qty.'x '.$i->name.$removedSuffix.$noteSuffix;
+        })->implode(', ');
         $isOnline = $o->order_type === 'Online Order';
 
         $action = match ($o->status) {
@@ -355,6 +474,16 @@ class OrderController extends Controller
             'customer' => $o->customer_name,
             'type' => $o->order_type,
             'items' => $itemsLabel,
+            'items_list' => $o->items->map(fn ($i) => [
+                'id' => $i->id,
+                'name' => $i->name,
+                'size' => $i->size,
+                'qty' => (int) $i->qty,
+                'unit_price' => (float) $i->unit_price,
+                'line_total' => (float) $i->line_total,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
+            ])->values(),
             'price' => (float) $o->total,
             'status' => $o->status,
             'cancellation_reason' => $o->cancellation_reason,
@@ -362,7 +491,15 @@ class OrderController extends Controller
             'action' => $action,
             'address' => $o->delivery_address,
             'loyalty_customer_id' => $o->loyalty_customer_id,
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $o->delivery_minutes ?: 0),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
             'created_at' => $o->created_at?->toIso8601String(),
+            'delivered_at' => $o->delivered_at?->toIso8601String(),
+            'reported_issues' => $o->reportedIssues(),
         ];
     }
 }

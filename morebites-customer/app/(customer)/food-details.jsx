@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { useCart } from "../../src/context/CartContext";
-import { mediaUrl } from "../../src/api/client";
+import { customerApi, mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -56,10 +56,12 @@ function getItem(params) {
     rating: params.rating,
     reviewCount: params.reviewCount,
     reviews: params.reviews,
+    ingredients: params.ingredients,
   };
 
   const item = { ...serializedItem, ...Object.fromEntries(Object.entries(routeItem).filter(([, value]) => value != null)) };
   const sizes = parseJson(item.sizes, []);
+  const ingredients = parseJson(item.ingredients, []);
   const reviewCount = Number(item.reviewCount ?? item.reviews) || 0;
   const rating = item.rating != null && !isNaN(Number(item.rating)) && reviewCount > 0
     ? Number(item.rating)
@@ -74,6 +76,7 @@ function getItem(params) {
     promoLabel: item.promoLabel || "Today's Special",
     hasSizes: item.hasSizes === true || item.hasSizes === "true",
     sizes: Array.isArray(sizes) ? sizes : [],
+    ingredients: Array.isArray(ingredients) ? ingredients : [],
     rating,
     reviewCount,
   };
@@ -81,12 +84,18 @@ function getItem(params) {
 
 export default function FoodDetailsScreen() {
   const params = useLocalSearchParams();
-  const item = getItem(params);
+  const initialItem = getItem(params);
+  const [hydratedData, setHydratedData] = useState(null);
+  const item = useMemo(
+    () => (hydratedData ? { ...initialItem, ...hydratedData } : initialItem),
+    [initialItem, hydratedData]
+  );
   const isAvailable = item.availability !== false && item.available !== false;
   const hasPromo = Boolean(item.promoActive && item.promoDiscountPercent > 0);
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
   const [selectedSize, setSelectedSize] = useState(item.hasSizes ? item.sizes[0] ?? null : null);
+  const [removedIngredientIds, setRemovedIngredientIds] = useState([]);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [instructionsFocused, setInstructionsFocused] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -115,10 +124,18 @@ export default function FoodDetailsScreen() {
       id: item.id,
       db_id: item.db_id ?? (Number(item.id) || null),
       name: item.name,
-      price: selectedPrice,
+      price: effectivePrice,
+      basePrice,
       size: selectedSize?.sizeName ?? null,
       quantity: 1,
       image: item.image,
+      removed_ingredients: removedIngredients.map((ing) => ({
+        id: ing.id,
+        inventory_item_id: ing.inventory_item_id,
+        name: ing.name,
+        price: Number(ing.price || 0),
+      })),
+      special_instructions: specialInstructions.trim() || null,
     });
 
     setShowSuccess(true);
@@ -195,7 +212,7 @@ export default function FoodDetailsScreen() {
                         isSelected && styles.selectedSizeButton,
                         pressed && styles.pressedSizeButton,
                       ]}
-                      onPress={() => setSelectedSize(size)}
+                      onPress={() => handleSelectSize(size)}
                       hitSlop={4}
                     >
                       <Text style={[styles.sizeName, isSelected && styles.selectedSizeText]}>
@@ -422,12 +439,102 @@ const styles = StyleSheet.create({
   selectedSizeText: {
     color: "#FFFFFF",
   },
+  ingredientSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  ingredientSubtext: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+  },
+  ingredientsList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  ingredientCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F9FAFB",
+    borderColor: "#E5E7EB",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  ingredientCardRemoved: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FCA5A5",
+  },
+  ingredientLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 10,
+  },
+  ingredientStatusIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#DCFCE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ingredientStatusIconRemoved: {
+    backgroundColor: "#FEE2E2",
+  },
+  ingredientName: {
+    color: "#1F2937",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  ingredientNameRemoved: {
+    color: "#9CA3AF",
+    textDecorationLine: "line-through",
+  },
+  ingredientPriceBadge: {
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  ingredientPriceBadgeRemoved: {
+    backgroundColor: "#FEE2E2",
+  },
+  ingredientPriceText: {
+    color: "#059669",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  ingredientPriceTextRemoved: {
+    color: "#DC2626",
+  },
+  ingredientIncludedText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+  },
+  priceContainer: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+    marginTop: 16,
+  },
   currentPrice: {
     color: PRIMARY,
     fontFamily: FONT,
     fontSize: 22,
     fontWeight: "700",
-    marginTop: 12,
+  },
+  originalPrice: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 14,
+    textDecorationLine: "line-through",
   },
   instructionsSection: {
     marginTop: 20,

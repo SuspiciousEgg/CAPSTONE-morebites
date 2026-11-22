@@ -91,6 +91,7 @@ class InventoryController extends Controller
             'stock' => ['required', 'numeric', 'min:0'],
             'unit' => ['required', 'string'],
             'reorder_level' => ['required', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
             'date_placed' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date', 'after_or_equal:date_placed'],
             'batch_no' => ['nullable', 'string'],
@@ -126,6 +127,7 @@ class InventoryController extends Controller
                 'stock' => $data['stock'],
                 'unit' => $data['unit'],
                 'reorder_level' => $data['reorder_level'],
+                'price' => array_key_exists('price', $data) ? (float) $data['price'] : (float) ($existing->price ?? 0),
                 'batch_no' => $batch,
                 'date_placed' => $datePlaced,
                 'expiry_date' => $expiry,
@@ -154,6 +156,7 @@ class InventoryController extends Controller
             'stock' => $data['stock'],
             'unit' => $data['unit'],
             'reorder_level' => $data['reorder_level'],
+            'price' => isset($data['price']) ? (float) $data['price'] : 0.00,
             'batch_no' => $batch,
             'date_placed' => $datePlaced,
             'expiry_date' => $expiry,
@@ -197,12 +200,47 @@ class InventoryController extends Controller
             'stock' => ['sometimes', 'required', 'numeric', 'min:0'],
             'unit' => ['sometimes', 'required', 'string'],
             'reorder_level' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
             'date_placed' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
             'batch_no' => ['nullable', 'string'],
         ]);
 
-        $prevStock = (float) $inventory->stock;
+        $oldUnit = (string) $inventory->unit;
+        $newUnit = array_key_exists('unit', $data) ? (string) $data['unit'] : $oldUnit;
+        $unitChanged = strtolower(trim($oldUnit)) !== strtolower(trim($newUnit));
+        $unitFactor = $unitChanged
+            ? (InventoryDeductionService::convertToInventoryUnit(1.0, $oldUnit, $newUnit) ?? 1.0)
+            : 1.0;
+
+        $rawPrevStock = (float) $inventory->stock;
+        $prevStock = $unitFactor !== 1.0 ? round($rawPrevStock * $unitFactor, 4) : $rawPrevStock;
+
+        if ($unitFactor !== 1.0) {
+            if (! array_key_exists('stock', $data) || abs((float) $data['stock'] - $rawPrevStock) < 0.0001) {
+                $data['stock'] = $prevStock;
+            }
+            $rawPrevReorder = (float) $inventory->reorder_level;
+            if (! array_key_exists('reorder_level', $data) || abs((float) $data['reorder_level'] - $rawPrevReorder) < 0.0001) {
+                $data['reorder_level'] = round($rawPrevReorder * $unitFactor, 4);
+            }
+            $rawPrevPrice = (float) ($inventory->price ?? 0);
+            if ($rawPrevPrice > 0 && (! array_key_exists('price', $data) || abs((float) $data['price'] - $rawPrevPrice) < 0.0001)) {
+                $data['price'] = round($rawPrevPrice / $unitFactor, 4);
+            }
+            if ($inventory->batches()->exists()) {
+                foreach ($inventory->batches()->get() as $batch) {
+                    $convertedBatchStock = round((float) $batch->stock * $unitFactor, 4);
+                    $convertedInitial = round((float) $batch->initial_stock * $unitFactor, 4);
+                    $batch->update([
+                        'stock' => $convertedBatchStock,
+                        'initial_stock' => $convertedInitial,
+                        'status' => \App\Models\InventoryBatch::deriveBatchStatus($convertedBatchStock, $batch->expiry_date),
+                    ]);
+                }
+            }
+        }
+
         $stock = array_key_exists('stock', $data) ? (float) $data['stock'] : $prevStock;
         $reorder = array_key_exists('reorder_level', $data)
             ? (float) $data['reorder_level']
@@ -272,6 +310,19 @@ class InventoryController extends Controller
         ]);
 
         Notification::notifyIfLowStock($inventory->fresh());
+
+        // Keep linked recipe ingredient prices synchronized with updated inventory price/unit
+        $freshInventory = $inventory->fresh();
+        \App\Models\MenuItemIngredient::query()
+            ->where('inventory_item_id', $freshInventory->id)
+            ->with('inventoryItem')
+            ->get()
+            ->each(function (\App\Models\MenuItemIngredient $ing) {
+                $computed = $ing->computedPrice();
+                if (abs((float) $ing->price - $computed) > 0.001) {
+                    $ing->update(['price' => $computed]);
+                }
+            });
 
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
 
@@ -564,6 +615,7 @@ class InventoryController extends Controller
             'stock' => (float) $i->stock,
             'unit' => $i->unit,
             'reorder' => (float) $i->reorder_level,
+            'price' => (float) ($i->price ?? 0.0),
             'date_placed' => $i->date_placed?->format('M d, Y'),
             'date_placed_raw' => $i->date_placed?->format('Y-m-d'),
             'expiry_date' => $i->expiry_date?->format('M d, Y'),

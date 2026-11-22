@@ -108,6 +108,7 @@ class DispatchController extends Controller
                 'monitoring' => $activeDeliveries,
                 'deliveries' => $activeDeliveries,
                 'riders' => $riders,
+                'store' => $tracking->storePoint(),
             ],
         ]);
     }
@@ -116,6 +117,10 @@ class DispatchController extends Controller
     {
         if ($order->order_type !== 'Online Order') {
             return response()->json(['message' => 'Only online delivery orders can be assigned to a rider.'], 422);
+        }
+
+        if (in_array($order->status, ['Cancelled', 'Completed'], true)) {
+            return response()->json(['message' => "Cannot assign a rider to a {$order->status} order."], 422);
         }
 
         $data = $request->validate([
@@ -157,10 +162,18 @@ class DispatchController extends Controller
                     abort(422, 'No available rider');
                 }
 
+                $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+                if (! $lockedOrder || in_array($lockedOrder->status, ['Cancelled', 'Completed'], true)) {
+                    abort(422, 'Order is already completed or cancelled and cannot be assigned.');
+                }
+
                 $order->update([
                     'driver_id' => $driver->id,
                     'status' => 'Assigned',
                     'assigned_at' => now(),
+                    'current_lat' => null,
+                    'current_lng' => null,
+                    'route_coordinates' => null,
                     'delivery_distance_km' => $order->delivery_distance_km ?: 2.5,
                 ]);
             });
@@ -170,7 +183,7 @@ class DispatchController extends Controller
 
         $freshOrder = $order->fresh()->load('driver');
         $tracking = app(TrackingService::class);
-        $tracking->ensureRoute($freshOrder);
+        $tracking->ensureDestination($freshOrder);
 
         Notification::createOrderNotification($freshOrder);
 

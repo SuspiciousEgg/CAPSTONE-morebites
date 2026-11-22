@@ -49,7 +49,7 @@ export default function PickupConfirmedScreen() {
     setSaving(true);
     try {
       await driverApi.updateStatus(dbId, "Out for Delivery");
-      router.push({
+      router.replace({
         pathname: "/(driver)/out-for-delivery",
         params: { id: String(order?.id || orderId), dbId: String(dbId) },
       });
@@ -147,23 +147,33 @@ export default function PickupConfirmedScreen() {
         <View style={styles.briefingCard}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Customer</Text>
-            <Text style={styles.detailValue}>James Benedict</Text>
+            <Text style={styles.detailValue}>
+              {order?.customer || "Customer"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Address</Text>
-            <Text style={styles.detailValue}>Dangcagan, Bukidnon</Text>
+            <Text style={styles.detailValue}>
+              {order?.address || order?.location || "Delivery address"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Contact</Text>
-            <Text style={styles.detailValue}>09123456789</Text>
+            <Text style={styles.detailValue}>
+              {order?.contact || "N/A"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Distance</Text>
-            <Text style={styles.detailValue}>2.5km away</Text>
+            <Text style={styles.detailValue}>
+              {order?.distance ? `${order.distance} away` : "—"}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Est. time</Text>
-            <Text style={styles.detailValue}>~20 mins</Text>
+            <Text style={styles.detailValue}>
+              {order?.eta_mins ? `~${order.eta_mins} mins` : "~15 mins"}
+            </Text>
           </View>
         </View>
 
@@ -358,7 +368,7 @@ const styles = StyleSheet.create({
   successBanner: {
     alignItems: "center",
     backgroundColor: "#E8F5E9",
-    borderColor: "#C8E6C9",
+    borderColor: "#22C55E",
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
@@ -427,8 +437,8 @@ const styles = StyleSheet.create({
   },
   codCard: {
     alignItems: "center",
-    backgroundColor: "#FFF3E0",
-    borderColor: "#FFE0B2",
+    backgroundColor: "#FFF7ED",
+    borderColor: "#FED7AA",
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
@@ -441,20 +451,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   codLabel: {
-    color: "#8D6E63",
+    color: "#6B7280",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "600",
   },
   codAmount: {
-    color: "#5D4037",
+    color: "#F97000",
     fontFamily: FONT,
     fontSize: 32,
     fontWeight: "800",
     marginTop: 2,
   },
   codBadge: {
-    color: "#5D4037",
+    color: "#F97000",
     fontFamily: FONT,
     fontSize: 28,
     fontWeight: "800",
@@ -514,7 +524,7 @@ const styles = StyleSheet.create({
   },
   startDeliveryButton: {
     alignItems: "center",
-    backgroundColor: "#B45309",
+    backgroundColor: "#D1D5DB",
     borderRadius: 9,
     height: 54,
     justifyContent: "center",
@@ -530,13 +540,15 @@ const styles = StyleSheet.create({
   },
   backToPickupButton: {
     alignItems: "center",
-    backgroundColor: "#696969",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D1D5DB",
     borderRadius: 9,
+    borderWidth: 1,
     height: 48,
     justifyContent: "center",
   },
   backToPickupButtonText: {
-    color: "#FFFFFF",
+    color: "#374151",
     fontFamily: FONT,
     fontSize: 15,
     fontWeight: "700",

@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Pressable,
   ScrollView,
@@ -107,8 +108,15 @@ export default function OrderTrackingScreen() {
       const res = await customerApi.tracking(dbId);
       const data = res.data || res;
       setTracking(data);
-      if (data?.rider?.latitude && data?.rider?.longitude) {
+      const accepted =
+        Boolean(data?.rider_accepted) ||
+        ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(
+          data?.raw_status || data?.status || "",
+        );
+      if (accepted && data?.rider?.latitude && data?.rider?.longitude) {
         setLiveRider((prev) => prev || data.rider);
+      } else {
+        setLiveRider(null);
       }
       setError("");
     } catch (err) {
@@ -120,22 +128,24 @@ export default function OrderTrackingScreen() {
 
   useEffect(() => {
     loadTracking();
-    if (!dbId) return undefined;
-    const timer = setInterval(loadTracking, 5000);
-    return () => clearInterval(timer);
   }, [dbId, loadTracking]);
 
   const currentStatus = tracking?.status || orderParam.status || "";
+  const rawStatus = tracking?.raw_status || orderParam.raw_status || currentStatus;
+  const isRiderAccepted =
+    Boolean(tracking?.rider_accepted) ||
+    ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(rawStatus) ||
+    ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(currentStatus);
   const isPreparing =
-    (["Preparing", "Pending", "Confirmed"].includes(currentStatus) || Boolean(tracking?.is_preparing)) &&
-    !["Out for Delivery", "Delivered", "Completed", "Cancelled"].includes(currentStatus) &&
-    tracking?.eta_mins == null;
+    (rawStatus === "Preparing" || currentStatus === "Preparing" || Boolean(tracking?.is_preparing)) &&
+    !isRiderAccepted &&
+    !["Ready", "Assigned", "Delivered", "Completed", "Cancelled"].includes(rawStatus);
 
-  // Live driver location polling (every 4.5 seconds while delivery is active)
+  // Live driver location polling (every 3000ms while order is active)
   useEffect(() => {
     if (!dbId) return undefined;
-    const isDeliveryActive = ["Assigned", "Picked Up", "Out for Delivery"].includes(currentStatus);
-    if (!isDeliveryActive) return undefined;
+    const isCompleted = ["Delivered", "Completed", "Cancelled"].includes(currentStatus);
+    if (isCompleted) return undefined;
 
     let cancelled = false;
 
@@ -143,7 +153,13 @@ export default function OrderTrackingScreen() {
       try {
         const res = await customerApi.deliveryLocation(dbId);
         const loc = res.data || res;
-        if (!cancelled && loc?.latitude && loc?.longitude) {
+        const locStatus = loc?.raw_status || loc?.status || "";
+        const locAccepted =
+          loc?.rider_accepted === true ||
+          (loc?.rider_accepted !== false &&
+            ["Picked Up", "Out for Delivery", "Out For Delivery", "Delivered", "Completed"].includes(locStatus));
+
+        if (!cancelled && locAccepted && loc?.latitude && loc?.longitude) {
           const next = {
             latitude: Number(loc.latitude),
             longitude: Number(loc.longitude),
@@ -157,18 +173,27 @@ export default function OrderTrackingScreen() {
               prev ? { ...prev, distance_km: loc.distance_km, distance_label: `${loc.distance_km} km` } : prev
             );
           }
+        } else if (!cancelled && !locAccepted) {
+          setLiveRider(null);
+        }
+        if (
+          !cancelled &&
+          ((loc?.status && loc.status !== currentStatus) ||
+            (loc?.raw_status && loc.raw_status !== rawStatus))
+        ) {
+          loadTracking();
         }
       } catch {
         // Retry next cycle
       }
     };
 
-    const interval = setInterval(pollLocation, 4500);
+    const interval = setInterval(pollLocation, 3000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [dbId, currentStatus]);
+  }, [dbId, currentStatus, rawStatus, loadTracking]);
 
   const items = Array.isArray(tracking?.items)
     ? tracking.items
@@ -176,14 +201,14 @@ export default function OrderTrackingScreen() {
       ? orderParam.items
       : [];
   const destination = tracking?.destination || null;
-  const rider = liveRider || tracking?.rider || null;
+  const rider = isRiderAccepted ? (liveRider || tracking?.rider || null) : null;
   const store = tracking?.store || null;
-  const route = Array.isArray(tracking?.route) ? tracking.route : [];
+  const route = isRiderAccepted && Array.isArray(tracking?.route) ? tracking.route : [];
   const region = useMemo(
     () => regionFromPoints([...(route || []), destination, rider, store]),
     [route, destination, rider, store],
   );
-  const hasMapPoints = Boolean(destination || rider || route.length >= 2);
+  const hasMapPoints = Boolean(destination || store || rider || route.length >= 2);
 
   const openRating = () => {
     if (currentStatus === "Delivered" || currentStatus === "Completed") {
@@ -199,7 +224,19 @@ export default function OrderTrackingScreen() {
               orderParam.total ||
               0,
           ),
-          riderName: tracking?.driver || "Your delivery rider",
+          foodImage:
+            tracking?.food_image ||
+            tracking?.items?.[0]?.image ||
+            orderParam.food_image ||
+            orderParam.items?.[0]?.image ||
+            "",
+          riderName: tracking?.driver || orderParam.driver || "Your delivery rider",
+          riderPhoto:
+            tracking?.driver_photo ||
+            tracking?.rider_photo ||
+            orderParam.driver_photo ||
+            orderParam.rider_photo ||
+            "",
         },
       });
     }
@@ -226,11 +263,36 @@ export default function OrderTrackingScreen() {
   };
 
   const timeline = Array.isArray(tracking?.timeline) ? tracking.timeline : null;
+  const isOrderCancelled = currentStatus === "Cancelled" || rawStatus === "Cancelled";
+
+  const handleBackNavigation = useCallback(() => {
+    if (isOrderCancelled || !router.canGoBack()) {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(customer)/(tabs)/orders");
+      return;
+    }
+    router.back();
+  }, [isOrderCancelled]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (isOrderCancelled || !router.canGoBack()) {
+          handleBackNavigation();
+          return true;
+        }
+        return false;
+      });
+      return () => sub.remove();
+    }, [isOrderCancelled, handleBackNavigation])
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={handleBackNavigation} hitSlop={8}>
           <Ionicons name="arrow-back" size={24} color="#121212" />
         </Pressable>
         <Text style={styles.headerTitle}>Order Tracking</Text>
@@ -254,16 +316,6 @@ export default function OrderTrackingScreen() {
             rider={rider}
             route={route}
           >
-            {destination ? (
-              <Marker coordinate={destination} title="Delivery Location" />
-            ) : null}
-            {rider ? (
-              <Marker coordinate={rider} title="Rider">
-                <View style={styles.riderMarker}>
-                  <Ionicons name="bicycle" size={18} color="#FFFFFF" />
-                </View>
-              </Marker>
-            ) : null}
             {route.length >= 2 ? (
               <Polyline coordinates={route} strokeColor={PRIMARY} strokeWidth={4} />
             ) : destination && rider ? (
@@ -272,6 +324,41 @@ export default function OrderTrackingScreen() {
                 strokeColor={PRIMARY}
                 strokeWidth={4}
               />
+            ) : null}
+            {store || (route.length >= 2 ? route[0] : null) ? (
+              <Marker
+                coordinate={store || route[0]}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title="MoreBites Store"
+              >
+                <View style={styles.originMarkerOuter}>
+                  <View style={styles.originMarkerInner}>
+                    <Ionicons name="storefront" size={14} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
+            ) : null}
+            {destination ? (
+              <Marker
+                coordinate={destination}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title="Delivery Location"
+              >
+                <View style={styles.destMarkerOuter}>
+                  <View style={styles.destMarkerInner}>
+                    <Ionicons name="location" size={15} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
+            ) : null}
+            {rider ? (
+              <Marker coordinate={rider} anchor={{ x: 0.5, y: 0.5 }} title="Rider">
+                <View style={styles.riderMarkerOuter}>
+                  <View style={styles.riderMarkerInner}>
+                    <Ionicons name="bicycle" size={16} color="#FFFFFF" />
+                  </View>
+                </View>
+              </Marker>
             ) : null}
           </MapView>
         ) : (
@@ -313,19 +400,29 @@ export default function OrderTrackingScreen() {
               <View>
                 <Text style={styles.arrivalLabel}>Estimated Arrival</Text>
                 <Text style={styles.arrivalTime}>
-                  {tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
+                  {isRiderAccepted && tracking?.eta_mins != null ? `${tracking.eta_mins} min` : "—"}
                 </Text>
               </View>
               <View style={styles.arrivalRight}>
                 <Text style={styles.arrivalLabel}>By</Text>
-                <Text style={styles.arrivalBy}>{tracking?.arrival_by || "—"}</Text>
+                <Text style={styles.arrivalBy}>
+                  {isRiderAccepted && tracking?.arrival_by ? tracking.arrival_by : "—"}
+                </Text>
               </View>
               <View style={styles.distanceRow}>
                 <Ionicons name="location" size={14} color="#9CA3AF" />
                 <Text style={styles.distanceText}>
-                  {tracking?.distance_label
+                  {isRiderAccepted && tracking?.distance_label && tracking.distance_label !== "—"
                     ? `${tracking.distance_label} away from your location`
-                    : "Waiting for route…"}
+                    : rawStatus === "Pending"
+                      ? "Waiting for the store to confirm your order…"
+                      : rawStatus === "Confirmed"
+                        ? "Order confirmed · Waiting for kitchen to start preparing…"
+                        : rawStatus === "Ready"
+                          ? "Order is ready · Waiting for rider assignment…"
+                          : rawStatus === "Assigned"
+                            ? "Rider assigned · Waiting for rider to accept delivery…"
+                            : "Waiting for route…"}
                 </Text>
               </View>
             </View>
@@ -491,15 +588,59 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  riderMarker: {
-    width: 34,
-    height: 34,
+  originMarkerOuter: {
     alignItems: "center",
+    backgroundColor: "rgba(249, 112, 0, 0.22)",
+    borderRadius: 18,
+    height: 36,
     justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#2563EB",
-    borderWidth: 2,
+    width: 36,
+  },
+  originMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#F97000",
     borderColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 2,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  riderMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(34, 197, 94, 0.22)",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  riderMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#22C55E",
+    borderColor: "#FFFFFF",
+    borderRadius: 15,
+    borderWidth: 2,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  destMarkerOuter: {
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.22)",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  destMarkerInner: {
+    alignItems: "center",
+    backgroundColor: "#EF4444",
+    borderColor: "#FFFFFF",
+    borderRadius: 15,
+    borderWidth: 2,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   content: {
     paddingHorizontal: 16,
@@ -627,7 +768,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
   },
   activeIcon: {
-    backgroundColor: PRIMARY,
+    backgroundColor: "#22C55E",
   },
   pendingIcon: {
     backgroundColor: "#FFFFFF",

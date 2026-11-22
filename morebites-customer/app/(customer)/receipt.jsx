@@ -142,6 +142,19 @@ export function deriveReceiptNumber(order = {}, fallbackOrderId = "") {
   return `RCPT-${padded}`;
 }
 
+export function formatRemovedIngredientsSummary(item) {
+  if (!Array.isArray(item?.removed_ingredients) || item.removed_ingredients.length === 0) {
+    return "";
+  }
+  return item.removed_ingredients
+    .map((r) => {
+      const name = typeof r === "object" ? r?.name || "Ingredient" : String(r);
+      const p = typeof r === "object" && Number(r?.price) > 0 ? ` (-₱${Number(r.price).toFixed(2)})` : "";
+      return `No ${name}${p}`;
+    })
+    .join(", ");
+}
+
 function buildReceiptPdfBlob(receiptData) {
   const lines = [
     "MOREBITES - OFFICIAL DIGITAL RECEIPT",
@@ -158,10 +171,18 @@ function buildReceiptPdfBlob(receiptData) {
     ...receiptData.items.map((item) => {
       const qty = Number(item.quantity || 1);
       const lineTotal = Number(item.price || 0) * qty;
-      return `${qty}x ${formatReceiptItemName(item)} - PHP ${lineTotal.toLocaleString()}`;
+      const removedSummary = formatRemovedIngredientsSummary(item);
+      const removedSuffix = removedSummary ? ` [${removedSummary.replace(/₱/g, "PHP ")}]` : "";
+      return `${qty}x ${formatReceiptItemName(item)}${removedSuffix} - PHP ${lineTotal.toLocaleString()}`;
     }),
     "------------------------------------------------------------",
     `Subtotal: PHP ${Number(receiptData.subtotal).toLocaleString()}`,
+    ...(receiptData.pointsUsed > 0
+      ? [`Points Discount (${receiptData.pointsUsed} pts): -PHP ${Number(receiptData.pointsDiscount).toLocaleString()}`]
+      : []),
+    ...(receiptData.lateDiscount > 0
+      ? [`Late Delivery Discount (${receiptData.lateDiscountPercent}%): -PHP ${Number(receiptData.lateDiscount).toLocaleString()}`]
+      : []),
     `Delivery Fee: PHP ${Number(receiptData.deliveryFee).toLocaleString()}`,
     `Service Fee: PHP ${Number(receiptData.serviceFee).toLocaleString()}`,
     `TOTAL AMOUNT PAID: PHP ${Number(receiptData.total).toLocaleString()}`,
@@ -218,12 +239,14 @@ function buildReceiptHtml(receiptData) {
     .map((item) => {
       const qty = Number(item.quantity || 1);
       const lineTotal = Number(item.price || 0) * qty;
+      const removedSummary = formatRemovedIngredientsSummary(item);
       return `
         <tr>
           <td style="padding: 8px 0; color: #4B5563; font-size: 13px;">
-            ${qty}x ${formatReceiptItemName(item)}
+            <div>${qty}x ${formatReceiptItemName(item)}</div>
+            ${removedSummary ? `<div style="font-size: 11px; color: #DC2626; margin-top: 2px;">${removedSummary.replace(/₱/g, "&#8369;")}</div>` : ""}
           </td>
-          <td style="padding: 8px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right;">
+          <td style="padding: 8px 0; color: #121212; font-size: 13px; font-weight: 600; text-align: right; vertical-align: top;">
             &#8369;${lineTotal.toLocaleString()}
           </td>
         </tr>`;
@@ -297,6 +320,11 @@ function buildReceiptHtml(receiptData) {
             <tr>
               <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600;">Points Discount (${receiptData.pointsUsed} pts)</td>
               <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600; text-align: right;">-&#8369;${Number(receiptData.pointsDiscount).toLocaleString()}</td>
+            </tr>` : ""}
+            ${receiptData.lateDiscount > 0 ? `
+            <tr>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600;">Late Delivery Discount (${receiptData.lateDiscountPercent}%${receiptData.lateMinutes > 0 ? ` &middot; ${receiptData.lateMinutes}m late` : ""})</td>
+              <td style="padding: 5px 0; color: #16A34A; font-size: 13px; font-weight: 600; text-align: right;">-&#8369;${Number(receiptData.lateDiscount).toLocaleString()}</td>
             </tr>` : ""}
             <tr>
               <td style="padding: 5px 0; color: #6B7280; font-size: 13px;">Delivery Fee</td>
@@ -393,8 +421,18 @@ export default function ReceiptScreen() {
     (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
     0
   );
+  // Points credited and redeemed for this order from backend loyalty ledger
+  const pointsEarned = Number(orderData?.points_earned ?? 0);
+  const pointsUsed = Number(orderData?.points_used ?? 0);
+  const pointsDiscount = Number(orderData?.points_discount ?? 0);
+  const lateMinutes = Number(orderData?.late_minutes ?? 0);
+  const lateDiscountPercent = Number(orderData?.late_discount_percent ?? 0);
+  const lateDiscount = Number(orderData?.late_discount ?? 0);
+
   const subtotal =
-    itemsSubtotal > 0 ? itemsSubtotal : Math.max(total - deliveryFee - serviceFee, 0);
+    itemsSubtotal > 0
+      ? itemsSubtotal
+      : Math.max(total + pointsDiscount + lateDiscount - deliveryFee - serviceFee, 0);
 
   const orderPlacedLabel = formatDateTimeLabel(
     orderData?.ordered_at || orderData?.date || orderData?.created_at,
@@ -418,11 +456,6 @@ export default function ReceiptScreen() {
     [orderData?.street, orderData?.barangay, orderData?.city].filter(Boolean).join(", ") ||
     "Delivery address unavailable";
 
-  // Points credited and redeemed for this order from backend loyalty ledger
-  const pointsEarned = Number(orderData?.points_earned ?? 0);
-  const pointsUsed = Number(orderData?.points_used ?? 0);
-  const pointsDiscount = Number(orderData?.points_discount ?? 0);
-
   const shareReceipt = async () => {
     if (sharing) return;
     setSharing(true);
@@ -438,6 +471,9 @@ export default function ReceiptScreen() {
       pointsEarned,
       pointsUsed,
       pointsDiscount,
+      lateMinutes,
+      lateDiscountPercent,
+      lateDiscount,
       items,
       subtotal,
       deliveryFee,
@@ -456,14 +492,16 @@ export default function ReceiptScreen() {
       `Points Earned: ${pointsEarned} pts`,
       ...(pointsUsed > 0 ? [`Points Used: ${pointsUsed} pts (-₱${pointsDiscount.toLocaleString()})`] : []),
       `---`,
-      ...items.map(
-        (item) =>
-          `${item.quantity}x ${formatReceiptItemName(item)} — ₱${(
-            Number(item.price || 0) * Number(item.quantity || 1)
-          ).toLocaleString()}`
-      ),
+      ...items.map((item) => {
+        const removedSummary = formatRemovedIngredientsSummary(item);
+        const removedSuffix = removedSummary ? ` (${removedSummary})` : "";
+        return `${item.quantity}x ${formatReceiptItemName(item)}${removedSuffix} — ₱${(
+          Number(item.price || 0) * Number(item.quantity || 1)
+        ).toLocaleString()}`;
+      }),
       `Subtotal: ₱${subtotal.toLocaleString()}`,
       ...(pointsUsed > 0 ? [`Points Discount: -₱${pointsDiscount.toLocaleString()}`] : []),
+      ...(lateDiscount > 0 ? [`Late Delivery Discount (${lateDiscountPercent}%): -₱${lateDiscount.toLocaleString()}`] : []),
       `Delivery Fee: ₱${deliveryFee.toLocaleString()}`,
       `Service Fee: ₱${serviceFee.toLocaleString()}`,
       `Total Amount Paid: ₱${total.toLocaleString()}`,
@@ -554,6 +592,9 @@ export default function ReceiptScreen() {
 
   const backToHome = () => {
     clearCart();
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace("/(customer)/(tabs)/home");
   };
 
@@ -575,12 +616,7 @@ export default function ReceiptScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View ref={receiptCaptureRef} collapsable={false} style={styles.receiptCaptureWrap}>
           <View style={styles.topSection}>
-            <View style={styles.receiptIconCircle}>
-              <Ionicons name="receipt-outline" size={40} color={PRIMARY} />
-              <View style={styles.paidCheckBadge}>
-                <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-              </View>
-            </View>
+            <Ionicons name="checkmark-circle" size={52} color="#22C55E" />
             <Text style={styles.title}>Digital Receipt</Text>
             <Text style={styles.subtitle}>Payment confirmed & delivery completed</Text>
           </View>
@@ -621,19 +657,29 @@ export default function ReceiptScreen() {
           <View style={styles.summaryCard}>
             <Text style={styles.sectionTitle}>Order & Payment Summary</Text>
             {items.length ? (
-              items.map((item, index) => (
-                <View
-                  key={`${item.id || item.name}-${item.size || "reg"}-${index}`}
-                  style={styles.itemRow}
-                >
-                  <Text style={styles.itemText}>
-                    {item.quantity}x {formatReceiptItemName(item)}
-                  </Text>
-                  <Text style={styles.itemPrice}>
-                    ₱{(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString()}
-                  </Text>
-                </View>
-              ))
+              items.map((item, index) => {
+                const removedSummary = formatRemovedIngredientsSummary(item);
+                return (
+                  <View
+                    key={`${item.id || item.name}-${item.size || "reg"}-${index}`}
+                    style={styles.itemRow}
+                  >
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={styles.itemText}>
+                        {item.quantity}x {formatReceiptItemName(item)}
+                      </Text>
+                      {removedSummary ? (
+                        <Text style={{ fontFamily: FONT, fontSize: 12, color: "#DC2626", marginTop: 2 }}>
+                          {removedSummary}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.itemPrice}>
+                      ₱{(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString()}
+                    </Text>
+                  </View>
+                );
+              })
             ) : (
               <Text style={styles.emptyItemsText}>Item details unavailable</Text>
             )}
@@ -647,6 +693,16 @@ export default function ReceiptScreen() {
                 </Text>
                 <Text style={[styles.summaryValue, { color: "#16A34A" }]}>
                   -₱{Number(pointsDiscount || 0).toLocaleString()}
+                </Text>
+              </View>
+            ) : null}
+            {lateDiscount > 0 ? (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: "#16A34A" }]}>
+                  Late Delivery Discount ({lateDiscountPercent}%{lateMinutes > 0 ? ` · ${lateMinutes}m late` : ""})
+                </Text>
+                <Text style={[styles.summaryValue, { color: "#16A34A" }]}>
+                  -₱{Number(lateDiscount || 0).toLocaleString()}
                 </Text>
               </View>
             ) : null}

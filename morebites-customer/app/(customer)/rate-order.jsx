@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Alert,
   Pressable,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { customerApi } from "../../src/api/client";
+import { customerApi, mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -46,7 +47,9 @@ export default function RateOrderScreen() {
   const [riderComment, setRiderComment] = useState("");
   const [foodName, setFoodName] = useState(firstParam(params.foodName) || "Your order");
   const [foodPrice, setFoodPrice] = useState(Number(firstParam(params.foodPrice)) || 0);
+  const [foodImage, setFoodImage] = useState(firstParam(params.foodImage) || "");
   const [riderName, setRiderName] = useState(firstParam(params.riderName) || "Your delivery rider");
+  const [riderPhoto, setRiderPhoto] = useState(firstParam(params.riderPhoto) || "");
   const [loading, setLoading] = useState(Boolean(dbId));
   const [submitting, setSubmitting] = useState(false);
   const [alreadyRated, setAlreadyRated] = useState(false);
@@ -64,7 +67,10 @@ export default function RateOrderScreen() {
         if (cancelled) return;
         if (order.food_name) setFoodName(order.food_name);
         if (order.food_price != null) setFoodPrice(Number(order.food_price));
+        const fetchedFoodImg = order.food_image || order.items?.[0]?.image;
+        if (fetchedFoodImg) setFoodImage(fetchedFoodImg);
         if (order.driver) setRiderName(order.driver);
+        if (order.driver_photo || order.rider_photo) setRiderPhoto(order.driver_photo || order.rider_photo);
         if (order.rated) setAlreadyRated(true);
         if (!["Delivered", "Completed"].includes(order.status)) {
           Alert.alert("Not ready", "You can rate this order after it is delivered.");
@@ -83,14 +89,19 @@ export default function RateOrderScreen() {
   }, [dbId]);
 
   const goThanks = () => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
     router.replace({
       pathname: "/(customer)/rate-thanks",
       params: {
         foodName,
         foodPrice: String(foodPrice),
+        foodImage: foodImage || "",
         foodRating: String(foodRating),
         riderRating: String(riderRating),
         riderName,
+        riderPhoto: riderPhoto || "",
       },
     });
   };
@@ -154,6 +165,8 @@ export default function RateOrderScreen() {
   };
 
   const isOrderTab = activeTab === "order";
+  const resolvedFoodImage = mediaUrl(foodImage);
+  const resolvedRiderPhoto = mediaUrl(riderPhoto);
 
   if (loading) {
     return (
@@ -186,9 +199,13 @@ export default function RateOrderScreen() {
         {isOrderTab ? (
           <>
             <View style={styles.infoCard}>
-              <View style={styles.foodPlaceholder}>
-                <Ionicons name="pizza-outline" size={30} color="#8A8A8A" />
-              </View>
+              {resolvedFoodImage ? (
+                <Image source={{ uri: resolvedFoodImage }} style={styles.foodAvatar} />
+              ) : (
+                <View style={styles.foodPlaceholder}>
+                  <Ionicons name="fast-food-outline" size={30} color="#8A8A8A" />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{foodName}</Text>
                 <Text style={styles.foodPrice}>₱{Number(foodPrice).toLocaleString()}</Text>
@@ -210,9 +227,13 @@ export default function RateOrderScreen() {
         ) : (
           <>
             <View style={styles.infoCard}>
-              <View style={styles.riderIcon}>
-                <Ionicons name="bicycle" size={28} color="#121212" />
-              </View>
+              {resolvedRiderPhoto ? (
+                <Image source={{ uri: resolvedRiderPhoto }} style={styles.riderAvatar} />
+              ) : (
+                <View style={styles.riderIcon}>
+                  <Ionicons name="bicycle" size={28} color="#121212" />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{riderName}</Text>
                 <Text style={styles.cardSubtitle}>Your delivery rider</Text>
@@ -323,6 +344,13 @@ const styles = StyleSheet.create({
     padding: 10,
     marginTop: 16,
   },
+  foodAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    marginRight: 12,
+  },
   foodPlaceholder: {
     width: 60,
     height: 60,
@@ -330,6 +358,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 9,
     backgroundColor: "#E5E7EB",
+    marginRight: 12,
+  },
+  riderAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
     marginRight: 12,
   },
   riderIcon: {

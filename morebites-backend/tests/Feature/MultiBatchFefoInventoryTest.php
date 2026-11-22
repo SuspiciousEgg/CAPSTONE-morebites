@@ -187,6 +187,7 @@ class MultiBatchFefoInventoryTest extends TestCase
 
     public function test_perishables_are_prioritized_over_non_perishables(): void
     {
+        Carbon::setTestNow('2026-10-10');
         $service = app(InventoryDeductionService::class);
 
         $item = InventoryItem::query()->create([
