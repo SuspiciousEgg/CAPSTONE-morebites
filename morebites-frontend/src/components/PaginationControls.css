@@ -1,0 +1,68 @@
+.mb-pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.mb-page-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  color: #374151;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  font-variant-numeric: tabular-nums;
+}
+
+.mb-page-btn.arrow {
+  width: 34px;
+  padding: 0;
+  color: #4B5563;
+}
+
+.mb-page-btn:hover:not(:disabled) {
+  border-color: #D1D5DB;
+  background: #F9FAFB;
+  color: #111827;
+}
+
+.mb-page-btn.active {
+  background: #FFA500;
+  border-color: #FFA500;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.mb-page-btn.active:hover {
+  background: #E69500;
+  border-color: #E69500;
+  color: #FFFFFF;
+}
+
+.mb-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mb-page-ellipsis {
+  min-width: 28px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #9CA3AF;
+  user-select: none;
+  pointer-events: none;
+}
+

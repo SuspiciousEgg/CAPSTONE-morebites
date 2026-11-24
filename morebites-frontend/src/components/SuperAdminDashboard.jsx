@@ -34,6 +34,15 @@ import {
 import { TbClipboardList } from 'react-icons/tb'
 import logo from '../assets/logo.png'
 import {
+  ChartSkeleton,
+  DonutSkeleton,
+  ListRowsSkeleton,
+  StatCardsSkeleton,
+  TableRowsSkeleton,
+} from './Skeleton'
+import CustomSelect from './CustomSelect'
+import { formatManilaDate } from '../utils/manilaTime'
+import {
   IconAccount,
   IconBell,
   IconBike,
@@ -63,7 +72,7 @@ import AccountManagement from './AccountManagement'
 import DeliveryRatesSettings from './DeliveryRatesSettings'
 import DriverManagement from './DriverManagement'
 import EmptyState from './EmptyState'
-import { dashboardApi, notificationsApi } from '../api/client'
+import { dashboardApi, mediaUrl, notificationsApi } from '../api/client'
 import './SuperAdminDashboard.css'
 
 const PERIODS = ['Daily', 'Weekly', 'Monthly', 'Yearly']
@@ -430,25 +439,33 @@ export default function SuperAdminDashboard({ user, onLogout }) {
    *      `Echo.private('admin-notifications').listen('NotificationCreated', (e) => { ... })`.
    */
   const [unreadCount, setUnreadCount] = useState(0)
+  const [dispatchFocusOrder, setDispatchFocusOrder] = useState(null)
+  const loadingNotifsRef = useRef(false)
+  const loadingDashboardRef = useRef(false)
 
   // Load per-user notifications and unread count from backend
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async ({ force = false } = {}) => {
+    if (!force && loadingNotifsRef.current) return
+    loadingNotifsRef.current = true
     try {
       const [countRes, listRes] = await Promise.all([
         notificationsApi.unreadCount(),
         notificationsApi.list(),
       ])
-      const count = countRes.data?.count ?? countRes.data?.data?.count ?? 0
+      const rawCount = countRes.data?.count ?? countRes.data?.data?.count
       const list = listRes.data?.data || []
       if (Array.isArray(list)) {
         setNotifications(list)
-        // Strictly derive badge count and list unread status from identical backend data
+      }
+      if (rawCount !== undefined && rawCount !== null) {
+        setUnreadCount(Number(rawCount) || 0)
+      } else if (Array.isArray(list)) {
         setUnreadCount(list.filter((n) => Boolean(n.unread)).length)
-      } else {
-        setUnreadCount(Number(count) || 0)
       }
     } catch (err) {
       console.error('Failed to load notifications:', err)
+    } finally {
+      loadingNotifsRef.current = false
     }
   }, [])
 
@@ -502,6 +519,14 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       }
     }
     if (n.nav) {
+      if (n.nav === 'Dispatch' && (n.data?.order_id || n.data?.order_code)) {
+        setDispatchFocusOrder({
+          orderId: n.data?.order_id ?? null,
+          orderCode: n.data?.order_code ?? null,
+          openDetails: true,
+          ts: Date.now(),
+        })
+      }
       setActiveNav(n.nav)
       setNotifOpen(false)
       setShowAllNotifsModal(false)
@@ -534,9 +559,12 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   const [orders, setOrders] = useState([])
   const [activityLog, setActivityLog] = useState([])
   const [lowStocks, setLowStocks] = useState([])
+  const [dashboardLoading, setDashboardLoading] = useState(true)
   const notifRef = useRef(null)
 
-  const fetchDashboard = useCallback(async () => {
+  const fetchDashboard = useCallback(async ({ force = false } = {}) => {
+    if (!force && loadingDashboardRef.current) return
+    loadingDashboardRef.current = true
     try {
       const res = await dashboardApi.get({
         period: salesPeriod,
@@ -576,6 +604,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       setLowStocks(d.low_stocks || [])
     } catch (err) {
       console.error('Failed to load dashboard data:', err)
+    } finally {
+      loadingDashboardRef.current = false
+      setDashboardLoading(false)
     }
   }, [salesPeriod, fromTime, toTime])
 
@@ -583,7 +614,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   useEffect(() => {
     if (activeNav !== 'Dashboard') return
 
-    fetchDashboard()
+    fetchDashboard({ force: true })
 
     const interval = setInterval(() => {
       fetchDashboard()
@@ -594,7 +625,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
     }
 
     const handleSyncEvent = () => {
-      fetchDashboard()
+      fetchDashboard({ force: true })
     }
 
     window.addEventListener('focus', handleWindowFocus)
@@ -666,7 +697,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
   }, [displaySalesData])
 
   const displayActivityLog = useMemo(() => {
-    return activityLog || []
+    return (activityLog || []).slice(0, 5)
   }, [activityLog])
 
   const currentOrderStatus = useMemo(() => {
@@ -682,7 +713,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
 
   const orderTotal = currentOrderStatus.reduce((sum, s) => sum + (Number(s.value) || 0), 0)
 
-  const currentDateFormatted = new Date().toLocaleDateString('en-US', {
+  const currentDateFormatted = formatManilaDate(new Date(), {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
@@ -717,7 +748,17 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         <div className="sa-sidebar-footer">
           <div className="sa-sidebar-divider" />
           <div className="sa-profile">
-            <div className="sa-avatar">{initials}</div>
+            <div className="sa-avatar">
+              {user?.photo ? (
+                <img
+                  src={mediaUrl(user.photo)}
+                  alt={displayName}
+                  className="sa-avatar-img"
+                />
+              ) : (
+                <span>{initials}</span>
+              )}
+            </div>
             <div className="sa-profile-text">
               <div className="sa-profile-name" title={displayName}>{displayName}</div>
               <div className="sa-profile-role" title={displayRole}>{displayRole}</div>
@@ -738,7 +779,6 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       {showLogoutModal && (
         <div
           className="sa-logout-backdrop"
-          onClick={() => setShowLogoutModal(false)}
           role="presentation"
         >
           <div
@@ -780,7 +820,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
       {showAllNotifsModal && (
         <div
           className="sa-logout-backdrop"
-          onClick={() => setShowAllNotifsModal(false)}
+          role="presentation"
         >
           <div
             className="sa-all-notifs-modal"
@@ -993,13 +1033,30 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         </div>
 
         {activeNav === 'Orders' && visibleNavItems.some((i) => i.label === 'Orders') ? (
-          <OrderManagement />
+          <OrderManagement
+            onDispatchOrder={
+              visibleNavItems.some((i) => i.label === 'Dispatch')
+                ? (order) => {
+                    setDispatchFocusOrder({
+                      orderId: order.db_id ?? null,
+                      orderCode: order.id ?? null,
+                      openAssign: true,
+                      ts: Date.now(),
+                    })
+                    setActiveNav('Dispatch')
+                  }
+                : undefined
+            }
+          />
         ) : activeNav === 'Menu' && visibleNavItems.some((i) => i.label === 'Menu') ? (
           <MenuManagement />
         ) : activeNav === 'Inventory' && visibleNavItems.some((i) => i.label === 'Inventory') ? (
           <InventoryPage />
         ) : activeNav === 'Dispatch' && visibleNavItems.some((i) => i.label === 'Dispatch') ? (
-          <DispatchManagement />
+          <DispatchManagement
+            focusOrder={dispatchFocusOrder}
+            onFocusOrderHandled={() => setDispatchFocusOrder(null)}
+          />
         ) : activeNav === 'Reports' && visibleNavItems.some((i) => i.label === 'Reports') ? (
           <RecordsReports user={user} />
         ) : activeNav === 'Driver' && visibleNavItems.some((i) => i.label === 'Driver') ? (
@@ -1020,6 +1077,13 @@ export default function SuperAdminDashboard({ user, onLogout }) {
         </header>
 
         {/* 4 Stat Cards */}
+        {dashboardLoading ? (
+          <StatCardsSkeleton
+            count={4}
+            gridClassName="sa-stats-grid"
+            cardClassName="sa-stat-card"
+          />
+        ) : (
         <section className="sa-stats-grid">
           <article className="sa-stat-card">
             <div className="sa-stat-icon-wrap orange">
@@ -1061,6 +1125,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             </div>
           </article>
         </section>
+        )}
 
         {/* Middle Row: Sales Overview & Activity Log */}
         <section className="sa-row-middle">
@@ -1068,7 +1133,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             <div className="sa-card-header">
               <h2 className="sa-card-heading">Sales Overview</h2>
               <div className="sa-sales-controls">
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={salesPeriod}
                   onChange={(e) => setSalesPeriod(e.target.value)}
@@ -1078,9 +1143,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                       {p}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={fromTime}
                   onChange={(e) => setFromTime(e.target.value)}
@@ -1090,9 +1155,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   <option value="From 10:00 AM">From 10:00 AM</option>
                   <option value="From 11:00 AM">From 11:00 AM</option>
                   <option value="From 12:00 PM">From 12:00 PM</option>
-                </select>
+                </CustomSelect>
 
-                <select
+                <CustomSelect
                   className="sa-sales-select"
                   value={toTime}
                   onChange={(e) => setToTime(e.target.value)}
@@ -1102,11 +1167,15 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   <option value="To 10:00 PM">To 10:00 PM</option>
                   <option value="To 11:00 PM">To 11:00 PM</option>
                   <option value="To 12:00 AM">To 12:00 AM</option>
-                </select>
+                </CustomSelect>
               </div>
             </div>
 
             <div style={{ width: '100%', height: 260, position: 'relative' }}>
+              {dashboardLoading ? (
+                <ChartSkeleton height={260} bars={9} />
+              ) : (
+              <>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={displaySalesData} barSize={22} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid stroke="#EDEDED" strokeDasharray="0" vertical={false} />
@@ -1169,6 +1238,8 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   />
                 </div>
               )}
+              </>
+              )}
             </div>
           </article>
 
@@ -1189,7 +1260,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayActivityLog.length === 0 ? (
+                  {dashboardLoading ? (
+                    <TableRowsSkeleton rows={5} shapes={['two-line', 'short', 'text', 'badge']} />
+                  ) : displayActivityLog.length === 0 ? (
                     <tr>
                       <td colSpan={4} style={{ padding: '24px 16px', borderBottom: 'none' }}>
                         <EmptyState
@@ -1232,6 +1305,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
             <div className="sa-card-header">
               <h2 className="sa-card-heading">Order Breakdown</h2>
             </div>
+            {dashboardLoading ? (
+              <DonutSkeleton rows={5} />
+            ) : (
             <div className="sa-donut-container">
               <div className="sa-donut-chart-wrap">
                 <ResponsiveContainer width={140} height={140}>
@@ -1271,6 +1347,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 ))}
               </div>
             </div>
+            )}
           </article>
 
           <article className="sa-bottom-card">
@@ -1284,7 +1361,7 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 View All
               </button>
             </div>
-            {orders.length === 0 ? (
+            {!dashboardLoading && orders.length === 0 ? (
               <EmptyState
                 icon="receipt"
                 title="Queue is clear"
@@ -1302,16 +1379,20 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.map((o) => (
-                      <tr key={o.id}>
-                        <td className="sa-order-id">{o.id}</td>
-                        <td>{o.customer}</td>
-                        <td>
-                          <span className={`sa-badge ${o.tone}`}>{o.status}</span>
-                        </td>
-                        <td style={{ fontWeight: 700 }}>{o.amount}</td>
-                      </tr>
-                    ))}
+                    {dashboardLoading ? (
+                      <TableRowsSkeleton rows={4} shapes={['id', 'text', 'badge', 'money']} />
+                    ) : (
+                      orders.map((o) => (
+                        <tr key={o.id}>
+                          <td className="sa-order-id">{o.id}</td>
+                          <td>{o.customer}</td>
+                          <td>
+                            <span className={`sa-badge ${o.tone}`}>{o.status}</span>
+                          </td>
+                          <td style={{ fontWeight: 700 }}>{o.amount}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1329,7 +1410,9 @@ export default function SuperAdminDashboard({ user, onLogout }) {
                 View All
               </button>
             </div>
-            {lowStocks.length === 0 ? (
+            {dashboardLoading ? (
+              <ListRowsSkeleton rows={4} variant="stocks" />
+            ) : lowStocks.length === 0 ? (
               <EmptyState
                 icon="box"
                 title="All stocks healthy"

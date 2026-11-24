@@ -92,11 +92,12 @@ class BlacklistController extends Controller
             'name' => $d->name,
             'license' => $d->license_number,
             'reason' => $d->reason,
-            'date' => $d->blacklisted_at?->format('F d, Y h:i A'),
+            'date' => \App\Support\ManilaTime::format($d->blacklisted_at, 'F d, Y h:i A'),
             'phone' => $d->phone,
             'attachment' => [
                 'name' => $d->attachment_name ?: 'No attachment',
                 'meta' => $d->attachment_meta ?: '-',
+                'url' => $d->driver?->license_document ? \App\Support\Media::url($d->driver->license_document) : null,
             ],
             'notes' => $d->notes,
         ];

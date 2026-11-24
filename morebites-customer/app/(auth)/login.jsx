@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import {
   Alert,
+  BackHandler,
   StyleSheet,
   Text,
   TextInput,
@@ -36,7 +37,21 @@ export default function LoginScreen() {
   );
   const [phoneError, setPhoneError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
+  const activeLoginError =
+    lockoutSeconds > 0
+      ? `Too many login attempts. Please try again in ${lockoutSeconds} ${lockoutSeconds === 1 ? "second" : "seconds"}.`
+      : loginError;
 
   useEffect(() => {
     if (params?.phone) {
@@ -50,7 +65,22 @@ export default function LoginScreen() {
     }
   }, [params?.phone, params?.registered, params?.error]);
 
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+      return () => sub.remove();
+    }, [])
+  );
+
+  const resetToHome = (targetHome) => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace(targetHome);
+  };
+
   const signIn = async () => {
+    if (lockoutSeconds > 0) return;
     const cleanPhone = phoneValue.replace(/\s/g, "");
     const hasPhone = cleanPhone.length > 0;
     const hasPassword = passwordValue.trim().length > 0;
@@ -126,7 +156,7 @@ export default function LoginScreen() {
               text: "This Was Me",
               onPress: async () => {
                 await addTrustedDevice(cleanPhone, deviceId);
-                router.replace(targetHome);
+                resetToHome(targetHome);
               },
             },
             {
@@ -144,11 +174,20 @@ export default function LoginScreen() {
           { cancelable: false }
         );
       } else {
-        router.replace(targetHome);
+        resetToHome(targetHome);
       }
     } catch (err) {
       const msg = err.message || "Incorrect phone number or password.";
-      if (/blacklist|blocklist/i.test(msg)) {
+      const retryAfter =
+        Number(err?.data?.retry_after) ||
+        Number(err?.retryAfter) ||
+        Number(msg.match(/in\s+(\d+)\s+second/i)?.[1]) ||
+        0;
+
+      if (err?.status === 429 || retryAfter > 0) {
+        setLockoutSeconds(Math.max(1, retryAfter || 60));
+        setLoginError("");
+      } else if (/blacklist|blocklist/i.test(msg)) {
         setLoginError(msg);
         setPhoneError(msg);
       } else if (/phone/i.test(msg) && /not found|already|inactive/i.test(msg)) {
@@ -183,7 +222,7 @@ export default function LoginScreen() {
             <Text style={styles.successBannerText}>{successBanner}</Text>
           </View>
         ) : null}
-        {loginError ? (
+        {activeLoginError ? (
           <View style={styles.errorBanner}>
             <Ionicons
               name="warning-outline"
@@ -191,7 +230,7 @@ export default function LoginScreen() {
               color="#D94343"
               style={styles.errorBannerIcon}
             />
-            <Text style={styles.errorBannerText}>{loginError}</Text>
+            <Text style={styles.errorBannerText}>{activeLoginError}</Text>
           </View>
         ) : null}
         <Text style={styles.fieldLabel}>PHONE NUMBER</Text>
@@ -261,12 +300,18 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.signInButton, saving && { opacity: 0.7 }]}
+          style={[styles.signInButton, (saving || lockoutSeconds > 0) && { opacity: 0.7 }]}
           activeOpacity={0.85}
           onPress={signIn}
-          disabled={saving}
+          disabled={saving || lockoutSeconds > 0}
         >
-          <Text style={styles.signInText}>{saving ? "Signing In..." : "Sign In"}</Text>
+          <Text style={styles.signInText}>
+            {saving
+              ? "Signing In..."
+              : lockoutSeconds > 0
+                ? `Try again in ${lockoutSeconds}s`
+                : "Sign In"}
+          </Text>
         </TouchableOpacity>
 
         <View style={styles.registerRow}>

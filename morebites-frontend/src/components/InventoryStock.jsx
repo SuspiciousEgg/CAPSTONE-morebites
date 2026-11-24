@@ -40,6 +40,14 @@ import {
 } from './Icons'
 import { inventoryApi, reportsApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import PaginationControls from './PaginationControls'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
+import {
+  getManilaDateYmd,
+  getManilaDaysUntil,
+  getManilaStartOfDayMs,
+} from '../utils/manilaTime'
 import {
   getCategoryConfig,
   getSubcategoryDetailConfig,
@@ -53,9 +61,33 @@ import './InventoryStock.css'
 const CATEGORIES = INVENTORY_CATEGORY_LIST
 const UNITS = [
   { value: 'pcs', label: 'pcs' },
+  { value: 'pack', label: 'pack' },
+  { value: 'bag', label: 'bag' },
+  { value: 'bottle', label: 'bottle' },
+  { value: 'can', label: 'can' },
+  { value: 'box', label: 'box' },
+  { value: 'tray', label: 'tray' },
+  { value: 'portion', label: 'portion' },
+  { value: 'scoop', label: 'scoop' },
+  { value: 'cup', label: 'cup' },
+  { value: 'ladle', label: 'ladle' },
+  { value: 'slice', label: 'slice' },
   { value: 'kg', label: 'kg' },
   { value: 'g', label: 'grams' },
   { value: 'L', label: 'Liters' },
+  { value: 'ml', label: 'ml' },
+]
+
+const PORTION_TOOLS = [
+  { value: '', label: 'None (use stock unit directly)' },
+  { value: 'scoop', label: 'Scoop' },
+  { value: 'cup', label: 'Cup' },
+  { value: 'ladle', label: 'Ladle' },
+  { value: 'slice', label: 'Slice' },
+  { value: 'portion', label: 'Portion / Cup-pack' },
+  { value: 'tbsp', label: 'Tablespoon (tbsp)' },
+  { value: 'tsp', label: 'Teaspoon (tsp)' },
+  { value: 'pcs', label: 'Piece (pcs)' },
 ]
 const STATUSES = [
   'All Status',
@@ -92,13 +124,7 @@ function statusClass(s) {
 }
 
 function calculateDaysLeft(expiryDate) {
-  if (!expiryDate || expiryDate === '—') return null
-  const exp = new Date(expiryDate)
-  if (Number.isNaN(exp.getTime())) return null
-  const now = new Date()
-  const expStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime()
-  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  return Math.round((expStart - nowStart) / (1000 * 60 * 60 * 24))
+  return getManilaDaysUntil(expiryDate)
 }
 
 function getItemDaysLeft(itemOrBatch) {
@@ -137,6 +163,30 @@ function formatStock(value, unit = 'pcs') {
   return `${pretty} ${unit}`
 }
 
+function formatPrettyNumber(value) {
+  if (value == null || Number.isNaN(Number(value))) return '0'
+  const n = Number(value)
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)))
+}
+
+function pluralizeUnit(unit, qty = 2) {
+  const u = String(unit || '').trim()
+  if (!u) return ''
+  const lower = u.toLowerCase()
+  if (['pcs', 'g', 'kg', 'ml', 'l', 'tbsp', 'tsp'].includes(lower)) return u
+  if (Math.abs(Number(qty)) === 1) return u
+  if (lower === 'box') return 'boxes'
+  return `${u}s`
+}
+
+function formatPriceUnitLabel(unit = 'pcs') {
+  const u = String(unit || 'pcs').trim()
+  if (u.toLowerCase() === 'pcs' || u.toLowerCase() === 'pc' || u.toLowerCase() === 'piece') {
+    return 'piece'
+  }
+  return u
+}
+
 function formatDaysLeft(days) {
   if (days == null) return '—'
   if (days < 0) return `${days}d`
@@ -151,9 +201,9 @@ function notifyInventoryChanged() {
 function FilterSelect({ value, options, open, onToggle, onSelect, menuRef }) {
   return (
     <div className="inv-filter" ref={menuRef}>
-      <button type="button" className="inv-filter-btn" onClick={onToggle}>
+      <button type="button" className={`inv-filter-btn${open ? ' open' : ''}`} onClick={onToggle}>
         {value}
-        <LuChevronDown size={15} />
+        <LuChevronDown size={15} className="inv-filter-chevron" />
       </button>
       {open && (
         <div className="inv-menu">
@@ -194,7 +244,7 @@ function InventoryConfirmModal({ type, item, saving, onClose, onConfirm }) {
   const name = item?.name || 'this item'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -268,7 +318,10 @@ const EMPTY_FORM = {
   name: '',
   stock: '0',
   reorder: '',
+  price: '',
   unit: 'pcs',
+  portion_unit: '',
+  portions_per_unit: '',
   date_placed: '',
   expiry_date: '',
 }
@@ -308,6 +361,8 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   const [logRange, setLogRange] = useState('today')
   const [logPage, setLogPage] = useState(1)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [exportingLogs, setExportingLogs] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [customCategories, setCustomCategories] = useState(() => getCustomCategories())
   const [showNewCatInput, setShowNewCatInput] = useState(false)
@@ -326,15 +381,20 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   const logActRef = useRef(null)
   const logRangeRef = useRef(null)
 
-  const reload = useCallback(async () => {
-    const [i, l] = await Promise.all([
-      inventoryApi.list({ tab: currentTab }),
-      inventoryApi.logs({ range: 'all' }),
-    ])
-    setItems(i.data?.data || i.data || [])
-    setLogs(l.data?.data || l.data || [])
-    setLogStats(l.data?.meta?.stats || EMPTY_LOG_STATS)
-    setPageStats(i.data?.meta?.stats || null)
+  const reload = useCallback(async ({ showSkeleton = false } = {}) => {
+    if (showSkeleton) setLoading(true)
+    try {
+      const [i, l] = await Promise.all([
+        inventoryApi.list({ tab: currentTab }),
+        inventoryApi.logs({ range: 'all' }),
+      ])
+      setItems(i.data?.data || i.data || [])
+      setLogs(l.data?.data || l.data || [])
+      setLogStats(l.data?.meta?.stats || EMPTY_LOG_STATS)
+      setPageStats(i.data?.meta?.stats || null)
+    } finally {
+      setLoading(false)
+    }
   }, [currentTab])
 
   useEffect(() => {
@@ -342,7 +402,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
   }, [currentTab])
 
   useEffect(() => {
-    reload().catch(console.error)
+    reload({ showSkeleton: true }).catch(console.error)
   }, [reload])
 
   useEffect(() => {
@@ -373,19 +433,19 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
 
   const filteredLogs = useMemo(() => {
     const q = logSearch.trim().toLowerCase()
-    const now = new Date()
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const nowMs = Date.now()
+    const startOfTodayMs = getManilaStartOfDayMs()
 
     return logs.filter((log) => {
       if (logCategory !== 'All Categories' && log.category !== logCategory) return false
       if (logActivity !== 'All Activities' && log.action !== logActivity) return false
 
       if (logRange !== 'all') {
-        const dt = new Date(log.datetime)
+        const dt = new Date(log.created_at || log.datetime)
         if (!Number.isNaN(dt.getTime())) {
-          if (logRange === 'today' && dt < startOfToday) return false
-          if (logRange === '7d' && dt < new Date(now.getTime() - 7 * 86400000)) return false
-          if (logRange === '30d' && dt < new Date(now.getTime() - 30 * 86400000)) return false
+          if (logRange === 'today' && dt.getTime() < startOfTodayMs) return false
+          if (logRange === '7d' && dt.getTime() < nowMs - 7 * 86400000) return false
+          if (logRange === '30d' && dt.getTime() < nowMs - 30 * 86400000) return false
         }
       }
 
@@ -458,7 +518,9 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     setSelectedLog(null)
   }
 
-  function exportLogs() {
+  async function exportLogs() {
+    if (exportingLogs) return
+    setExportingLogs(true)
     const header = [
       'Date & Time',
       'Item',
@@ -483,7 +545,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
         .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
         .join(','),
     )
-    const filename = `inventory-activity-log-${new Date().toISOString().slice(0, 10)}.csv`
+    const filename = `inventory-activity-log-${getManilaDateYmd()}.csv`
     const blob = new Blob([[header.join(','), ...lines].join('\n')], {
       type: 'text/csv;charset=utf-8;',
     })
@@ -496,7 +558,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
 
     try {
       const sizeKB = `${(blob.size / 1024).toFixed(1)} KB`
-      reportsApi.logExport({
+      await reportsApi.logExport({
         name: filename,
         format: 'CSV',
         size: sizeKB,
@@ -504,6 +566,8 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       }).catch(console.error)
     } catch (e) {
       console.warn('Failed to log inventory export:', e)
+    } finally {
+      setExportingLogs(false)
     }
   }
 
@@ -511,6 +575,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     const config = getCategoryConfig(form.category)
     const trackExpiry = config?.trackExpiry !== false
     const detailConfig = getSubcategoryDetailConfig(form.category, form.subcategory)
+    const hasPortionTool = Boolean(form.portion_unit && form.portion_unit !== form.unit)
 
     return {
       name: form.name.trim(),
@@ -519,7 +584,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       subcategory_detail: detailConfig ? form.subcategory_detail || null : null,
       stock: Number(form.stock),
       unit: form.unit || 'pcs',
+      portion_unit: hasPortionTool ? form.portion_unit : null,
+      portions_per_unit:
+        hasPortionTool && form.portions_per_unit !== '' && !Number.isNaN(Number(form.portions_per_unit))
+          ? Number(form.portions_per_unit)
+          : null,
       reorder_level: Number(form.reorder),
+      price: form.price !== '' && !Number.isNaN(Number(form.price)) ? Number(form.price) : 0,
       date_placed: form.date_placed || null,
       expiry_date: trackExpiry ? form.expiry_date || null : null,
     }
@@ -550,6 +621,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     if (form.reorder === '' || Number.isNaN(Number(form.reorder))) {
       alert('Reorder point is required.')
       return false
+    }
+    if (form.portion_unit && form.portion_unit !== form.unit) {
+      const pCount = Number(form.portions_per_unit)
+      if (!form.portions_per_unit || Number.isNaN(pCount) || pCount <= 0) {
+        alert(`Please enter how many ${pluralizeUnit(form.portion_unit, 2)} are in 1 ${formatPriceUnitLabel(form.unit)}.`)
+        return false
+      }
     }
     return true
   }
@@ -657,7 +735,10 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       name: item.name || '',
       stock: String(item.stock ?? '0'),
       reorder: String(item.reorder ?? ''),
+      price: item.price != null ? String(item.price) : '',
       unit: item.unit || config?.defaultUnit || 'pcs',
+      portion_unit: item.portion_unit || '',
+      portions_per_unit: item.portions_per_unit != null ? String(item.portions_per_unit) : '',
       date_placed: item.date_placed_raw || '',
       expiry_date: item.expiry_date_raw || '',
     })
@@ -705,7 +786,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     setRestockItem(item)
     setRestockQty('')
     setRestockExpiry('')
-    setRestockDatePlaced(new Date().toISOString().split('T')[0])
+    setRestockDatePlaced(getManilaDateYmd())
     setRestockBatchNo('')
   }
 
@@ -726,7 +807,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
     const showExpiry = categoryConfig?.trackExpiry !== false
 
     return (
-      <div className="inv-backdrop" onClick={closeFormModal} role="presentation">
+      <div className="inv-backdrop" role="presentation">
         <div
           className="inv-modal inv-modal-form"
           onClick={(e) => e.stopPropagation()}
@@ -759,7 +840,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     </button>
                   )}
                 </div>
-                <select
+                <CustomSelect
                   id="inv-category-select"
                   value={form.category}
                   onChange={(e) => {
@@ -773,7 +854,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                       {c}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
               </div>
 
               {showNewCatInput && (
@@ -835,7 +916,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <h3 className="inv-form-section-title">ITEM INFORMATION</h3>
                   <label>
                     Subcategory
-                    <select
+                    <CustomSelect
                       value={form.subcategory}
                       onChange={(e) =>
                         setForm((f) => ({
@@ -851,12 +932,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                           {sub}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
                   </label>
                   {detailConfig ? (
                     <label>
                       {detailConfig.label}
-                      <select
+                      <CustomSelect
                         value={form.subcategory_detail}
                         onChange={(e) =>
                           setForm((f) => ({ ...f, subcategory_detail: e.target.value }))
@@ -868,7 +949,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                             {part}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                   ) : null}
                   <label>
@@ -882,16 +963,68 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   <div className="inv-form-grid">
                     <label>
                       Unit Type
-                      <select
+                      <CustomSelect
                         value={form.unit}
-                        onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                        onChange={(e) => {
+                          const nextUnit = e.target.value
+                          setForm((f) => {
+                            const prevUnit = f.unit
+                            let factor = 1
+                            if (prevUnit === 'kg' && nextUnit === 'g') factor = 1000
+                            else if (prevUnit === 'g' && nextUnit === 'kg') factor = 0.001
+                            else if (prevUnit === 'L' && nextUnit === 'ml') factor = 1000
+                            else if (prevUnit === 'ml' && nextUnit === 'L') factor = 0.001
+
+                            const clearPortion = f.portion_unit && f.portion_unit.toLowerCase() === nextUnit.toLowerCase()
+
+                            if (factor === 1) {
+                              return {
+                                ...f,
+                                unit: nextUnit,
+                                ...(clearPortion ? { portion_unit: '', portions_per_unit: '' } : {}),
+                              }
+                            }
+
+                            const nextStock =
+                              f.stock !== '' && Number.isFinite(Number(f.stock))
+                                ? String(Number((Number(f.stock) * factor).toFixed(4)))
+                                : f.stock
+                            const nextReorder =
+                              f.reorder !== '' && Number.isFinite(Number(f.reorder))
+                                ? String(Number((Number(f.reorder) * factor).toFixed(4)))
+                                : f.reorder
+                            const nextPrice =
+                              f.price !== '' && Number.isFinite(Number(f.price)) && Number(f.price) > 0
+                                ? String(Number((Number(f.price) / factor).toFixed(4)))
+                                : f.price
+                            const nextPortionsPerUnit =
+                              !clearPortion &&
+                              f.portions_per_unit !== '' &&
+                              Number.isFinite(Number(f.portions_per_unit)) &&
+                              Number(f.portions_per_unit) > 0
+                                ? String(Number((Number(f.portions_per_unit) / factor).toFixed(4)))
+                                : clearPortion
+                                  ? ''
+                                  : f.portions_per_unit
+
+                            return {
+                              ...f,
+                              unit: nextUnit,
+                              stock: nextStock,
+                              reorder: nextReorder,
+                              price: nextPrice,
+                              portion_unit: clearPortion ? '' : f.portion_unit,
+                              portions_per_unit: nextPortionsPerUnit,
+                            }
+                          })
+                        }}
                       >
                         {UNITS.map((u) => (
                           <option key={u.value} value={u.value}>
                             {u.label}
                           </option>
                         ))}
-                      </select>
+                      </CustomSelect>
                     </label>
                     <label>
                       {isEdit ? 'Current Stock' : 'Initial Stock'}
@@ -905,19 +1038,108 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 </section>
 
                 <section className="inv-form-section">
-                  <h3 className="inv-form-section-title">STOCK THRESHOLD</h3>
-                  <label>
-                    Reorder Point
-                    <UnitInput
-                      value={form.reorder}
-                      unit={form.unit}
-                      onChange={(e) => setForm((f) => ({ ...f, reorder: e.target.value }))}
-                      placeholder="e.g. 10"
-                    />
-                  </label>
+                  <h3 className="inv-form-section-title">STOCK THRESHOLD & PRICING</h3>
+                  <div className="inv-form-grid">
+                    <label>
+                      Reorder Point
+                      <UnitInput
+                        value={form.reorder}
+                        unit={form.unit}
+                        onChange={(e) => setForm((f) => ({ ...f, reorder: e.target.value }))}
+                        placeholder="e.g. 10"
+                      />
+                    </label>
+                    <label>
+                      Price per {formatPriceUnitLabel(form.unit)} (₱)
+                      <div className="inv-input-currency">
+                        <span className="inv-currency-symbol">₱</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={form.price}
+                          onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                          placeholder="0.00"
+                        />
+                        <span className="inv-unit-suffix">/ {form.unit || 'pcs'}</span>
+                      </div>
+                    </label>
+                  </div>
                   <p className="inv-field-hint">
-                    System will alert when stock falls below this number.
+                    Priced per 1 {formatPriceUnitLabel(form.unit)} ({form.unit || 'pcs'}) — used to calculate recipe and removable ingredient costs.
                   </p>
+                </section>
+
+                <section className="inv-form-section">
+                  <h3 className="inv-form-section-title">KITCHEN PORTION TOOL (OPTIONAL · NO SCALE)</h3>
+                  <div className={form.portion_unit ? 'inv-form-grid' : ''}>
+                    <label>
+                      Portion Tool / Kitchen Unit
+                      <CustomSelect
+                        value={form.portion_unit}
+                        onChange={(e) => {
+                          const nextTool = e.target.value
+                          setForm((f) => ({
+                            ...f,
+                            portion_unit: nextTool,
+                            portions_per_unit: nextTool ? f.portions_per_unit : '',
+                          }))
+                        }}
+                      >
+                        {PORTION_TOOLS.filter(
+                          (t) => !t.value || t.value.toLowerCase() !== String(form.unit || '').toLowerCase(),
+                        ).map((t) => (
+                          <option key={t.value || 'none'} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </CustomSelect>
+                    </label>
+                    {form.portion_unit ? (
+                      <label>
+                        {pluralizeUnit(form.portion_unit, 2).charAt(0).toUpperCase() +
+                          pluralizeUnit(form.portion_unit, 2).slice(1)}{' '}
+                        per 1 {formatPriceUnitLabel(form.unit)}
+                        <UnitInput
+                          value={form.portions_per_unit}
+                          unit={pluralizeUnit(form.portion_unit, 2)}
+                          min="0.01"
+                          placeholder="e.g. 8"
+                          onChange={(e) => setForm((f) => ({ ...f, portions_per_unit: e.target.value }))}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  {form.portion_unit && Number(form.portions_per_unit) > 0 ? (
+                    <div className="inv-portion-preview">
+                      <span>
+                        <strong>1 {form.unit}</strong> ={' '}
+                        <strong>
+                          {formatPrettyNumber(form.portions_per_unit)}{' '}
+                          {pluralizeUnit(form.portion_unit, form.portions_per_unit)}
+                        </strong>
+                      </span>
+                      {Number(form.price) > 0 ? (
+                        <span>
+                          · ≈ <strong>₱{(Number(form.price) / Number(form.portions_per_unit)).toFixed(2)}</strong> /{' '}
+                          {form.portion_unit}
+                        </span>
+                      ) : null}
+                      {Number(form.stock) > 0 ? (
+                        <span>
+                          · Stock ≈{' '}
+                          <strong>
+                            {formatPrettyNumber(Number(form.stock) * Number(form.portions_per_unit))}{' '}
+                            {pluralizeUnit(form.portion_unit, Number(form.stock) * Number(form.portions_per_unit))}
+                          </strong>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="inv-field-hint">
+                      Map bulk stock (e.g. 1 pack or 1 kg) to a fixed kitchen tool (scoop, ladle, cup, slice) so cooks can portion recipes without a weighing scale.
+                    </p>
+                  )}
                 </section>
 
                 <section className="inv-form-section">
@@ -998,6 +1220,14 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
         </div>
       </header>
 
+      {loading ? (
+        <StatCardsSkeleton
+          count={4}
+          gridClassName="inv-stats"
+          cardClassName="inv-stat"
+          labelFirst
+        />
+      ) : (
       <section className="inv-stats">
         <article className="inv-stat">
           <div className="inv-stat-icon yellow">
@@ -1051,6 +1281,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
           </div>
         </article>
       </section>
+      )}
 
       <section className="inv-toolbar">
         <div className="inv-search">
@@ -1097,6 +1328,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
           onClick={() => {
             setPage(1)
             setOpenFilter(null)
+            reload().catch(console.error)
           }}
         >
           <LuFilter size={15} /> Filter
@@ -1111,6 +1343,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 <th>Item Name</th>
                 <th>Category</th>
                 <th>Current Stock</th>
+                <th>Price</th>
                 <th>Reorder Point</th>
                 <th>Date Placed</th>
                 <th>Expiry Date</th>
@@ -1120,9 +1353,14 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['text', 'text', 'two-line', 'two-line', 'short', 'short', 'short', 'badge', 'badge', 'icon-actions']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="inv-empty">
+                  <td colSpan={10} className="inv-empty">
                     <EmptyState
                       icon="box"
                       title={
@@ -1141,8 +1379,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
               ) : (
                 rows.map((item) => {
                   const sc = statusClass(item.status)
+                  const isArchivedRow =
+                    currentTab === 'archived' ||
+                    item.status === 'Archived' ||
+                    Boolean(item.archived)
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={isArchivedRow ? 'inv-row-archived' : ''}>
                       <td>
                         <div className="inv-name">{item.name}</div>
                       </td>
@@ -1160,6 +1402,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                         <div className={`inv-stock-val ${item.status === 'Low Stock' ? 'low' : item.status === 'Out of Stock' ? 'out' : ''}`}>
                           <strong>{item.stock}</strong> <span className="inv-unit">{item.unit}</span>
                         </div>
+                        {item.portion_unit && Number(item.portions_per_unit) > 0 ? (
+                          <div className="inv-portion-sub">
+                            ≈ {formatPrettyNumber(item.stock_in_portions ?? Number(item.stock) * Number(item.portions_per_unit))}{' '}
+                            {pluralizeUnit(item.portion_unit, item.stock_in_portions ?? 2)} (
+                            {formatPrettyNumber(item.portions_per_unit)}/{item.unit})
+                          </div>
+                        ) : null}
                         {item.batches && item.batches.length > 0 ? (
                           <div className="inv-batches-pill-list">
                             {item.batches.map((b) => {
@@ -1181,6 +1430,23 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                                 </div>
                               )
                             })}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <span className="inv-price-val">
+                          {item.price > 0 ? (
+                            <>
+                              ₱{Number(item.price).toFixed(2)}{' '}
+                              <span className="inv-unit">/ {item.unit || 'pcs'}</span>
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </span>
+                        {item.price_per_portion > 0 && item.portion_unit ? (
+                          <div className="inv-portion-sub">
+                            ₱{Number(item.price_per_portion).toFixed(2)} / {item.portion_unit}
                           </div>
                         ) : null}
                       </td>
@@ -1256,37 +1522,11 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} items
           </span>
-          <div className="inv-pages">
-            <button
-              type="button"
-              className="inv-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`inv-page-btn${n === currentPage ? ' active' : ''}`}
-                disabled={totalPages <= 1}
-                onClick={() => setPage(n)}
-              >
-                {n}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="inv-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
       </section>
 
@@ -1307,7 +1547,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
         })}
 
       {restockItem && (
-        <div className="inv-backdrop" onClick={() => setRestockItem(null)} role="presentation">
+        <div className="inv-backdrop" role="presentation">
           <div className="inv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="inv-modal-head">
               <h2>Restock {restockItem.name}</h2>
@@ -1318,6 +1558,16 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 <strong>
                   {restockItem.stock} {restockItem.unit}
                 </strong>
+                {restockItem.portion_unit && Number(restockItem.portions_per_unit) > 0 ? (
+                  <span style={{ color: '#6B7280' }}>
+                    {' '}
+                    (≈{' '}
+                    {formatPrettyNumber(
+                      restockItem.stock_in_portions ?? Number(restockItem.stock) * Number(restockItem.portions_per_unit),
+                    )}{' '}
+                    {pluralizeUnit(restockItem.portion_unit, restockItem.stock_in_portions ?? 2)})
+                  </span>
+                ) : null}
               </p>
               <label>
                 Quantity to add *
@@ -1332,6 +1582,15 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   required
                 />
               </label>
+              {restockItem.portion_unit && Number(restockItem.portions_per_unit) > 0 && Number(restockQty) > 0 ? (
+                <div className="inv-portion-preview" style={{ marginTop: 8 }}>
+                  Adding <strong>{formatPrettyNumber(restockQty)} {restockItem.unit}</strong> ≈{' '}
+                  <strong>
+                    {formatPrettyNumber(Number(restockQty) * Number(restockItem.portions_per_unit))}{' '}
+                    {pluralizeUnit(restockItem.portion_unit, Number(restockQty) * Number(restockItem.portions_per_unit))}
+                  </strong>
+                </div>
+              ) : null}
               <label style={{ marginTop: '10px' }}>
                 Expiry Date (Perishables)
                 <input
@@ -1391,7 +1650,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
       )}
 
       {historyOpen && (
-        <div className="inv-backdrop inv-activity-backdrop" onClick={closeHistory} role="presentation">
+        <div className="inv-backdrop inv-activity-backdrop" role="presentation">
           <div className="inv-activity-shell" onClick={(e) => e.stopPropagation()}>
             <div
               className="inv-modal inv-activity"
@@ -1512,6 +1771,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   onClick={() => {
                     setLogPage(1)
                     setOpenFilter(null)
+                    reload().catch(console.error)
                   }}
                 >
                   <IconFilter /> Filter
@@ -1533,7 +1793,12 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     </tr>
                   </thead>
                   <tbody>
-                    {logRows.length === 0 ? (
+                    {loading ? (
+                      <TableRowsSkeleton
+                        rows={5}
+                        shapes={['short', 'two-line', 'badge', 'short', 'short', 'two-line', 'text', 'short']}
+                      />
+                    ) : logRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="inv-empty">
                           <EmptyState
@@ -1592,51 +1857,13 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                   {Math.min(logCurrentPage * LOG_PAGE_SIZE, filteredLogs.length)} of{' '}
                   {filteredLogs.length} activities
                 </span>
-                <div className="inv-pages">
-                  <button
-                    type="button"
-                    className="inv-page-btn arrow"
-                    disabled={logCurrentPage <= 1}
-                    onClick={() => setLogPage((p) => p - 1)}
-                    aria-label="Previous page"
-                  >
-                    <LuChevronLeft size={16} />
-                  </button>
-                  {Array.from({ length: logTotalPages }, (_, i) => i + 1)
-                    .filter((n) => {
-                      if (logTotalPages <= 7) return true
-                      if (n === 1 || n === logTotalPages) return true
-                      return Math.abs(n - logCurrentPage) <= 1
-                    })
-                    .map((n, idx, arr) => {
-                      const prev = arr[idx - 1]
-                      const showEllipsis = prev != null && n - prev > 1
-                      return (
-                        <span key={n} className="inv-page-group">
-                          {showEllipsis && <span className="inv-ellipsis">…</span>}
-                          <button
-                            type="button"
-                            className={`inv-page-btn${n === logCurrentPage ? ' active' : ''}`}
-                            disabled={logTotalPages <= 1}
-                            onClick={() => setLogPage(n)}
-                          >
-                            {n}
-                          </button>
-                        </span>
-                      )
-                    })}
-                  <button
-                    type="button"
-                    className="inv-page-btn arrow"
-                    disabled={logCurrentPage >= logTotalPages}
-                    onClick={() => setLogPage((p) => p + 1)}
-                    aria-label="Next page"
-                  >
-                    <LuChevronRight size={16} />
-                  </button>
-                </div>
-                <button type="button" className="inv-btn-outline inv-btn-export" onClick={exportLogs}>
-                  <LuUpload size={15} /> Export
+                <PaginationControls
+                  currentPage={logCurrentPage}
+                  totalPages={logTotalPages}
+                  onPageChange={setLogPage}
+                />
+                <button type="button" className="inv-btn-outline inv-btn-export" disabled={exportingLogs} onClick={exportLogs}>
+                  <LuUpload size={15} /> {exportingLogs ? 'Exporting…' : 'Export'}
                 </button>
               </div>
             </div>

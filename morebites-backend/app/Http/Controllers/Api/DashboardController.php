@@ -265,11 +265,12 @@ class DashboardController extends Controller
                 ];
             });
 
-        // Activity Log: strictly today in Asia/Manila with timezone-converted timestamp
+        // Activity Log: strictly today in Asia/Manila, capped to the latest top 5 activities
         $activity = ActivityLog::query()
             ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
             ->latest('created_at')
-            ->take(8)
+            ->latest('id')
+            ->take(5)
             ->get()
             ->map(fn ($a) => [
                 'time' => $a->created_at?->copy()->setTimezone('Asia/Manila')->format('g:i A') ?: 'Just now',

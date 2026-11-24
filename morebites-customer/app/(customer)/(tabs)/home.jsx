@@ -19,6 +19,7 @@ const CATEGORIES = ["All", "Pizza", "Snacks", "Desserts", "Beverages", "Rice Mea
 
 function FoodCard({ item, horizontal = false }) {
   const isAvailable = item.availability !== false && item.available !== false;
+  const hasPromo = Boolean(item.promoActive && Number(item.promoDiscountPercent) > 0);
   const imageUrl = mediaUrl(item.image);
   return (
     <Pressable
@@ -41,17 +42,30 @@ function FoodCard({ item, horizontal = false }) {
             <Ionicons name="fast-food-outline" size={42} color="#8A8A8A" />
           </View>
         )}
-        {!isAvailable && (
+        {!isAvailable ? (
           <View style={styles.unavailableBadge}>
             <Text style={styles.unavailableBadgeText}>Unavailable</Text>
           </View>
-        )}
+        ) : hasPromo ? (
+          <View style={styles.promoBadge}>
+            <Text style={styles.promoBadgeText}>
+              {Number(item.promoDiscountPercent)}% OFF
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.cardContent}>
         <Text style={styles.foodName} numberOfLines={2}>
           {item.name}
         </Text>
-        <Text style={styles.price}>{item.priceLabel}</Text>
+        <View style={styles.priceRow}>
+          <Text style={styles.price}>{item.priceLabel}</Text>
+          {hasPromo && item.originalPriceLabel ? (
+            <Text style={styles.originalPrice} numberOfLines={1}>
+              {item.originalPriceLabel}
+            </Text>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -126,6 +140,10 @@ export default function HomeScreen() {
   }, [menuItems]);
 
   const selectedItems = menuItems.filter((item) => item.category === activeCategory);
+  const promoItems = useMemo(
+    () => menuItems.filter((item) => item.promoActive && Number(item.promoDiscountPercent) > 0 && item.available !== false),
+    [menuItems],
+  );
 
   const renderCategorySections = () => {
     if (activeCategory !== "All") {
@@ -139,6 +157,12 @@ export default function HomeScreen() {
 
     return (
       <>
+        {promoItems.length > 0 ? (
+          <View>
+            <Text style={styles.sectionTitle}>Today&apos;s Deals</Text>
+            <FoodShelf items={promoItems} />
+          </View>
+        ) : null}
         <Text style={styles.sectionTitle}>Popular Items</Text>
         <FoodShelf items={popularItems} />
         {categories.slice(1).map((category) => {
@@ -344,6 +368,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.3,
   },
+  promoBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+  promoBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
   placeholderImage: {
     alignItems: "center",
     backgroundColor: "#F8F8F8",
@@ -357,7 +397,14 @@ const styles = StyleSheet.create({
   },
   cardContent: { padding: 10 },
   foodName: { color: "#121212", fontSize: 14, fontWeight: "700", minHeight: 36 },
-  price: { color: ORANGE, fontSize: 13, fontWeight: "700", marginTop: 4 },
+  priceRow: { marginTop: 4 },
+  price: { color: ORANGE, fontSize: 13, fontWeight: "700" },
+  originalPrice: {
+    color: "#9CA3AF",
+    fontSize: 11,
+    textDecorationLine: "line-through",
+    marginTop: 1,
+  },
   centered: { alignItems: "center", paddingTop: 40 },
   helperText: { color: "#9CA3AF", fontSize: 13, marginTop: 8, textAlign: "center" },
   errorTitle: { color: "#121212", fontSize: 16, fontWeight: "700" },

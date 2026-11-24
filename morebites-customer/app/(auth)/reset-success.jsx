@@ -1,18 +1,36 @@
-import { router } from "expo-router";
+import { useCallback } from "react";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { BackHandler, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const FONT = "Plus Jakarta Sans";
 
 export default function ResetSuccessScreen() {
+  const goToLogin = useCallback(() => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace("/(auth)/login");
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        goToLogin();
+        return true;
+      });
+      return () => sub.remove();
+    }, [goToLogin])
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Ionicons name="checkmark-circle" size={100} color="#22C55E" />
         <Text style={styles.title}>Your password has been Reset!</Text>
         <Text style={styles.subtitle}>You can now log in with your new password</Text>
-        <TouchableOpacity style={styles.button} onPress={() => router.replace("/(auth)/login")}>
+        <TouchableOpacity style={styles.button} onPress={goToLogin}>
           <Text style={styles.buttonText}>Back to Login</Text>
         </TouchableOpacity>
       </View>

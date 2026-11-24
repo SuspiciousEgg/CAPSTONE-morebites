@@ -143,14 +143,14 @@ class DriverController extends Controller
             'status' => $u->status,
             'phone' => $u->phone,
             'email' => $u->email,
-            'joined' => $u->created_at?->format('M d, Y'),
+            'joined' => \App\Support\ManilaTime::format($u->created_at, 'M d, Y'),
             'success' => ($u->success_rate ?: 0).'%',
             'completed' => (int) $u->completed_orders,
             'years' => (int) $u->years_experience,
             'reviews' => $u->reviews->map(fn ($r) => [
                 'text' => $r->text,
                 'rating' => (int) $r->rating,
-                'date' => $r->reviewed_at?->format('M d, Y') ?? $r->created_at?->format('M d, Y'),
+                'date' => \App\Support\ManilaTime::format($r->reviewed_at ?? $r->created_at, 'M d, Y'),
             ])->values(),
         ];
     }

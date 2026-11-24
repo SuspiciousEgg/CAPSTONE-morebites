@@ -11,6 +11,7 @@ import {
   LuBan,
   LuTriangleAlert,
 } from 'react-icons/lu'
+import { getManilaDaysUntil } from '../utils/manilaTime'
 
 const BLACKLIST_REASONS = [
   'Broken inventory',
@@ -30,6 +31,8 @@ import {
 import { driversApi, getStoredUser, mediaUrl } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import { TableRowsSkeleton } from './Skeleton'
 import './DriverManagement.css'
 
 function Stars({ value }) {
@@ -47,7 +50,8 @@ function Stars({ value }) {
 }
 
 function isExpired(dateStr) {
-  return new Date(dateStr) < new Date()
+  const days = getManilaDaysUntil(dateStr)
+  return days !== null && days < 0
 }
 
 export default function DriverManagement({ embedded = false }) {
@@ -56,12 +60,14 @@ export default function DriverManagement({ embedded = false }) {
   const isOwner = currentUser?.role === 'super_admin'
   const [drivers, setDrivers] = useState([])
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     driversApi
       .list()
       .then((r) => setDrivers(r.data?.data || r.data || []))
       .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
   const [status, setStatus] = useState('All Status')
   const [sort, setSort] = useState('By: Rating High to Low')
@@ -200,9 +206,13 @@ export default function DriverManagement({ embedded = false }) {
         </div>
 
         <div className="dm-filter" ref={statusRef}>
-          <button type="button" className="dm-filter-btn" onClick={() => setOpenFilter((v) => (v === 'status' ? null : 'status'))}>
+          <button
+            type="button"
+            className={`dm-filter-btn${openFilter === 'status' ? ' open' : ''}`}
+            onClick={() => setOpenFilter((v) => (v === 'status' ? null : 'status'))}
+          >
             {status}
-            <LuChevronDown size={14} />
+            <LuChevronDown size={14} className="dm-filter-chevron" />
           </button>
           {openFilter === 'status' && (
             <div className="dm-menu">
@@ -225,9 +235,13 @@ export default function DriverManagement({ embedded = false }) {
         </div>
 
         <div className="dm-filter" ref={sortRef}>
-          <button type="button" className="dm-filter-btn" onClick={() => setOpenFilter((v) => (v === 'sort' ? null : 'sort'))}>
+          <button
+            type="button"
+            className={`dm-filter-btn${openFilter === 'sort' ? ' open' : ''}`}
+            onClick={() => setOpenFilter((v) => (v === 'sort' ? null : 'sort'))}
+          >
             {sort}
-            <LuChevronDown size={14} />
+            <LuChevronDown size={14} className="dm-filter-chevron" />
           </button>
           {openFilter === 'sort' && (
             <div className="dm-menu">
@@ -265,7 +279,12 @@ export default function DriverManagement({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['id', 'text', 'short', 'short', 'short', 'stars', 'badge', 'action-btn']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="dm-empty">
                     <EmptyState
@@ -341,7 +360,7 @@ export default function DriverManagement({ embedded = false }) {
 
       {selected && (
         <>
-          <div className="dm-backdrop" onClick={() => setSelected(null)} role="presentation" />
+          <div className="dm-backdrop" role="presentation" />
           <aside className="dm-drawer" role="dialog" aria-modal="true">
             <div className="dm-drawer-head">
               <h2>Driver Details</h2>
@@ -439,7 +458,6 @@ export default function DriverManagement({ embedded = false }) {
       {confirmModal && (
         <div
           className="dm-modal-overlay"
-          onClick={() => !actionLoading && setConfirmModal(null)}
           role="presentation"
         >
           <div className="dm-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -490,7 +508,6 @@ export default function DriverManagement({ embedded = false }) {
       {blacklistModal && (
         <div
           className="dm-modal-overlay"
-          onClick={() => !actionLoading && setBlacklistModal(null)}
           role="presentation"
         >
           {blacklistStep === 1 ? (
@@ -514,7 +531,7 @@ export default function DriverManagement({ embedded = false }) {
 
               <div className="dm-form-group">
                 <label className="dm-form-label">Reason for Blocklist *</label>
-                <select
+                <CustomSelect
                   className="dm-form-select"
                   value={blacklistReason}
                   onChange={(e) => setBlacklistReason(e.target.value)}
@@ -525,7 +542,7 @@ export default function DriverManagement({ embedded = false }) {
                       {r}
                     </option>
                   ))}
-                </select>
+                </CustomSelect>
               </div>
 
               <div className="dm-form-group">

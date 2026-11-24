@@ -35,7 +35,7 @@ class GasExpenseController extends Controller
                 'id' => $e->id,
                 'amount' => (float) $e->amount,
                 'amount_label' => '₱' . number_format((float) $e->amount, 2),
-                'expense_date' => $e->expense_date?->format('Y-m-d') ?: $e->created_at?->format('Y-m-d'),
+                'expense_date' => $e->expense_date?->format('Y-m-d') ?: \App\Support\ManilaTime::format($e->created_at, 'Y-m-d'),
                 'note' => $e->note ?: 'Fuel / Gas Expense',
                 'driver_id' => $e->driver_id,
                 'driver_name' => $e->driver?->name ?: null,
@@ -54,11 +54,11 @@ class GasExpenseController extends Controller
             ->where('status', 'Completed');
 
         if ($fromDate) {
-            $fromDt = Carbon::createFromFormat('Y-m-d', $fromDate)->startOfDay()->setTimezone('UTC');
+            $fromDt = \App\Support\ManilaTime::startOfDayUtc($fromDate);
             $ordersQuery->where('created_at', '>=', $fromDt);
         }
         if ($toDate) {
-            $toDt = Carbon::createFromFormat('Y-m-d', $toDate)->endOfDay()->setTimezone('UTC');
+            $toDt = \App\Support\ManilaTime::endOfDayUtc($toDate);
             $ordersQuery->where('created_at', '<=', $toDt);
         }
         if ($driverId) {

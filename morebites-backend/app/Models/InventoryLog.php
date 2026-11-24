@@ -60,7 +60,7 @@ class InventoryLog extends Model
 
         $prefix = $itemId ? str_pad((string) $itemId, 2, '0', STR_PAD_LEFT) : 'XX';
 
-        return 'SN-'.now()->format('md').'-'.$prefix;
+        return 'SN-'.\App\Support\ManilaTime::now()->format('md').'-'.$prefix;
     }
 
     /**
@@ -132,13 +132,14 @@ class InventoryLog extends Model
         $expiryLabel = $expiry?->format('M d, Y');
         $expiryTone = null;
         if ($expiry) {
-            $days = (int) floor(($expiry->copy()->startOfDay()->getTimestamp() - now()->startOfDay()->getTimestamp()) / 86400);
+            $days = \App\Support\ManilaTime::calendarDaysUntil($expiry);
             $expiryTone = $days < 0 ? 'expired' : ($days <= 7 ? 'warn' : 'ok');
         }
 
         return [
             'id' => $this->id,
-            'datetime' => $this->created_at?->format('M d, Y h:i A'),
+            'datetime' => \App\Support\ManilaTime::format($this->created_at, 'M d, Y h:i A'),
+            'created_at' => $this->created_at?->toIso8601String(),
             'item' => $this->item_name,
             'batch_no' => $this->batch_no,
             'category' => $this->category,
@@ -156,7 +157,7 @@ class InventoryLog extends Model
             'notes' => $this->notes,
             'performed_by' => $performedBy,
             'status' => $this->status,
-            'date_placed' => $this->date_placed?->format('M d, Y') ?: $this->created_at?->format('M d, Y'),
+            'date_placed' => $this->date_placed?->format('M d, Y') ?: \App\Support\ManilaTime::format($this->created_at, 'M d, Y'),
             'expiry_date' => $expiryLabel,
             'expiry_tone' => $expiryTone,
         ];

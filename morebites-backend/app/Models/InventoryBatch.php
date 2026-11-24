@@ -53,12 +53,7 @@ class InventoryBatch extends Model
             return null;
         }
 
-        $expiry = $this->expiry_date instanceof Carbon ? $this->expiry_date : Carbon::parse($this->expiry_date);
-
-        return (int) floor(
-            ($expiry->copy()->startOfDay()->getTimestamp()
-                - now()->startOfDay()->getTimestamp()) / 86400
-        );
+        return \App\Support\ManilaTime::calendarDaysUntil($this->expiry_date);
     }
 
     public function daysUntilExpiry(): ?int
@@ -73,7 +68,9 @@ class InventoryBatch extends Model
         }
 
         if ($this->expiry_date) {
-            return $this->expiry_date->copy()->startOfDay()->lessThan(now()->startOfDay());
+            $days = \App\Support\ManilaTime::calendarDaysUntil($this->expiry_date);
+
+            return $days !== null && $days < 0;
         }
 
         return false;
@@ -86,12 +83,7 @@ class InventoryBatch extends Model
         }
 
         if ($expiryDate) {
-            $expiry = $expiryDate instanceof Carbon
-                ? $expiryDate->copy()->startOfDay()
-                : Carbon::parse($expiryDate)->startOfDay();
-            $days = (int) floor(
-                ($expiry->getTimestamp() - now()->startOfDay()->getTimestamp()) / 86400
-            );
+            $days = \App\Support\ManilaTime::calendarDaysUntil($expiryDate);
 
             if ($days < 0) {
                 return 'Expired';

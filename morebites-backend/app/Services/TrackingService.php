@@ -12,8 +12,8 @@ class TrackingService
     public function storePoint(): array
     {
         return [
-            'latitude' => (float) config('services.maps.store_lat', 7.6094),
-            'longitude' => (float) config('services.maps.store_lng', 124.9883),
+            'latitude' => (float) config('services.maps.store_lat', 7.610688),
+            'longitude' => (float) config('services.maps.store_lng', 125.005047),
         ];
     }
 
@@ -44,10 +44,12 @@ class TrackingService
 
         $route = $this->directions($from, $to);
         $storeDistanceKm = $this->haversineKm($storeOrigin, $to);
+        $etaMins = max(8, (int) round($storeDistanceKm * 4));
         $order->update([
             'route_coordinates' => $route['coordinates'],
             'delivery_distance_km' => $storeDistanceKm,
-            'delivery_minutes' => max(8, (int) round($storeDistanceKm * 4)),
+            'delivery_minutes' => $etaMins,
+            'estimated_delivery_minutes' => $order->estimated_delivery_minutes ?: $etaMins,
         ]);
 
         return $order->fresh();
@@ -57,10 +59,6 @@ class TrackingService
     {
         $order = $this->ensureDestination($order);
         $storeOrigin = $this->storePoint();
-        $from = ['latitude' => $lat, 'longitude' => $lng];
-        if ($this->haversineKm($storeOrigin, $from) > DeliveryRateService::MAX_DELIVERY_KM) {
-            $from = $storeOrigin;
-        }
         $dest = ['latitude' => (float) $order->dest_lat, 'longitude' => (float) $order->dest_lng];
 
         $distanceKm = $this->haversineKm($storeOrigin, $dest);
@@ -69,14 +67,15 @@ class TrackingService
         $hasExistingRoute = is_array($order->route_coordinates) && count($order->route_coordinates) >= 2;
 
         $updates = [
-            'current_lat' => $from['latitude'],
-            'current_lng' => $from['longitude'],
+            'current_lat' => $lat,
+            'current_lng' => $lng,
             'delivery_distance_km' => $distanceKm,
             'delivery_minutes' => $etaMins,
+            'estimated_delivery_minutes' => $order->estimated_delivery_minutes ?: $etaMins,
         ];
 
         if (! $hasExistingRoute) {
-            $route = $this->directions($from, $dest);
+            $route = $this->directions($storeOrigin, $dest);
             $updates['route_coordinates'] = $route['coordinates'];
         }
 
@@ -135,7 +134,55 @@ class TrackingService
             }
         }
 
+        // 3. Offline / SSL-failure fallback for known Philippine & Bukidnon/Mindanao locations
+        if (($known = $this->knownPlaceLookup($query)) !== null) {
+            return $known;
+        }
+
         return $this->deterministicOffset($query, $fallback);
+    }
+
+    private function knownPlaceLookup(string $query): ?array
+    {
+        $normalized = strtolower(trim(preg_replace('/\s+/', ' ', $query)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        // Known cities & municipalities (more specific names checked first)
+        $places = [
+            'cagayan de oro' => ['latitude' => 8.4542, 'longitude' => 124.6319],
+            'cdo' => ['latitude' => 8.4542, 'longitude' => 124.6319],
+            'davao' => ['latitude' => 7.1907, 'longitude' => 125.4553],
+            'iligan' => ['latitude' => 8.2280, 'longitude' => 124.2452],
+            'cebu' => ['latitude' => 10.3157, 'longitude' => 123.8854],
+            'manila' => ['latitude' => 14.5995, 'longitude' => 120.9842],
+            'quezon city' => ['latitude' => 14.6760, 'longitude' => 121.0437],
+            'caloocan' => ['latitude' => 14.6488, 'longitude' => 120.9840],
+            'general santos' => ['latitude' => 6.1164, 'longitude' => 125.1716],
+            'butuan' => ['latitude' => 8.9475, 'longitude' => 125.5406],
+            'zamboanga' => ['latitude' => 6.9214, 'longitude' => 122.0790],
+            'tagum' => ['latitude' => 7.4479, 'longitude' => 125.8078],
+            'cotabato' => ['latitude' => 7.2236, 'longitude' => 124.2464],
+            'malaybalay' => ['latitude' => 8.1575, 'longitude' => 125.1278],
+            'valencia' => ['latitude' => 7.9064, 'longitude' => 125.0942],
+            'maramag' => ['latitude' => 7.7628, 'longitude' => 125.0047],
+            'don carlos' => ['latitude' => 7.6844, 'longitude' => 124.9969],
+            'quezon, bukidnon' => ['latitude' => 7.7306, 'longitude' => 125.0989],
+            'pangantucan' => ['latitude' => 7.8358, 'longitude' => 124.8325],
+            'kibawe' => ['latitude' => 7.5686, 'longitude' => 124.9878],
+            'damulog' => ['latitude' => 7.4822, 'longitude' => 124.9394],
+            'kitaotao' => ['latitude' => 7.6400, 'longitude' => 125.0122],
+            'dangcagan' => ['latitude' => 7.610688, 'longitude' => 125.005047],
+        ];
+
+        foreach ($places as $needle => $coords) {
+            if (preg_match('/\b'.preg_quote($needle, '/').'\b/i', $normalized)) {
+                return $coords;
+            }
+        }
+
+        return null;
     }
 
     public function nominatimLookup(string $query): ?array
@@ -228,19 +275,38 @@ class TrackingService
         ];
     }
 
+    public const ACTIVE_DELIVERY_STATUSES = [
+        'Assigned',
+        'Picked Up',
+        'Out for Delivery',
+        'Out For Delivery',
+    ];
+
+    public const RIDER_ACCEPTED_STATUSES = [
+        'Picked Up',
+        'Out for Delivery',
+        'Out For Delivery',
+        'Delivered',
+        'Completed',
+    ];
+
+    public function isRiderAccepted(Order $order): bool
+    {
+        return in_array($order->status, self::RIDER_ACCEPTED_STATUSES, true);
+    }
+
     public function riderPoint(Order $order): ?array
     {
-        $storeOrigin = $this->storePoint();
+        if (! $this->isRiderAccepted($order)) {
+            return null;
+        }
 
         if ($order->current_lat && $order->current_lng) {
-            $candidate = [
+            return [
                 'latitude' => (float) $order->current_lat,
                 'longitude' => (float) $order->current_lng,
                 'updated_at' => $order->updated_at?->toIso8601String(),
             ];
-            if ($this->haversineKm($storeOrigin, $candidate) <= DeliveryRateService::MAX_DELIVERY_KM) {
-                return $candidate;
-            }
         }
 
         $driver = $order->relationLoaded('driver') ? $order->driver : $order->driver()->first();
@@ -248,25 +314,12 @@ class TrackingService
             return null;
         }
 
-        $candidate = [
+        return [
             'latitude' => (float) $driver->current_lat,
             'longitude' => (float) $driver->current_lng,
             'updated_at' => $driver->location_updated_at?->toIso8601String(),
         ];
-
-        if ($this->haversineKm($storeOrigin, $candidate) > DeliveryRateService::MAX_DELIVERY_KM) {
-            return null;
-        }
-
-        return $candidate;
     }
-
-    public const ACTIVE_DELIVERY_STATUSES = [
-        'Assigned',
-        'Picked Up',
-        'Out for Delivery',
-        'Out For Delivery',
-    ];
 
     public function trackingPayload(Order $order): array
     {
@@ -275,21 +328,19 @@ class TrackingService
             'latitude' => (float) $order->dest_lat,
             'longitude' => (float) $order->dest_lng,
         ];
-        $rider = $this->riderPoint($order);
-        if (! $rider && in_array($order->status, self::ACTIVE_DELIVERY_STATUSES, true)) {
-            $rider = $this->storePoint();
-        }
+        $riderAccepted = $this->isRiderAccepted($order);
+        $rider = $riderAccepted ? ($this->riderPoint($order) ?? $this->storePoint()) : null;
         $coords = [];
         $distanceKm = null;
         $etaMins = null;
 
-        if ($rider) {
+        if ($riderAccepted && $rider) {
             $coords = $order->route_coordinates;
             if (! is_array($coords) || count($coords) < 2) {
                 $order = $this->ensureRoute($order, $rider);
                 $coords = $order->route_coordinates;
             }
-            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($rider, $destination));
+            $distanceKm = (float) ($order->delivery_distance_km ?: $this->haversineKm($this->storePoint(), $destination));
             $etaMins = (int) ($order->delivery_minutes ?: max(1, (int) round($distanceKm * 3.5)));
         }
 
@@ -302,7 +353,7 @@ class TrackingService
         $deliveredAt = $order->delivered_at ?? ($isCompleted ? $order->updated_at : null);
         $rates = app(DeliveryRateService::class);
         $prepSetting = \App\Models\StoreSetting::current();
-        $isPreparing = in_array($order->status, ['Preparing', 'Pending'], true);
+        $isPreparing = $order->status === 'Preparing';
 
         return [
             'order_id' => $order->order_code,
@@ -311,15 +362,16 @@ class TrackingService
             'receipt_number' => $order->receiptNumber(),
             'status' => $status,
             'raw_status' => $order->status,
+            'rider_accepted' => $riderAccepted,
             'is_preparing' => $isPreparing,
             'prep_time_min' => $prepSetting->min_prep_time,
             'prep_time_max' => $prepSetting->max_prep_time,
             'prep_time_label' => $prepSetting->formattedLabel(),
             'prep_estimate_text' => $prepSetting->estimateText(),
             'date' => $order->created_at?->toIso8601String(),
-            'dateLabel' => $order->created_at?->format('M j, Y · g:i A'),
+            'dateLabel' => \App\Support\ManilaTime::format($order->created_at, 'M j, Y · g:i A'),
             'ordered_at' => $order->created_at?->toIso8601String(),
-            'ordered_at_label' => $order->created_at?->format('M j, Y · g:i A'),
+            'ordered_at_label' => \App\Support\ManilaTime::format($order->created_at, 'M j, Y · g:i A'),
             'customer' => $order->customer_name,
             'address' => $order->delivery_address,
             'driver' => $order->driver?->name,
@@ -329,11 +381,12 @@ class TrackingService
             'reported_issues' => $order->reportedIssues(),
             'eta_mins' => $etaMins,
             'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : '—',
-            'arrival_by' => $etaMins ? now()->addMinutes($etaMins)->format('g:i A') : null,
+            'distance_label' => $distanceKm !== null ? number_format($distanceKm, 1).' km' : null,
+            'arrival_by' => $etaMins ? \App\Support\ManilaTime::now()->addMinutes($etaMins)->format('g:i A') : null,
+            'store' => $this->storePoint(),
             'destination' => $destination,
             'rider' => $rider,
-            'route' => is_array($coords) ? array_values($coords) : [],
+            'route' => ($riderAccepted && is_array($coords)) ? array_values($coords) : [],
             'updated_at' => $order->updated_at?->toIso8601String(),
             'timeline' => $this->timeline($order),
             'items' => $order->items->map(fn ($i) => [
@@ -342,8 +395,14 @@ class TrackingService
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'line_total' => (float) ($i->line_total ?? ((float) $i->unit_price * (int) $i->qty)),
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
+            'food_name' => $order->items->first()?->name ?: 'Your order',
+            'food_price' => (float) ($order->items->first()?->unit_price ?? $order->total),
+            'food_image' => $order->items->first()?->menuItem?->image ? Media::url($order->items->first()->menuItem->image) : null,
             'total' => (float) $order->total,
             'delivery_fee' => (float) ($order->delivery_fee ?? $rates->defaultFee()),
             'service_fee' => (float) ($order->service_fee ?? $rates->serviceFee()),
@@ -353,10 +412,16 @@ class TrackingService
             'can_rate' => $isCompleted && ! $order->rated_at,
             'proof_of_delivery' => Media::url($order->proof_of_delivery),
             'delivered_at' => $deliveredAt?->toIso8601String(),
-            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'delivered_at_label' => \App\Support\ManilaTime::format($deliveredAt, 'M j, Y · g:i A'),
             'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
-            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at_label' => \App\Support\ManilaTime::format($deliveredAt, 'M j, Y · g:i A'),
+            'points_used' => (int) ($order->points_used ?? 0),
+            'points_discount' => (float) ($order->points_discount ?? 0),
             'points_earned' => $order->loyaltyPointsEarned(),
+            'estimated_delivery_minutes' => (int) ($order->estimated_delivery_minutes ?: $order->delivery_minutes ?: 0),
+            'late_minutes' => (int) ($order->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($order->late_discount_percent ?? 0),
+            'late_discount' => (float) ($order->late_discount ?? 0),
         ];
     }
 
@@ -402,11 +467,12 @@ class TrackingService
                     'total' => (float) $order->total,
                     'payment_method' => $order->payment_method ?: 'COD',
                     'items' => $order->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', '),
-                    'updated' => $order->updated_at?->format('g:i A'),
-                    'updated_time' => $order->updated_at?->format('g:i A'),
-                    'updated_date' => $order->updated_at?->format('M d, Y'),
+                    'updated' => \App\Support\ManilaTime::format($order->updated_at, 'g:i A'),
+                    'updated_time' => \App\Support\ManilaTime::format($order->updated_at, 'g:i A'),
+                    'updated_date' => \App\Support\ManilaTime::format($order->updated_at, 'M d, Y'),
                     'updated_at' => $payload['updated_at'],
-                    'assigned_at' => $order->assigned_at?->format('M d, Y g:i A'),
+                    'assigned_at' => \App\Support\ManilaTime::format($order->assigned_at, 'M d, Y g:i A'),
+                    'store' => $payload['store'],
                     'destination' => $payload['destination'],
                     'rider' => $payload['rider'],
                     'route' => $payload['route'],
@@ -429,6 +495,7 @@ class TrackingService
         return [
             'deliveries' => $deliveries,
             'monitoring' => $deliveries,
+            'store' => $this->storePoint(),
         ];
     }
 
@@ -438,29 +505,35 @@ class TrackingService
         $prepSetting = \App\Models\StoreSetting::current();
         $prepLabel = $prepSetting->formattedLabel();
         $steps = [
-            ['key' => 'Pending', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
+            ['key' => 'Confirmed', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
             ['key' => 'Preparing', 'title' => 'Preparing', 'description' => "Your food is being prepared · ready in {$prepLabel} (est.)", 'icon' => 'checkmark'],
             ['key' => 'Out for Delivery', 'title' => 'Out For Delivery', 'description' => 'Your order is on the way', 'icon' => 'bicycle'],
             ['key' => 'Delivered', 'title' => 'Delivered', 'description' => 'Order will be delivered soon', 'icon' => 'home-outline'],
         ];
 
-        $rank = match ($status) {
-            'Pending' => 0,
-            'Preparing', 'Ready', 'Assigned' => 1,
-            'Picked Up', 'Out for Delivery' => 2,
-            'Delivered', 'Completed' => 3,
-            default => 0,
+        $stepStates = match ($status) {
+            'Pending' => ['pending', 'pending', 'pending', 'pending'],
+            'Confirmed' => ['complete', 'pending', 'pending', 'pending'],
+            'Preparing' => ['complete', 'active', 'pending', 'pending'],
+            'Ready', 'Assigned' => ['complete', 'complete', 'pending', 'pending'],
+            'Picked Up', 'Out for Delivery', 'Out For Delivery' => ['complete', 'complete', 'active', 'pending'],
+            'Delivered', 'Completed' => ['complete', 'complete', 'complete', 'complete'],
+            default => ['pending', 'pending', 'pending', 'pending'],
         };
 
-        return array_map(function ($step, $index) use ($rank, $order) {
-            $state = $index < $rank ? 'complete' : ($index === $rank ? 'active' : 'pending');
+        return array_map(function ($step, $index) use ($stepStates, $order) {
+            $state = $stepStates[$index] ?? 'pending';
             $timestamp = null;
-            if ($index === 0 && $order->created_at) {
-                $timestamp = $order->created_at->format('g:i A');
-            } elseif ($index === 2 && $order->assigned_at) {
-                $timestamp = $order->assigned_at->format('g:i A');
-            } elseif ($index === 3 && $order->delivered_at) {
-                $timestamp = $order->delivered_at->format('g:i A');
+            if ($state !== 'pending') {
+                if ($index === 0 && $order->created_at) {
+                    $timestamp = \App\Support\ManilaTime::format($order->created_at, 'g:i A');
+                } elseif ($index === 2) {
+                    $timeSource = $order->updated_at ?? $order->assigned_at;
+                    $timestamp = \App\Support\ManilaTime::format($timeSource, 'g:i A');
+                } elseif ($index === 3) {
+                    $timeSource = $order->delivered_at ?? $order->updated_at;
+                    $timestamp = \App\Support\ManilaTime::format($timeSource, 'g:i A');
+                }
             }
 
             return [...$step, 'state' => $state, 'timestamp' => $timestamp];

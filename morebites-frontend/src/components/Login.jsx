@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LuEye, LuEyeOff } from 'react-icons/lu'
 import { authApi, setSession } from '../api/client'
 import logo from '../assets/logo.png'
@@ -12,10 +12,25 @@ export default function Login({ onLogin }) {
   const [emailError, setEmailError] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [generalError, setGeneralError] = useState('')
+  const [lockoutSeconds, setLockoutSeconds] = useState(0)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return
+    const timer = setInterval(() => {
+      setLockoutSeconds((prev) => (prev <= 1 ? 0 : prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [lockoutSeconds])
+
+  const activeError =
+    lockoutSeconds > 0
+      ? `Too many login attempts. Please try again in ${lockoutSeconds} ${lockoutSeconds === 1 ? 'second' : 'seconds'}.`
+      : generalError
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (lockoutSeconds > 0) return
     setEmailError('')
     setPasswordError('')
     setGeneralError('')
@@ -37,6 +52,18 @@ export default function Login({ onLogin }) {
       setSession(data.token, data.user)
       onLogin?.(data.user)
     } catch (err) {
+      const status = err.response?.status
+      const retryAfter =
+        Number(err.response?.data?.retry_after) ||
+        Number(err.response?.headers?.['retry-after']) ||
+        Number((err.response?.data?.message || '').match(/in\s+(\d+)\s+second/i)?.[1]) ||
+        0
+
+      if (status === 429 || retryAfter > 0) {
+        setLockoutSeconds(Math.max(1, retryAfter || 60))
+        return
+      }
+
       const errors = err.response?.data?.errors
       if (errors?.email?.[0]) {
         setEmailError(errors.email[0])
@@ -78,7 +105,7 @@ export default function Login({ onLogin }) {
           <p className="login-subtitle">Sign in to continue managing the store</p>
         </div>
 
-        {generalError && <div className="login-general-error">{generalError}</div>}
+        {activeError && <div className="login-general-error">{activeError}</div>}
 
         <div className="login-form">
           <div className="login-field">
@@ -132,8 +159,12 @@ export default function Login({ onLogin }) {
             {passwordError && <span className="login-field-error">{passwordError}</span>}
           </div>
 
-          <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+          <button type="submit" className="login-btn" disabled={loading || lockoutSeconds > 0}>
+            {loading
+              ? 'Signing in...'
+              : lockoutSeconds > 0
+                ? `Try again in ${lockoutSeconds}s`
+                : 'Sign In'}
           </button>
         </div>
       </form>

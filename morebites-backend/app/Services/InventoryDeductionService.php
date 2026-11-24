@@ -14,6 +14,15 @@ use Illuminate\Validation\ValidationException;
 
 class InventoryDeductionService
 {
+    public static function convertToInventoryUnit(float $qty, ?string $fromUnit, ?string $toUnit): ?float
+    {
+        if (! UnitConverter::isCompatible($fromUnit, $toUnit)) {
+            return null;
+        }
+
+        return UnitConverter::convert($qty, $fromUnit, $toUnit);
+    }
+
     public function convertQuantity(float $qty, ?string $fromUnit, ?string $toUnit): float
     {
         return UnitConverter::convert($qty, $fromUnit, $toUnit);
@@ -32,6 +41,183 @@ class InventoryDeductionService
         }
 
         return $unit ? "{$formatted} {$unit}" : $formatted;
+    }
+
+    /**
+     * Resolves and snapshots the removed ingredients for an order line at order placement time,
+     * locking in the computed proportional deduction price (inventory unit price × qty_per_serving)
+     * so historical receipts and reports never change if inventory prices are updated later.
+     */
+    public function snapshotRemovedIngredientsForLine(array $line): ?array
+    {
+        $removed = $line['removed_ingredients'] ?? null;
+        if (empty($removed) || ! is_array($removed)) {
+            return null;
+        }
+
+        $menuId = $line['menu_item_id'] ?? null;
+        $lineSize = $line['size'] ?? null;
+        $lineIngredients = collect();
+
+        $menu = null;
+        if ($menuId) {
+            $menu = MenuItem::query()->with(['sizes', 'ingredients.inventoryItem'])->find($menuId);
+            if ($menu) {
+                // Beverages never permit ingredient removal
+                if (strcasecmp(trim((string) $menu->category), 'Beverages') === 0) {
+                    return null;
+                }
+                if (! empty($lineSize) && ($menu->has_sizes || $menu->sizes->isNotEmpty())) {
+                    $targetSize = trim((string) $lineSize);
+                    $sizeObj = $menu->sizes->first(
+                        fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+                    ) ?? $menu->sizes->first(
+                        fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                            || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+                    );
+
+                    if ($sizeObj) {
+                        $lineIngredients = $menu->ingredients->where('menu_item_size_id', $sizeObj->id);
+                    }
+                    if ($lineIngredients->isEmpty()) {
+                        $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                    }
+                } else {
+                    $lineIngredients = $menu->ingredients->whereNull('menu_item_size_id');
+                    if ($lineIngredients->isEmpty()) {
+                        $lineIngredients = $menu->ingredients;
+                    }
+                }
+            }
+        }
+
+        $snapshots = [];
+        foreach ($removed as $r) {
+            $matchIng = null;
+            if (is_numeric($r) || (is_string($r) && is_numeric(trim($r)))) {
+                $targetId = (int) $r;
+                $matchIng = $lineIngredients->first(
+                    fn ($ing) => (int) $ing->inventory_item_id === $targetId || (int) $ing->id === $targetId
+                );
+                if (! $matchIng) {
+                    $inv = InventoryItem::withTrashed()->find($targetId);
+                    $snapshots[] = [
+                        'inventory_item_id' => $targetId,
+                        'name' => $inv?->name ?? 'Ingredient',
+                        'unit_price' => (float) ($inv?->price ?? 0.0),
+                        'price' => (float) ($inv?->price ?? 0.0),
+                    ];
+                    continue;
+                }
+            } elseif (is_string($r)) {
+                $targetName = strtolower(trim($r));
+                $matchIng = $lineIngredients->first(
+                    fn ($ing) => strtolower(trim((string) ($ing->inventoryItem?->name ?? ''))) === $targetName
+                );
+                if (! $matchIng) {
+                    $snapshots[] = [
+                        'name' => trim($r),
+                        'price' => 0.0,
+                    ];
+                    continue;
+                }
+            } elseif (is_array($r)) {
+                $invId = ! empty($r['inventory_item_id']) ? (int) $r['inventory_item_id'] : null;
+                $ingId = ! empty($r['id']) ? (int) $r['id'] : null;
+                $rName = ! empty($r['name']) ? strtolower(trim((string) $r['name'])) : '';
+
+                $matchIng = $lineIngredients->first(function ($ing) use ($invId, $ingId, $rName) {
+                    if ($invId && (int) $ing->inventory_item_id === $invId) {
+                        return true;
+                    }
+                    if ($ingId && (int) $ing->id === $ingId) {
+                        return true;
+                    }
+                    if ($rName !== '' && strtolower(trim((string) ($ing->inventoryItem?->name ?? ''))) === $rName) {
+                        return true;
+                    }
+                    return false;
+                });
+
+                if (! $matchIng) {
+                    $snapshots[] = [
+                        'id' => $ingId,
+                        'inventory_item_id' => $invId,
+                        'name' => $r['name'] ?? 'Ingredient',
+                        'price' => isset($r['price']) ? round((float) $r['price'], 2) : 0.0,
+                    ];
+                    continue;
+                }
+            }
+
+            if ($matchIng) {
+                // Core / main ingredients cannot be removed by customer or POS
+                if ($matchIng->is_removable === false) {
+                    continue;
+                }
+                $inv = $matchIng->inventoryItem;
+                $computed = $matchIng->computedPrice();
+                $snapshots[] = [
+                    'id' => $matchIng->id,
+                    'inventory_item_id' => (int) $matchIng->inventory_item_id,
+                    'name' => $inv?->name ?? (is_array($r) ? ($r['name'] ?? 'Ingredient') : 'Ingredient'),
+                    'qty_per_serving' => (float) $matchIng->qty_per_serving,
+                    'unit' => $matchIng->unit ?: $inv?->unit,
+                    'unit_price' => (float) ($inv?->price ?? 0.0),
+                    'price' => $computed > 0 ? $computed : (is_array($r) && isset($r['price']) ? round((float) $r['price'], 2) : 0.0),
+                ];
+            }
+        }
+
+        return empty($snapshots) ? null : $snapshots;
+    }
+
+    /**
+     * Resolves the authoritative unit price for an order line. When removed_ingredients
+     * are present on a menu-backed line item, deducts the snapshotted proportional
+     * ingredient prices from the menu/size base price so unit_price and removed_ingredients
+     * are always consistent.
+     */
+    public function resolveEffectiveUnitPriceForLine(array $line, ?array $snapshottedRemoved = null): float
+    {
+        $fallbackPrice = round((float) ($line['unit_price'] ?? 0.0), 2);
+        $removed = $snapshottedRemoved ?? $this->snapshotRemovedIngredientsForLine($line);
+        $hadRawRemoved = ! empty($line['removed_ingredients']) && is_array($line['removed_ingredients']);
+
+        if ((empty($removed) && ! $hadRawRemoved) || empty($line['menu_item_id'])) {
+            return $fallbackPrice;
+        }
+
+        $menu = MenuItem::query()->with('sizes')->find($line['menu_item_id']);
+        if (! $menu) {
+            return $fallbackPrice;
+        }
+
+        $basePrice = (float) $menu->price;
+        $lineSize = $line['size'] ?? null;
+
+        if (! empty($lineSize) && ($menu->has_sizes || $menu->sizes->isNotEmpty())) {
+            $targetSize = trim((string) $lineSize);
+            $sizeObj = $menu->sizes->first(
+                fn ($s) => strcasecmp(trim($s->name), $targetSize) === 0 || (string) $s->id === $targetSize
+            ) ?? $menu->sizes->first(
+                fn ($s) => str_contains(strtolower($targetSize), strtolower(trim($s->name)))
+                    || str_contains(strtolower(trim($s->name)), strtolower($targetSize))
+            );
+
+            if ($sizeObj && (float) $sizeObj->price > 0) {
+                $basePrice = (float) $sizeObj->price;
+            }
+        }
+
+        if ($basePrice <= 0) {
+            return $fallbackPrice;
+        }
+
+        $effectiveBase = $menu->applyPromoPrice($basePrice);
+        $deduction = collect($removed)->sum(fn ($r) => (float) ($r['price'] ?? 0.0));
+
+        return max(0.0, round($effectiveBase - $deduction, 2));
     }
 
     public function aggregateDemandsForLines(iterable $lines): array
@@ -78,8 +264,47 @@ class InventoryDeductionService
                 }
             }
 
+            $removed = is_array($line)
+                ? ($line['removed_ingredients'] ?? [])
+                : ($line->removed_ingredients ?? []);
+
+            $removedIds = [];
+            $removedNames = [];
+            foreach ((array) $removed as $r) {
+                if (is_numeric($r)) {
+                    $removedIds[] = (int) $r;
+                } elseif (is_string($r)) {
+                    $trimmed = trim($r);
+                    if (is_numeric($trimmed)) {
+                        $removedIds[] = (int) $trimmed;
+                    } else {
+                        $removedNames[] = strtolower($trimmed);
+                    }
+                } elseif (is_array($r)) {
+                    if (! empty($r['inventory_item_id'])) {
+                        $removedIds[] = (int) $r['inventory_item_id'];
+                    }
+                    if (! empty($r['id'])) {
+                        $removedIds[] = (int) $r['id'];
+                    }
+                    if (! empty($r['name'])) {
+                        $removedNames[] = strtolower(trim((string) $r['name']));
+                    }
+                }
+            }
+
+            $isBeverageMenu = strcasecmp(trim((string) $menu->category), 'Beverages') === 0;
+
             foreach ($lineIngredients as $ingredient) {
-                $invId = $ingredient->inventory_item_id;
+                $invId = (int) $ingredient->inventory_item_id;
+                $ingId = (int) $ingredient->id;
+                $ingName = strtolower(trim((string) ($ingredient->inventoryItem?->name ?? '')));
+                $canRemove = ! $isBeverageMenu && ($ingredient->is_removable !== false);
+
+                if ($canRemove && (in_array($invId, $removedIds, true) || in_array($ingId, $removedIds, true) || ($ingName !== '' && in_array($ingName, $removedNames, true)))) {
+                    continue; // Skip deduction for customer-removed removable ingredients (Prompt 124)
+                }
+
                 $inventory = $ingredient->inventoryItem ?? InventoryItem::query()->find($invId);
                 if (! $inventory) {
                     continue;
@@ -87,10 +312,12 @@ class InventoryDeductionService
 
                 $recipeUnit = $ingredient->unit ?: $inventory->unit;
                 $stockUnit = $inventory->unit;
-                $qtyPerServingInStockUnit = UnitConverter::convert(
+                $qtyPerServingInStockUnit = UnitConverter::toStockUnit(
                     (float) $ingredient->qty_per_serving,
                     $recipeUnit,
-                    $stockUnit
+                    $stockUnit,
+                    $inventory->portion_unit,
+                    $inventory->portions_per_unit !== null ? (float) $inventory->portions_per_unit : null
                 );
                 $qty = $qtyPerServingInStockUnit * $lineQty;
 
@@ -135,7 +362,8 @@ class InventoryDeductionService
                         ]);
                     }
 
-                    $reason = $this->unserviceableReason($menu, $lineQty, $lineSize);
+                    $lineRemoved = is_array($line['removed_ingredients'] ?? null) ? $line['removed_ingredients'] : [];
+                    $reason = $this->unserviceableReason($menu, $lineQty, $lineSize, $lineRemoved);
                     if ($reason === 'expired') {
                         throw ValidationException::withMessages([
                             'items' => ["The item '{$itemLabel}' cannot be ordered because one or more ingredients are expired."],
@@ -172,7 +400,7 @@ class InventoryDeductionService
                     ->where('stock', '>', 0)
                     ->where(function ($q) {
                         $q->whereNull('expiry_date')
-                            ->orWhere('expiry_date', '>=', now()->toDateString());
+                            ->orWhere('expiry_date', '>=', \App\Support\ManilaTime::todayString());
                     })
                     ->sum('stock');
             } else {
@@ -207,12 +435,24 @@ class InventoryDeductionService
         return (string) ($this->unserviceableReason($item, $qty, $size) ?? '');
     }
 
-    public function unserviceableReason(MenuItem $item, int $qty = 1, ?string $size = null): ?string
+    public function unserviceableReason(MenuItem $item, int $qty = 1, ?string $size = null, array $removedIngredients = []): ?string
     {
-        $item->loadMissing([
-            'sizes',
-            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()]),
-        ]);
+        $item->loadMissing(['sizes']);
+        if (! $item->relationLoaded('ingredients')) {
+            $item->load([
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ]);
+        } else {
+            $item->ingredients->loadMissing([
+                'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+            ]);
+            $inventories = $item->ingredients->pluck('inventoryItem')->filter();
+            if ($inventories->isNotEmpty()) {
+                \Illuminate\Database\Eloquent\Collection::make($inventories)->loadMissing('batches');
+            }
+        }
 
         // No recipe linked — availability is manual (admin toggle).
         if ($item->ingredients->isEmpty()) {
@@ -241,7 +481,7 @@ class InventoryDeductionService
                 return null;
             }
 
-            return $this->evaluateIngredientsReason($ingredients, $qty);
+            return $this->evaluateIngredientsReason($ingredients, $qty, $removedIngredients);
         }
 
         // When no specific size is requested on a sized item with size-specific recipes,
@@ -249,7 +489,7 @@ class InventoryDeductionService
         if ($item->has_sizes && $item->sizes->isNotEmpty() && $item->ingredients->whereNotNull('menu_item_size_id')->isNotEmpty()) {
             $reasons = [];
             foreach ($item->sizes as $sizeModel) {
-                $reason = $this->unserviceableReason($item, $qty, $sizeModel->name);
+                $reason = $this->unserviceableReason($item, $qty, $sizeModel->name, $removedIngredients);
                 if ($reason === null) {
                     return null;
                 }
@@ -263,12 +503,53 @@ class InventoryDeductionService
             return $reasons[0] ?? 'insufficient';
         }
 
-        return $this->evaluateIngredientsReason($item->ingredients, $qty);
+        return $this->evaluateIngredientsReason($item->ingredients, $qty, $removedIngredients);
     }
 
-    private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1): ?string
+    private function isIngredientRemoved($ingredient, array $removedIngredients): bool
+    {
+        $invId = (int) ($ingredient->inventory_item_id ?? 0);
+        $ingId = (int) ($ingredient->id ?? 0);
+        $ingName = strtolower(trim((string) ($ingredient->inventoryItem?->name ?? '')));
+
+        foreach ($removedIngredients as $r) {
+            if (is_numeric($r)) {
+                $id = (int) $r;
+                if ($id > 0 && ($id === $invId || $id === $ingId)) {
+                    return true;
+                }
+            } elseif (is_string($r)) {
+                $trimmed = trim($r);
+                if (is_numeric($trimmed)) {
+                    $id = (int) $trimmed;
+                    if ($id > 0 && ($id === $invId || $id === $ingId)) {
+                        return true;
+                    }
+                } elseif ($ingName !== '' && strtolower($trimmed) === $ingName) {
+                    return true;
+                }
+            } elseif (is_array($r)) {
+                if (! empty($r['inventory_item_id']) && (int) $r['inventory_item_id'] === $invId) {
+                    return true;
+                }
+                if (! empty($r['id']) && ((int) $r['id'] === $ingId || (int) $r['id'] === $invId)) {
+                    return true;
+                }
+                if (! empty($r['name']) && $ingName !== '' && strtolower(trim((string) $r['name'])) === $ingName) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function evaluateIngredientsReason(iterable $ingredients, int $qty = 1, array $removedIngredients = []): ?string
     {
         foreach ($ingredients as $ingredient) {
+            if (! empty($removedIngredients) && ($ingredient->is_removable !== false) && $this->isIngredientRemoved($ingredient, $removedIngredients)) {
+                continue;
+            }
             $inventory = $ingredient->inventoryItem;
             // Soft-deleted, archived, or missing inventory counts as unavailable.
             if (! $inventory || $inventory->trashed() || $inventory->status === 'Archived') {
@@ -277,27 +558,51 @@ class InventoryDeductionService
 
             $recipeUnit = $ingredient->unit ?: $inventory->unit;
             $stockUnit = $inventory->unit;
-            $qtyInStockUnit = UnitConverter::convert((float) $ingredient->qty_per_serving, $recipeUnit, $stockUnit);
+            $qtyInStockUnit = UnitConverter::toStockUnit(
+                (float) $ingredient->qty_per_serving,
+                $recipeUnit,
+                $stockUnit,
+                $inventory->portion_unit,
+                $inventory->portions_per_unit !== null ? (float) $inventory->portions_per_unit : null
+            );
             $needed = $qtyInStockUnit * $qty;
 
-            // If batches exist: check usable (unexpired) stock
-            if ($inventory->batches()->exists()) {
-                $usableBatches = $inventory->batches()
-                    ->where('stock', '>', 0)
-                    ->where(function ($q) {
-                        $q->whereNull('expiry_date')
-                            ->orWhere('expiry_date', '>=', now()->toDateString());
-                    })
-                    ->get();
-                $usableStock = (float) $usableBatches->sum('stock');
-                $totalStock = (float) $inventory->batches()->where('stock', '>', 0)->sum('stock');
+            // If batches exist: check usable (unexpired) stock using eager-loaded batches
+            if (! $inventory->relationLoaded('batches')) {
+                $inventory->load('batches');
+            }
+
+            $batches = $inventory->batches;
+            if ($batches->isNotEmpty()) {
+                $today = \App\Support\ManilaTime::todayString();
+                $usableStock = 0.0;
+                $totalStock = 0.0;
+                $hasExpiredBatch = false;
+
+                foreach ($batches as $batch) {
+                    $bStock = (float) $batch->stock;
+                    $expiryStr = $batch->expiry_date instanceof \DateTimeInterface
+                        ? $batch->expiry_date->format('Y-m-d')
+                        : ($batch->expiry_date !== null ? substr((string) $batch->expiry_date, 0, 10) : null);
+
+                    if ($expiryStr !== null && $expiryStr < $today) {
+                        $hasExpiredBatch = true;
+                    }
+
+                    if ($bStock > 0) {
+                        $totalStock += $bStock;
+                        if ($expiryStr === null || $expiryStr >= $today) {
+                            $usableStock += $bStock;
+                        }
+                    }
+                }
 
                 if ($usableStock < $needed) {
                     if ($totalStock >= $needed) {
                         return 'expired';
                     }
 
-                    return ($totalStock <= 0 && $inventory->batches()->where('expiry_date', '<', now()->toDateString())->exists())
+                    return ($totalStock <= 0 && $hasExpiredBatch)
                         ? 'expired'
                         : 'insufficient';
                 }
@@ -320,7 +625,12 @@ class InventoryDeductionService
     public function syncMenuAvailability(?Collection $items = null): void
     {
         $items ??= MenuItem::query()
-            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
+            ->with([
+                'sizes',
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ])
             ->where('archived', false)
             ->get();
 
@@ -353,7 +663,12 @@ class InventoryDeductionService
         }
 
         $items = MenuItem::query()
-            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
+            ->with([
+                'sizes',
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ])
             ->whereIn('id', $menuIds)
             ->where('archived', false)
             ->get();
@@ -377,7 +692,12 @@ class InventoryDeductionService
         }
 
         $items = MenuItem::query()
-            ->with(['sizes', 'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed()])])
+            ->with([
+                'sizes',
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ])
             ->whereIn('id', $ids)
             ->where('archived', false)
             ->get();
@@ -461,7 +781,7 @@ class InventoryDeductionService
                         'batch_no' => $inventory->batch_no ?: InventoryItem::makeBatchNo($inventory->name, $inventory->date_placed),
                         'stock' => (float) $inventory->stock,
                         'initial_stock' => (float) $inventory->stock,
-                        'date_placed' => $inventory->date_placed ?? now(),
+                        'date_placed' => $inventory->date_placed ?? \App\Support\ManilaTime::todayString(),
                         'expiry_date' => $inventory->expiry_date,
                         'status' => \App\Models\InventoryBatch::deriveBatchStatus((float) $inventory->stock, $inventory->expiry_date),
                     ]);
@@ -558,6 +878,11 @@ class InventoryDeductionService
                         ]);
 
                         $needed -= $deductQty;
+
+                        // Auto-end expiring-stock promo the moment this batch is depleted via orders
+                        if ($newBatchStock <= 0.00001) {
+                            $this->handleDepletedBatchPromo($batch, $inventory);
+                        }
                     }
 
                     $inventory->recalculateStockFromBatches();
@@ -723,5 +1048,125 @@ class InventoryDeductionService
         $order->loadMissing('items');
 
         return array_values($this->aggregateDemandsForLines($order->items));
+    }
+
+    /**
+     * When a promoted expiring batch is completely sold through (stock reaches 0),
+     * automatically resolve its promo disposition and deactivate customer-facing promos
+     * on linked menu items unless another non-expired batch still has an active promo.
+     */
+    protected function handleDepletedBatchPromo(\App\Models\InventoryBatch $batch, InventoryItem $inventory): void
+    {
+        $activePromo = \App\Models\InventoryDisposition::query()
+            ->where('inventory_batch_id', $batch->id)
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->latest('id')
+            ->first();
+
+        if (! $activePromo) {
+            return;
+        }
+
+        $existingNote = trim((string) ($activePromo->notes ?? ''));
+        $suffix = 'Auto-resolved: batch cleared via orders.';
+        $activePromo->update([
+            'disposition' => \App\Models\InventoryDisposition::RESOLVED,
+            'resolved_at' => now(),
+            'notes' => $existingNote !== '' ? "{$existingNote} | {$suffix}" : $suffix,
+        ]);
+
+        $this->clearLinkedPromosIfNoOtherActivePromoBatch($inventory->id, $batch->id);
+
+        \App\Models\ActivityLog::query()->create([
+            'actor' => 'System',
+            'action' => "Auto-ended promo for {$inventory->name} (Batch {$batch->batch_no} cleared)",
+        ]);
+    }
+
+    /**
+     * Safeguard: deactivate customer-facing menu promos tied to batches that have
+     * already passed their expiry date or hit zero stock, without resolving overdue
+     * batches (overdue batches still require explicit Waste disposal).
+     */
+    public function clearExpiredBatchPromos(): void
+    {
+        if (! MenuItem::query()->where('promo_active', true)->exists()) {
+            return;
+        }
+
+        $today = \App\Support\ManilaTime::todayString();
+
+        $stalePromos = \App\Models\InventoryDisposition::query()
+            ->with('batch')
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->get()
+            ->filter(function ($disp) use ($today) {
+                $batch = $disp->batch;
+                if (! $batch) {
+                    return true;
+                }
+                if ((float) $batch->stock <= 0.00001) {
+                    return true;
+                }
+
+                return $batch->expiry_date !== null && $batch->expiry_date->toDateString() < $today;
+            });
+
+        foreach ($stalePromos as $disp) {
+            $batch = $disp->batch;
+            $invId = $disp->inventory_item_id;
+
+            // If depleted (not overdue), auto-resolve disposition
+            if ($batch && (float) $batch->stock <= 0.00001 && ! $batch->isExpired()) {
+                $disp->update([
+                    'disposition' => \App\Models\InventoryDisposition::RESOLVED,
+                    'resolved_at' => now(),
+                ]);
+            }
+
+            if ($invId) {
+                $this->clearLinkedPromosIfNoOtherActivePromoBatch($invId, $batch?->id);
+            }
+        }
+    }
+
+    protected function clearLinkedPromosIfNoOtherActivePromoBatch(int $inventoryItemId, ?int $excludeBatchId = null): void
+    {
+        $today = \App\Support\ManilaTime::todayString();
+
+        $hasOtherActive = \App\Models\InventoryDisposition::query()
+            ->where('inventory_item_id', $inventoryItemId)
+            ->where('disposition', \App\Models\InventoryDisposition::PROMO)
+            ->whereNull('resolved_at')
+            ->when($excludeBatchId, fn ($q) => $q->where('inventory_batch_id', '!=', $excludeBatchId))
+            ->whereHas('batch', function ($q) use ($today) {
+                $q->where('stock', '>', 0)
+                    ->where(function ($sub) use ($today) {
+                        $sub->whereNull('expiry_date')
+                            ->orWhere('expiry_date', '>=', $today);
+                    });
+            })
+            ->exists();
+
+        if ($hasOtherActive) {
+            return;
+        }
+
+        $menuIds = MenuItemIngredient::query()
+            ->where('inventory_item_id', $inventoryItemId)
+            ->pluck('menu_item_id')
+            ->unique();
+
+        if ($menuIds->isNotEmpty()) {
+            MenuItem::query()
+                ->whereIn('id', $menuIds)
+                ->update([
+                    'promo_active' => false,
+                    'promo_discount_percent' => null,
+                    'promo_label' => null,
+                ]);
+        }
     }
 }

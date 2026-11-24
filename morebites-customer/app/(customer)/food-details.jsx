@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { useCart } from "../../src/context/CartContext";
-import { mediaUrl } from "../../src/api/client";
+import { customerApi, mediaUrl } from "../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
 const PRIMARY = "#F97000";
@@ -48,6 +48,7 @@ function getItem(params) {
   const routeItem = {
     id: params.id,
     name: params.name,
+    category: params.category,
     description: params.description,
     price: params.price,
     hasSizes: params.hasSizes,
@@ -56,10 +57,12 @@ function getItem(params) {
     rating: params.rating,
     reviewCount: params.reviewCount,
     reviews: params.reviews,
+    ingredients: params.ingredients,
   };
 
   const item = { ...serializedItem, ...Object.fromEntries(Object.entries(routeItem).filter(([, value]) => value != null)) };
   const sizes = parseJson(item.sizes, []);
+  const ingredients = parseJson(item.ingredients, []);
   const reviewCount = Number(item.reviewCount ?? item.reviews) || 0;
   const rating = item.rating != null && !isNaN(Number(item.rating)) && reviewCount > 0
     ? Number(item.rating)
@@ -68,8 +71,13 @@ function getItem(params) {
   return {
     ...item,
     price: Number(item.price) || 0,
+    originalPrice: item.originalPrice != null ? Number(item.originalPrice) : Number(item.price) || 0,
+    promoActive: item.promoActive === true || item.promoActive === "true",
+    promoDiscountPercent: item.promoDiscountPercent != null ? Number(item.promoDiscountPercent) : 0,
+    promoLabel: item.promoLabel || "Today's Special",
     hasSizes: item.hasSizes === true || item.hasSizes === "true",
     sizes: Array.isArray(sizes) ? sizes : [],
+    ingredients: Array.isArray(ingredients) ? ingredients : [],
     rating,
     reviewCount,
   };
@@ -77,11 +85,21 @@ function getItem(params) {
 
 export default function FoodDetailsScreen() {
   const params = useLocalSearchParams();
-  const item = getItem(params);
+  const initialItem = getItem(params);
+  const [hydratedData, setHydratedData] = useState(null);
+  const item = useMemo(
+    () => (hydratedData ? { ...initialItem, ...hydratedData } : initialItem),
+    [initialItem, hydratedData]
+  );
   const isAvailable = item.availability !== false && item.available !== false;
+  const isBeverage = ["beverages", "beverage"].includes(
+    String(item.category || "").trim().toLowerCase()
+  );
+  const hasPromo = Boolean(item.promoActive && item.promoDiscountPercent > 0);
   const { addToCart } = useCart();
   const navigationTimer = useRef(null);
   const [selectedSize, setSelectedSize] = useState(item.hasSizes ? item.sizes[0] ?? null : null);
+  const [removedIngredientIds, setRemovedIngredientIds] = useState([]);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [instructionsFocused, setInstructionsFocused] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -90,7 +108,101 @@ export default function FoodDetailsScreen() {
     return () => clearTimeout(navigationTimer.current);
   }, []);
 
-  const selectedPrice = selectedSize ? Number(selectedSize.price) : item.price;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await customerApi.menu();
+        const menuList = Array.isArray(res?.data) ? res.data : [];
+        const match = menuList.find(
+          (m) =>
+            String(m.id) === String(initialItem.id) ||
+            (m.db_id != null && String(m.db_id) === String(initialItem.db_id ?? initialItem.id)) ||
+            String(m.name || "").trim().toLowerCase() === String(initialItem.name || "").trim().toLowerCase()
+        );
+        if (!cancelled && match) {
+          setHydratedData({
+            category: match.category || initialItem.category,
+            price: match.price != null ? Number(match.price) : initialItem.price,
+            originalPrice: match.originalPrice != null ? Number(match.originalPrice) : initialItem.originalPrice,
+            promoActive: match.promoActive != null ? Boolean(match.promoActive) : initialItem.promoActive,
+            promoDiscountPercent:
+              match.promoDiscountPercent != null
+                ? Number(match.promoDiscountPercent)
+                : initialItem.promoDiscountPercent,
+            promoLabel: match.promoLabel || initialItem.promoLabel,
+            sizes: Array.isArray(match.sizes) && match.sizes.length > 0 ? match.sizes : initialItem.sizes,
+            ingredients: Array.isArray(match.ingredients) ? match.ingredients : initialItem.ingredients,
+          });
+          if (Array.isArray(match.sizes) && match.sizes.length > 0) {
+            setSelectedSize((prev) => {
+              const targetName = prev?.sizeName || prev?.name;
+              return (
+                match.sizes.find((s) => (s.sizeName || s.name) === targetName) ||
+                match.sizes[0]
+              );
+            });
+          }
+        }
+      } catch {
+        // Keep route params fallback if offline
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialItem.id, initialItem.name]);
+
+  const activeIngredients = useMemo(() => {
+    if (isBeverage) {
+      return [];
+    }
+    let resolved = [];
+    if (selectedSize && Array.isArray(selectedSize.ingredients) && selectedSize.ingredients.length > 0) {
+      resolved = selectedSize.ingredients;
+    } else {
+      const allIngs = Array.isArray(item.ingredients) ? item.ingredients : [];
+      if (selectedSize?.id != null) {
+        const bySizeId = allIngs.filter(
+          (ing) => ing.menu_item_size_id != null && String(ing.menu_item_size_id) === String(selectedSize.id)
+        );
+        resolved = bySizeId.length > 0 ? bySizeId : allIngs.filter((ing) => ing.menu_item_size_id == null);
+      } else {
+        const baseIngs = allIngs.filter((ing) => ing.menu_item_size_id == null);
+        resolved = baseIngs.length > 0 ? baseIngs : allIngs;
+      }
+    }
+    return resolved.filter((ing) => ing && ing.is_removable !== false);
+  }, [selectedSize, item.ingredients, isBeverage]);
+
+  const basePrice = selectedSize ? Number(selectedSize.price) : item.price;
+  const selectedOriginalPrice = selectedSize
+    ? Number(selectedSize.originalPrice ?? selectedSize.price)
+    : item.originalPrice;
+
+  const removedIngredients = useMemo(() => {
+    return activeIngredients.filter((ing) =>
+      removedIngredientIds.includes(ing.inventory_item_id ?? ing.id)
+    );
+  }, [activeIngredients, removedIngredientIds]);
+
+  const removedDeduction = useMemo(() => {
+    return removedIngredients.reduce((sum, ing) => sum + Number(ing.price || 0), 0);
+  }, [removedIngredients]);
+
+  const effectivePrice = Math.max(0, basePrice - removedDeduction);
+
+  const toggleIngredient = (ing) => {
+    const key = ing.inventory_item_id ?? ing.id;
+    setRemovedIngredientIds((prev) =>
+      prev.includes(key) ? prev.filter((id) => id !== key) : [...prev, key]
+    );
+  };
+
+  const handleSelectSize = (size) => {
+    setSelectedSize(size);
+    setRemovedIngredientIds([]);
+  };
 
   const handleAddToCart = () => {
     if (!isAvailable) {
@@ -107,10 +219,20 @@ export default function FoodDetailsScreen() {
       id: item.id,
       db_id: item.db_id ?? (Number(item.id) || null),
       name: item.name,
-      price: selectedPrice,
+      price: effectivePrice,
+      basePrice,
       size: selectedSize?.sizeName ?? null,
       quantity: 1,
       image: item.image,
+      removed_ingredients: isBeverage
+        ? []
+        : removedIngredients.map((ing) => ({
+            id: ing.id,
+            inventory_item_id: ing.inventory_item_id,
+            name: ing.name,
+            price: Number(ing.price || 0),
+          })),
+      special_instructions: isBeverage ? null : (specialInstructions.trim() || null),
     });
 
     setShowSuccess(true);
@@ -140,6 +262,17 @@ export default function FoodDetailsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.foodName}>{item.name}</Text>
+
+        {hasPromo ? (
+          <View style={styles.promoPillRow}>
+            <View style={styles.promoPill}>
+              <Ionicons name="flame" size={14} color="#FFFFFF" />
+              <Text style={styles.promoPillText}>
+                {item.promoLabel} · {item.promoDiscountPercent}% OFF
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.ratingRow}>
           {item.rating != null && item.reviewCount > 0 ? (
@@ -176,7 +309,7 @@ export default function FoodDetailsScreen() {
                         isSelected && styles.selectedSizeButton,
                         pressed && styles.pressedSizeButton,
                       ]}
-                      onPress={() => setSelectedSize(size)}
+                      onPress={() => handleSelectSize(size)}
                       hitSlop={4}
                     >
                       <Text style={[styles.sizeName, isSelected && styles.selectedSizeText]}>
@@ -193,25 +326,96 @@ export default function FoodDetailsScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.currentPrice}>₱{selectedPrice}</Text>
+        {activeIngredients.length > 0 ? (
+          <View style={styles.section}>
+            <View style={styles.ingredientSectionHeader}>
+              <Text style={styles.sectionTitle}>Ingredients</Text>
+              <Text style={styles.ingredientSubtext}>Tap to remove from your meal</Text>
+            </View>
+            <View style={styles.ingredientsList}>
+              {activeIngredients.map((ing) => {
+                const key = ing.inventory_item_id ?? ing.id;
+                const isRemoved = removedIngredientIds.includes(key);
+                const ingPrice = Number(ing.price || 0);
 
-        <View style={styles.instructionsSection}>
-          <Text style={styles.sectionTitle}>Special Instructions</Text>
-          <Text style={styles.instructionsSubtitle}>
-            Kindly inform us of any allergies you have or anything you would like us to avoid
+                return (
+                  <Pressable
+                    key={key}
+                    style={({ pressed }) => [
+                      styles.ingredientCard,
+                      isRemoved && styles.ingredientCardRemoved,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() => toggleIngredient(ing)}
+                    hitSlop={4}
+                  >
+                    <View style={styles.ingredientLeft}>
+                      <View style={[styles.ingredientStatusIcon, isRemoved && styles.ingredientStatusIconRemoved]}>
+                        <Ionicons
+                          name={isRemoved ? "close" : "checkmark"}
+                          size={13}
+                          color={isRemoved ? "#DC2626" : "#16A34A"}
+                        />
+                      </View>
+                      <Text style={[styles.ingredientName, isRemoved && styles.ingredientNameRemoved]}>
+                        {ing.name}
+                      </Text>
+                    </View>
+                    {ingPrice > 0 ? (
+                      <View style={[styles.ingredientPriceBadge, isRemoved && styles.ingredientPriceBadgeRemoved]}>
+                        <Text style={[styles.ingredientPriceText, isRemoved && styles.ingredientPriceTextRemoved]}>
+                          {isRemoved
+                            ? `-₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`
+                            : `₱${Number.isInteger(ingPrice) ? ingPrice.toFixed(0) : ingPrice.toFixed(2)}`}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.ingredientIncludedText}>
+                        {isRemoved ? "Omitted" : "Included"}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.priceDisplayRow}>
+          <Text style={styles.currentPrice}>
+            ₱{Number.isInteger(effectivePrice) ? effectivePrice.toFixed(0) : effectivePrice.toFixed(2)}
           </Text>
-          <TextInput
-            style={[styles.instructionsInput, instructionsFocused && styles.focusedInput]}
-            value={specialInstructions}
-            onChangeText={setSpecialInstructions}
-            onFocus={() => setInstructionsFocused(true)}
-            onBlur={() => setInstructionsFocused(false)}
-            placeholder="e.g. less cheese"
-            placeholderTextColor="#9CA3AF"
-            multiline
-            textAlignVertical="top"
-          />
+          {hasPromo && selectedOriginalPrice > basePrice ? (
+            <Text style={styles.originalDetailPrice}>
+              ₱{Number.isInteger(selectedOriginalPrice) ? selectedOriginalPrice.toFixed(0) : selectedOriginalPrice.toFixed(2)}
+            </Text>
+          ) : null}
+          {removedDeduction > 0 ? (
+            <Text style={styles.originalPrice}>
+              ₱{Number.isInteger(basePrice) ? basePrice.toFixed(0) : basePrice.toFixed(2)} (save ₱{Number.isInteger(removedDeduction) ? removedDeduction.toFixed(0) : removedDeduction.toFixed(2)})
+            </Text>
+          ) : null}
         </View>
+
+        {!isBeverage ? (
+          <View style={styles.instructionsSection}>
+            <Text style={styles.sectionTitle}>Special Instructions</Text>
+            <Text style={styles.instructionsSubtitle}>
+              Kindly inform us of any allergies you have or anything you would like us to avoid
+            </Text>
+            <TextInput
+              style={[styles.instructionsInput, instructionsFocused && styles.focusedInput]}
+              value={specialInstructions}
+              onChangeText={setSpecialInstructions}
+              onFocus={() => setInstructionsFocused(true)}
+              onBlur={() => setInstructionsFocused(false)}
+              placeholder="e.g. less cheese"
+              placeholderTextColor="#9CA3AF"
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       {showSuccess ? (
@@ -285,6 +489,37 @@ const styles = StyleSheet.create({
     fontFamily: FONT,
     fontSize: 26,
     fontWeight: "700",
+  },
+  promoPillRow: {
+    flexDirection: "row",
+    marginTop: 8,
+  },
+  promoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  promoPillText: {
+    color: "#FFFFFF",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  priceDisplayRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+  },
+  originalDetailPrice: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 16,
+    fontWeight: "600",
+    textDecorationLine: "line-through",
   },
   ratingRow: {
     flexDirection: "row",
@@ -367,12 +602,102 @@ const styles = StyleSheet.create({
   selectedSizeText: {
     color: "#FFFFFF",
   },
+  ingredientSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  ingredientSubtext: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+  },
+  ingredientsList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  ingredientCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F9FAFB",
+    borderColor: "#E5E7EB",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  ingredientCardRemoved: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FCA5A5",
+  },
+  ingredientLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 10,
+  },
+  ingredientStatusIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#DCFCE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ingredientStatusIconRemoved: {
+    backgroundColor: "#FEE2E2",
+  },
+  ingredientName: {
+    color: "#1F2937",
+    fontFamily: FONT,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  ingredientNameRemoved: {
+    color: "#9CA3AF",
+    textDecorationLine: "line-through",
+  },
+  ingredientPriceBadge: {
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  ingredientPriceBadgeRemoved: {
+    backgroundColor: "#FEE2E2",
+  },
+  ingredientPriceText: {
+    color: "#059669",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  ingredientPriceTextRemoved: {
+    color: "#DC2626",
+  },
+  ingredientIncludedText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+  },
+  priceContainer: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+    marginTop: 16,
+  },
   currentPrice: {
     color: PRIMARY,
     fontFamily: FONT,
     fontSize: 22,
     fontWeight: "700",
-    marginTop: 12,
+  },
+  originalPrice: {
+    color: "#9CA3AF",
+    fontFamily: FONT,
+    fontSize: 14,
+    textDecorationLine: "line-through",
   },
   instructionsSection: {
     marginTop: 20,

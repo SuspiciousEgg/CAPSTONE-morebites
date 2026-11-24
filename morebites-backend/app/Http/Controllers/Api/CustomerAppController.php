@@ -298,35 +298,57 @@ class CustomerAppController extends Controller
                 }
             }
 
-            // 2. Dispatch via SMS service (SMS gateway or local log)
-            $smsService->sendOtp($phone, $code);
+            // 2. Dispatch via SMS service if phone was entered
+            if (! $isEmail) {
+                $smsService->sendOtp($phone, $code);
+            }
         } else {
-            PasswordResetOtp::query()->updateOrCreate(
-                ['phone' => $phone],
-                [
-                    'email' => $targetEmail,
-                    'user_id' => null,
-                    'otp_hash' => null,
-                    'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
-                    'attempts' => 0,
-                    'last_sent_at' => now(),
-                    'reset_token_hash' => null,
-                    'reset_token_expires_at' => null,
-                    'consumed_at' => null,
-                ]
-            );
+            if ($isEmail) {
+                // Safely track cooldown for non-existent email without phone unique collisions
+                $record = PasswordResetOtp::query()->where('email', $targetEmail)->first();
+                if (! $record) {
+                    $dummyPhone = '09'.substr(str_pad(preg_replace('/\D/', '', (string) crc32($targetEmail)), 9, '0', STR_PAD_LEFT), 0, 9);
+                    while (PasswordResetOtp::query()->where('phone', $dummyPhone)->exists()) {
+                        $dummyPhone = '09'.str_pad((string) random_int(100000000, 999999999), 9, '0', STR_PAD_LEFT);
+                    }
+                    $record = new PasswordResetOtp(['email' => $targetEmail, 'phone' => $dummyPhone]);
+                }
+                $record->user_id = null;
+                $record->otp_hash = null;
+                $record->otp_expires_at = now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES);
+                $record->attempts = 0;
+                $record->last_sent_at = now();
+                $record->reset_token_hash = null;
+                $record->reset_token_expires_at = null;
+                $record->consumed_at = null;
+                $record->save();
+            } else {
+                PasswordResetOtp::query()->updateOrCreate(
+                    ['phone' => $phone],
+                    [
+                        'email' => null,
+                        'user_id' => null,
+                        'otp_hash' => null,
+                        'otp_expires_at' => now()->addMinutes(PasswordResetOtp::OTP_EXPIRY_MINUTES),
+                        'attempts' => 0,
+                        'last_sent_at' => now(),
+                        'reset_token_hash' => null,
+                        'reset_token_expires_at' => null,
+                        'consumed_at' => null,
+                    ]
+                );
+            }
         }
 
-        $message = 'If this phone number is registered, a 6-digit verification code has been sent.';
-        if ($isEmail) {
-            $message = 'If this email address is registered, a 6-digit verification code has been sent.';
-        }
+        $message = $isEmail
+            ? 'If an account exists with this email, we’ve sent a verification code.'
+            : 'If an account exists with this phone number, we’ve sent a verification code.';
 
         return response()->json([
             'message' => $message,
-            'phone' => $phone,
-            'email' => $effectiveEmail ?? $targetEmail,
-            'delivery_channel' => ! empty($effectiveEmail) ? 'email' : 'sms',
+            'phone' => ! $isEmail ? $phone : null,
+            'email' => $isEmail ? $targetEmail : null,
+            'delivery_channel' => $isEmail ? 'email' : 'sms',
             'cooldown_seconds' => PasswordResetOtp::RESEND_COOLDOWN_SECONDS,
             'expires_in_seconds' => PasswordResetOtp::OTP_EXPIRY_MINUTES * 60,
         ]);
@@ -548,8 +570,8 @@ class CustomerAppController extends Controller
                 'order_code' => $entry->order?->order_code,
                 'note' => $entry->note,
                 'created_at' => $entry->created_at?->toIso8601String(),
-                'date' => $entry->created_at?->format('M j, Y · g:i A'),
-                'date_short' => $entry->created_at?->format('M j, Y'),
+                'date' => \App\Support\ManilaTime::format($entry->created_at, 'M j, Y · g:i A'),
+                'date_short' => \App\Support\ManilaTime::format($entry->created_at, 'M j, Y'),
             ];
         })->values();
 
@@ -560,7 +582,7 @@ class CustomerAppController extends Controller
             'points_worth' => $worth,
             'points_worth_label' => '₱'.number_format($worth, 2),
             'points_expire_at' => $customer->points_expire_at?->toIso8601String(),
-            'expiry_date_label' => $customer->points_expire_at ? $customer->points_expire_at->format('M j, Y') : null,
+            'expiry_date_label' => \App\Support\ManilaTime::format($customer->points_expire_at, 'M j, Y'),
             'expiry_days' => (int) $settings->points_expiry_days,
             'expiry_enabled' => (int) $settings->points_expiry_days > 0,
             'explanation' => $explanation,
@@ -593,8 +615,8 @@ class CustomerAppController extends Controller
                 'order_code' => $entry->order?->order_code,
                 'note' => $entry->note,
                 'created_at' => $entry->created_at?->toIso8601String(),
-                'date' => $entry->created_at?->format('M j, Y · g:i A'),
-                'date_short' => $entry->created_at?->format('M j, Y'),
+                'date' => \App\Support\ManilaTime::format($entry->created_at, 'M j, Y · g:i A'),
+                'date_short' => \App\Support\ManilaTime::format($entry->created_at, 'M j, Y'),
             ];
         })->values();
 
@@ -852,7 +874,7 @@ class CustomerAppController extends Controller
     public function menu()
     {
         $service = app(InventoryDeductionService::class);
-        $service->syncMenuAvailability();
+        $service->clearExpiredBatchPromos();
 
         // Prompt 23: Aggregate real food rating data per menu item from customer orders.
         // When customers rate their orders, food ratings are stored in orders.food_rating.
@@ -870,12 +892,21 @@ class CustomerAppController extends Controller
             ->get()
             ->keyBy('menu_item_id');
 
-        $items = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+        $menuItems = MenuItem::query()
+            ->with([
+                'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ])
             ->where('archived', false)
             ->orderBy('category')
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        $service->syncMenuAvailability($menuItems);
+
+        $items = $menuItems
             ->map(fn (MenuItem $m) => $this->menuPayload($m, $service, $ratingStats->get($m->id)))
             ->values();
 
@@ -884,6 +915,8 @@ class CustomerAppController extends Controller
 
     public function topSelling(TopSellingService $service)
     {
+        app(InventoryDeductionService::class)->clearExpiredBatchPromos();
+
         return response()->json(['data' => $service->getTopSelling()]);
     }
 
@@ -959,6 +992,7 @@ class CustomerAppController extends Controller
             'food_comment' => $data['food_comment'] ?? null,
             'rider_rating' => $data['rider_rating'] ?? null,
             'rider_comment' => $data['rider_comment'] ?? null,
+            'customer_rating' => $data['rider_rating'] ?? $data['food_rating'] ?? $order->customer_rating,
             'rated_at' => now(),
         ]);
 
@@ -1001,6 +1035,7 @@ class CustomerAppController extends Controller
             'dest_lng' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
             'use_points' => ['nullable', 'boolean'],
+            'points_to_redeem' => ['nullable', 'integer', 'min:0'],
             'expected_points' => ['nullable', 'integer'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
@@ -1008,6 +1043,8 @@ class CustomerAppController extends Controller
             'items.*.size' => ['nullable', 'string'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.removed_ingredients' => ['nullable', 'array'],
+            'items.*.special_instructions' => ['nullable', 'string', 'max:500'],
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
@@ -1040,7 +1077,17 @@ class CustomerAppController extends Controller
             app(\App\Services\LoyaltyService::class)->lazyCheckExpiry($lockedCustomer);
             $lockedCustomer->refresh();
 
-            $subtotal = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+            $resolvedItems = collect($data['items'])->map(function ($item) use ($service) {
+                $snapshottedRemoved = $service->snapshotRemovedIngredientsForLine($item);
+                $effectiveUnitPrice = $service->resolveEffectiveUnitPriceForLine($item, $snapshottedRemoved);
+
+                return array_merge($item, [
+                    '_snapshotted_removed' => $snapshottedRemoved,
+                    'unit_price' => $effectiveUnitPrice,
+                ]);
+            })->all();
+
+            $subtotal = collect($resolvedItems)->sum(fn ($i) => $i['qty'] * $i['unit_price']);
             $tracking = app(TrackingService::class);
             $rates = app(DeliveryRateService::class);
 
@@ -1065,10 +1112,15 @@ class CustomerAppController extends Controller
             $deliveryFee = $rates->feeForKm($distanceKm);
             $serviceFee = $rates->serviceFee();
 
-            // Loyalty points redemption
+            // Loyalty points redemption (supports partial points_to_redeem while enforcing balance & 100% food subtotal caps)
             $pointsUsed = 0;
             $pointsDiscount = 0.0;
-            $usePoints = ! empty($data['use_points']);
+            $requestedPoints = array_key_exists('points_to_redeem', $data) && $data['points_to_redeem'] !== null
+                ? max(0, (int) $data['points_to_redeem'])
+                : null;
+            $usePoints = $requestedPoints !== null
+                ? ($requestedPoints > 0)
+                : ! empty($data['use_points']);
 
             if ($usePoints) {
                 $loyaltySettings = LoyaltySetting::current();
@@ -1089,8 +1141,11 @@ class CustomerAppController extends Controller
                     }
 
                     $pesoVal = (float) $loyaltySettings->peso_value_per_point;
-                    $maxPts = (int) ceil($subtotal / $pesoVal);
-                    $pointsUsed = min($balance, $maxPts);
+                    $maxPts = $pesoVal > 0 ? (int) ceil($subtotal / $pesoVal) : 0;
+                    $maxAllowedPoints = min($balance, $maxPts);
+                    $pointsUsed = $requestedPoints !== null
+                        ? min($requestedPoints, $maxAllowedPoints)
+                        : $maxAllowedPoints;
                     $pointsDiscount = min(round($pointsUsed * $pesoVal, 2), (float) $subtotal);
                 }
             }
@@ -1117,6 +1172,7 @@ class CustomerAppController extends Controller
                 'dest_lng' => $dest['longitude'],
                 'delivery_distance_km' => $distanceKm,
                 'delivery_minutes' => max(15, (int) round($distanceKm * 4)),
+                'estimated_delivery_minutes' => max(15, (int) round($distanceKm * 4)),
             ]);
 
             if ($pointsUsed > 0) {
@@ -1140,12 +1196,29 @@ class CustomerAppController extends Controller
                 ]);
             }
 
-            foreach ($data['items'] as $item) {
+            $menuIds = collect($resolvedItems)->pluck('menu_item_id')->filter()->unique()->values();
+            $beverageMenuIds = $menuIds->isNotEmpty()
+                ? MenuItem::query()
+                    ->whereIn('id', $menuIds)
+                    ->whereRaw('LOWER(TRIM(category)) IN (?, ?)', ['beverages', 'beverage'])
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all()
+                : [];
+
+            foreach ($resolvedItems as $item) {
+                $isBeverageItem = ! empty($item['menu_item_id'])
+                    && in_array((int) $item['menu_item_id'], $beverageMenuIds, true);
+
                 OrderItem::query()->create([
                     'order_id' => $order->id,
                     'menu_item_id' => $item['menu_item_id'] ?? null,
                     'name' => $item['name'].(! empty($item['size']) ? ' ('.$item['size'].')' : ''),
                     'size' => $item['size'] ?? null,
+                    'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
+                    'special_instructions' => (! $isBeverageItem && ! empty($item['special_instructions']))
+                        ? trim((string) $item['special_instructions'])
+                        : null,
                     'qty' => $item['qty'],
                     'unit_price' => $item['unit_price'],
                     'line_total' => $item['qty'] * $item['unit_price'],
@@ -1282,17 +1355,68 @@ class CustomerAppController extends Controller
         $stockOk = $service->canServe($m);
         $stockReason = $service->unserviceableReason($m);
         $isAvailable = (bool) ($m->available && $stockOk);
+        $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
-        $sizes = $m->sizes->map(fn ($s) => [
-            'sizeName' => $s->name,
-            'price' => (float) $s->price,
-        ])->values();
+        $sizes = $m->sizes->map(function ($s) use ($m) {
+            $orig = (float) $s->price;
+            $eff = $m->applyPromoPrice($orig);
 
+            $isBeverage = strcasecmp(trim((string) $m->category), 'Beverages') === 0;
+
+            return [
+                'id' => $s->id,
+                'sizeName' => $s->name,
+                'originalPrice' => $orig,
+                'price' => $eff,
+                'ingredients' => $isBeverage
+                    ? collect()
+                    : $s->ingredients
+                        ->filter(fn ($ing) => $ing->is_removable !== false)
+                        ->map(fn ($ing) => [
+                            'id' => $ing->id,
+                            'inventory_item_id' => $ing->inventory_item_id,
+                            'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                            'qty_per_serving' => (float) $ing->qty_per_serving,
+                            'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                            'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                            'price' => $ing->computedPrice(),
+                            'is_removable' => true,
+                        ])->values(),
+            ];
+        })->values();
+
+        $isBeverageMenu = strcasecmp(trim((string) $m->category), 'Beverages') === 0;
+        $ingredients = $isBeverageMenu
+            ? collect()
+            : $m->ingredients
+                ->filter(fn ($ing) => $ing->is_removable !== false)
+                ->map(fn ($ing) => [
+                    'id' => $ing->id,
+                    'menu_item_size_id' => $ing->menu_item_size_id,
+                    'inventory_item_id' => $ing->inventory_item_id,
+                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                    'qty_per_serving' => (float) $ing->qty_per_serving,
+                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                    'price' => $ing->computedPrice(),
+                    'is_removable' => true,
+                ])->values();
+
+        $origMin = $sizes->min('originalPrice');
+        $origMax = $sizes->max('originalPrice');
         $min = $sizes->min('price');
         $max = $sizes->max('price');
+
+        $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
+
+        $originalPriceLabel = $m->has_sizes && $sizes->count()
+            ? '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax)
+            : '₱'.$formatNum((float) $m->price);
+
+        $effectiveBase = $m->applyPromoPrice((float) $m->price);
         $priceLabel = $m->has_sizes && $sizes->count()
-            ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
-            : '₱'.number_format((float) $m->price, 0);
+            ? '₱'.$formatNum((float) $min).' - ₱'.$formatNum((float) $max)
+            : '₱'.$formatNum($effectiveBase);
 
         $rating = $ratingStat ? (float) $ratingStat->avg_rating : null;
         $reviewCount = $ratingStat ? (int) $ratingStat->review_count : 0;
@@ -1304,10 +1428,13 @@ class CustomerAppController extends Controller
             'category' => $m->category,
             'subcategory' => $m->subcategory,
             'description' => $m->description,
-            'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
+            'originalPrice' => (float) ($m->has_sizes && $origMin !== null ? $origMin : $m->price),
+            'originalPriceLabel' => $originalPriceLabel,
+            'price' => (float) ($m->has_sizes && $min !== null ? $min : $effectiveBase),
             'priceLabel' => $priceLabel,
             'hasSizes' => (bool) $m->has_sizes,
             'sizes' => $sizes,
+            'ingredients' => $ingredients,
             'image' => Media::url($m->image),
             'available' => $isAvailable,
             'availability' => $isAvailable,
@@ -1316,9 +1443,9 @@ class CustomerAppController extends Controller
             'rating' => $rating,
             'reviewCount' => $reviewCount,
             'reviews' => $reviewCount,
-            'promoActive' => (bool) $m->promo_active,
-            'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
-            'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
+            'promoActive' => $promoActive,
+            'promoDiscountPercent' => $promoActive ? (float) $m->promo_discount_percent : null,
+            'promoLabel' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
         ];
     }
 
@@ -1334,7 +1461,8 @@ class CustomerAppController extends Controller
         $deliveredAt = $o->delivered_at ?? ($isCompleted ? $o->updated_at : null);
         $firstItem = $o->items->first();
         $prepSetting = \App\Models\StoreSetting::current();
-        $isPreparing = in_array($o->status, ['Preparing', 'Pending'], true);
+        $isPreparing = $o->status === 'Preparing';
+        $riderAccepted = in_array($o->status, ['Picked Up', 'Out for Delivery', 'Out For Delivery', 'Delivered', 'Completed'], true);
 
         return [
             'id' => $o->order_code,
@@ -1342,29 +1470,48 @@ class CustomerAppController extends Controller
             'receipt_number' => $o->receiptNumber(),
             'status' => $displayStatus,
             'raw_status' => $o->status,
+            'cancellation_reason' => $o->cancellation_reason,
+            'rider_accepted' => $riderAccepted,
             'is_preparing' => $isPreparing,
             'prep_time_min' => $prepSetting->min_prep_time,
             'prep_time_max' => $prepSetting->max_prep_time,
             'prep_time_label' => $prepSetting->formattedLabel(),
             'prep_estimate_text' => $prepSetting->estimateText(),
             'date' => $date?->toIso8601String(),
-            'dateLabel' => $date?->format('M j, Y · g:i A'),
+            'dateLabel' => \App\Support\ManilaTime::format($date, 'M j, Y · g:i A'),
             'ordered_at' => $date?->toIso8601String(),
-            'ordered_at_label' => $date?->format('M j, Y · g:i A'),
+            'ordered_at_label' => \App\Support\ManilaTime::format($date, 'M j, Y · g:i A'),
             'total' => (float) $o->total,
             'delivery_fee' => (float) ($o->delivery_fee ?? app(DeliveryRateService::class)->defaultFee()),
             'service_fee' => (float) ($o->service_fee ?? app(DeliveryRateService::class)->serviceFee()),
-            'itemsLabel' => $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', '),
+            'itemsLabel' => $o->items->map(function ($i) {
+                $removedNames = collect($i->removed_ingredients ?? [])
+                    ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                    ->filter()
+                    ->values();
+                $removedSuffix = $removedNames->isNotEmpty()
+                    ? ' (Without: '.$removedNames->implode(', ').')'
+                    : '';
+                $noteSuffix = ! empty($i->special_instructions)
+                    ? ' [Note: '.$i->special_instructions.']'
+                    : '';
+
+                return $i->qty.'x '.$i->name.$removedSuffix.$noteSuffix;
+            })->implode(', '),
             'items' => $o->items->map(fn ($i) => [
                 'id' => (string) $i->id,
                 'name' => $i->name,
                 'size' => $i->size,
                 'quantity' => (int) $i->qty,
                 'price' => (float) $i->unit_price,
+                'line_total' => (float) $i->line_total,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
                 'image' => $i->menuItem?->image ? Media::url($i->menuItem->image) : null,
             ])->values(),
             'food_name' => $firstItem?->name ?: 'Your order',
             'food_price' => (float) ($firstItem?->unit_price ?? $o->total),
+            'food_image' => $firstItem?->menuItem?->image ? Media::url($firstItem->menuItem->image) : null,
             'address' => $o->delivery_address,
             'payment_method' => $o->payment_method ?: 'COD',
             'payment_status' => $isCompleted ? 'Paid' : ($o->payment_status ?: 'Unpaid'),
@@ -1373,25 +1520,28 @@ class CustomerAppController extends Controller
             'driver_phone' => $o->driver?->phone,
             'driver_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
             'rider_photo' => $o->driver?->photo ? Media::url($o->driver->photo) : null,
-            'reported_issues' => $o->reportedIssues(),
             'eta_mins' => (int) ($o->delivery_minutes ?: 25),
             'distance' => number_format((float) ($o->delivery_distance_km ?: 2.5), 1).'km',
             'dest_lat' => $o->dest_lat ? (float) $o->dest_lat : null,
             'dest_lng' => $o->dest_lng ? (float) $o->dest_lng : null,
-            'rider_lat' => $o->driver?->current_lat ? (float) $o->driver->current_lat : null,
-            'rider_lng' => $o->driver?->current_lng ? (float) $o->driver->current_lng : null,
+            'rider_lat' => ($riderAccepted && $o->driver?->current_lat) ? (float) $o->driver->current_lat : null,
+            'rider_lng' => ($riderAccepted && $o->driver?->current_lng) ? (float) $o->driver->current_lng : null,
             'rated' => (bool) $o->rated_at,
             'can_rate' => $displayStatus === 'Delivered' && ! $o->rated_at,
             'food_rating' => $o->food_rating ? (int) $o->food_rating : null,
             'rider_rating' => $o->rider_rating ? (int) $o->rider_rating : null,
             'proof_of_delivery' => Media::url($o->proof_of_delivery),
             'delivered_at' => $deliveredAt?->toIso8601String(),
-            'delivered_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'delivered_at_label' => \App\Support\ManilaTime::format($deliveredAt, 'M j, Y · g:i A'),
             'payment_confirmed_at' => $deliveredAt?->toIso8601String(),
-            'payment_confirmed_at_label' => $deliveredAt?->format('M j, Y · g:i A'),
+            'payment_confirmed_at_label' => \App\Support\ManilaTime::format($deliveredAt, 'M j, Y · g:i A'),
             'points_used' => (int) ($o->points_used ?? 0),
             'points_discount' => (float) ($o->points_discount ?? 0),
             'points_earned' => $o->loyaltyPointsEarned(),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $o->delivery_minutes ?: 25),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
         ];
     }
 }

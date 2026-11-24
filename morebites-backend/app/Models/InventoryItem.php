@@ -19,7 +19,10 @@ class InventoryItem extends Model
         'subcategory_detail',
         'stock',
         'unit',
+        'portion_unit',
+        'portions_per_unit',
         'reorder_level',
+        'price',
         'status',
         'date_placed',
         'expiry_date',
@@ -29,10 +32,35 @@ class InventoryItem extends Model
     {
         return [
             'stock' => 'float',
+            'portions_per_unit' => 'float',
             'reorder_level' => 'float',
+            'price' => 'float',
             'date_placed' => 'date',
             'expiry_date' => 'date',
         ];
+    }
+
+    public function hasPortionTool(): bool
+    {
+        return ! empty($this->portion_unit) && (float) ($this->portions_per_unit ?? 0) > 0;
+    }
+
+    public function pricePerPortion(): ?float
+    {
+        if (! $this->hasPortionTool() || (float) ($this->price ?? 0) <= 0) {
+            return null;
+        }
+
+        return round((float) $this->price / (float) $this->portions_per_unit, 2);
+    }
+
+    public function stockInPortions(): ?float
+    {
+        if (! $this->hasPortionTool()) {
+            return null;
+        }
+
+        return round((float) $this->stock * (float) $this->portions_per_unit, 2);
     }
 
     public function batches(): HasMany
@@ -89,7 +117,7 @@ class InventoryItem extends Model
 
     public static function makeBatchNo(string $name, ?Carbon $date = null): string
     {
-        $date ??= now();
+        $date ??= \App\Support\ManilaTime::now();
         $letters = preg_replace('/[^A-Za-z]/', '', $name) ?: 'XX';
         $prefix = strtoupper(substr($letters, 0, 2));
 
@@ -106,12 +134,7 @@ class InventoryItem extends Model
         }
 
         if ($expiryDate) {
-            $expiry = $expiryDate instanceof Carbon
-                ? $expiryDate->copy()->startOfDay()
-                : Carbon::parse($expiryDate)->startOfDay();
-            $daysUntilExpiry = (int) floor(
-                ($expiry->getTimestamp() - now()->startOfDay()->getTimestamp()) / 86400
-            );
+            $daysUntilExpiry = \App\Support\ManilaTime::calendarDaysUntil($expiryDate);
 
             if ($daysUntilExpiry < 0) {
                 return 'Expired';
@@ -146,12 +169,7 @@ class InventoryItem extends Model
             return null;
         }
 
-        $expiryCarbon = $expiry instanceof Carbon ? $expiry : Carbon::parse($expiry);
-
-        return (int) floor(
-            ($expiryCarbon->copy()->startOfDay()->getTimestamp()
-                - now()->startOfDay()->getTimestamp()) / 86400
-        );
+        return \App\Support\ManilaTime::calendarDaysUntil($expiry);
     }
 
     /** Days until expiry from today — used for status alerts. */
@@ -167,7 +185,9 @@ class InventoryItem extends Model
         }
 
         if ($this->expiry_date) {
-            return $this->expiry_date->copy()->startOfDay()->lessThan(now()->startOfDay());
+            $days = \App\Support\ManilaTime::calendarDaysUntil($this->expiry_date);
+
+            return $days !== null && $days < 0;
         }
 
         return false;

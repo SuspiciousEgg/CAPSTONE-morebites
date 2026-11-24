@@ -9,8 +9,10 @@ use App\Models\InventoryLog;
 use App\Models\MenuItemIngredient;
 use App\Models\Notification;
 use App\Services\InventoryDeductionService;
+use App\Support\UnitConverter;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class InventoryController extends Controller
 {
@@ -59,11 +61,14 @@ class InventoryController extends Controller
             return $this->transform($i);
         });
 
-        $weekAgo = now()->subDays(7)->startOfDay();
-        $addedThisWeek = $all->filter(function (InventoryItem $i) use ($weekAgo) {
-            $placed = $i->date_placed ?: $i->created_at;
+        $weekAgoDate = \App\Support\ManilaTime::now()->subDays(7)->toDateString();
+        $weekAgoUtc = \App\Support\ManilaTime::now()->subDays(7)->startOfDay()->setTimezone('UTC');
+        $addedThisWeek = $all->filter(function (InventoryItem $i) use ($weekAgoDate, $weekAgoUtc) {
+            if ($i->date_placed) {
+                return $i->date_placed->format('Y-m-d') >= $weekAgoDate;
+            }
 
-            return $placed && $placed->greaterThanOrEqualTo($weekAgo);
+            return $i->created_at && $i->created_at->greaterThanOrEqualTo($weekAgoUtc);
         })->count();
 
         return response()->json([
@@ -89,16 +94,27 @@ class InventoryController extends Controller
             'subcategory' => ['nullable', 'string'],
             'subcategory_detail' => ['nullable', 'string'],
             'stock' => ['required', 'numeric', 'min:0'],
-            'unit' => ['required', 'string'],
+            'unit' => ['required', 'string', 'max:30'],
+            'portion_unit' => ['nullable', 'string', 'max:30'],
+            'portions_per_unit' => ['nullable', 'numeric', 'gt:0'],
             'reorder_level' => ['required', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
             'date_placed' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date', 'after_or_equal:date_placed'],
             'batch_no' => ['nullable', 'string'],
         ]);
 
+        [$portionUnit, $portionsPerUnit] = $this->resolvePortionConfig(
+            $data['unit'],
+            $data['portion_unit'] ?? null,
+            array_key_exists('portions_per_unit', $data) && $data['portions_per_unit'] !== null
+                ? (float) $data['portions_per_unit']
+                : null
+        );
+
         $datePlaced = ! empty($data['date_placed'])
             ? Carbon::parse($data['date_placed'])->startOfDay()
-            : now()->startOfDay();
+            : Carbon::createFromFormat('Y-m-d', \App\Support\ManilaTime::todayString())->startOfDay();
         $expiry = ! empty($data['expiry_date']) ? Carbon::parse($data['expiry_date'])->startOfDay() : null;
         $batch = $data['batch_no'] ?? InventoryItem::makeBatchNo($data['name'], $datePlaced);
 
@@ -125,7 +141,10 @@ class InventoryController extends Controller
                 'subcategory_detail' => $data['subcategory_detail'] ?? null,
                 'stock' => $data['stock'],
                 'unit' => $data['unit'],
+                'portion_unit' => $portionUnit,
+                'portions_per_unit' => $portionsPerUnit,
                 'reorder_level' => $data['reorder_level'],
+                'price' => array_key_exists('price', $data) ? (float) $data['price'] : (float) ($existing->price ?? 0),
                 'batch_no' => $batch,
                 'date_placed' => $datePlaced,
                 'expiry_date' => $expiry,
@@ -153,7 +172,10 @@ class InventoryController extends Controller
             'subcategory_detail' => $data['subcategory_detail'] ?? null,
             'stock' => $data['stock'],
             'unit' => $data['unit'],
+            'portion_unit' => $portionUnit,
+            'portions_per_unit' => $portionsPerUnit,
             'reorder_level' => $data['reorder_level'],
+            'price' => isset($data['price']) ? (float) $data['price'] : 0.00,
             'batch_no' => $batch,
             'date_placed' => $datePlaced,
             'expiry_date' => $expiry,
@@ -195,14 +217,72 @@ class InventoryController extends Controller
             'subcategory' => ['nullable', 'string'],
             'subcategory_detail' => ['nullable', 'string'],
             'stock' => ['sometimes', 'required', 'numeric', 'min:0'],
-            'unit' => ['sometimes', 'required', 'string'],
+            'unit' => ['sometimes', 'required', 'string', 'max:30'],
+            'portion_unit' => ['nullable', 'string', 'max:30'],
+            'portions_per_unit' => ['nullable', 'numeric', 'gt:0'],
             'reorder_level' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
             'date_placed' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
             'batch_no' => ['nullable', 'string'],
         ]);
 
-        $prevStock = (float) $inventory->stock;
+        $oldUnit = (string) $inventory->unit;
+        $newUnit = array_key_exists('unit', $data) ? (string) $data['unit'] : $oldUnit;
+        $unitChanged = strtolower(trim($oldUnit)) !== strtolower(trim($newUnit));
+        $unitFactor = $unitChanged
+            ? (InventoryDeductionService::convertToInventoryUnit(1.0, $oldUnit, $newUnit) ?? 1.0)
+            : 1.0;
+
+        $rawPrevStock = (float) $inventory->stock;
+        $prevStock = $unitFactor !== 1.0 ? round($rawPrevStock * $unitFactor, 4) : $rawPrevStock;
+
+        if ($unitFactor !== 1.0) {
+            if (! array_key_exists('stock', $data) || abs((float) $data['stock'] - $rawPrevStock) < 0.0001) {
+                $data['stock'] = $prevStock;
+            }
+            $rawPrevReorder = (float) $inventory->reorder_level;
+            if (! array_key_exists('reorder_level', $data) || abs((float) $data['reorder_level'] - $rawPrevReorder) < 0.0001) {
+                $data['reorder_level'] = round($rawPrevReorder * $unitFactor, 4);
+            }
+            $rawPrevPrice = (float) ($inventory->price ?? 0);
+            if ($rawPrevPrice > 0 && (! array_key_exists('price', $data) || abs((float) $data['price'] - $rawPrevPrice) < 0.0001)) {
+                $data['price'] = round($rawPrevPrice / $unitFactor, 4);
+            }
+            $rawPrevPortions = (float) ($inventory->portions_per_unit ?? 0);
+            if ($rawPrevPortions > 0 && (! array_key_exists('portions_per_unit', $data) || abs((float) $data['portions_per_unit'] - $rawPrevPortions) < 0.0001)) {
+                $data['portions_per_unit'] = round($rawPrevPortions / $unitFactor, 4);
+            }
+            if ($inventory->batches()->exists()) {
+                foreach ($inventory->batches()->get() as $batch) {
+                    $convertedBatchStock = round((float) $batch->stock * $unitFactor, 4);
+                    $convertedInitial = round((float) $batch->initial_stock * $unitFactor, 4);
+                    $batch->update([
+                        'stock' => $convertedBatchStock,
+                        'initial_stock' => $convertedInitial,
+                        'status' => \App\Models\InventoryBatch::deriveBatchStatus($convertedBatchStock, $batch->expiry_date),
+                    ]);
+                }
+            }
+        }
+
+        if (array_key_exists('portion_unit', $data) || array_key_exists('portions_per_unit', $data) || $unitChanged) {
+            $incomingPortionUnit = array_key_exists('portion_unit', $data)
+                ? $data['portion_unit']
+                : $inventory->portion_unit;
+            $incomingPortionsPerUnit = array_key_exists('portions_per_unit', $data)
+                ? ($data['portions_per_unit'] !== null ? (float) $data['portions_per_unit'] : null)
+                : ($inventory->portions_per_unit !== null ? (float) $inventory->portions_per_unit : null);
+
+            [$resolvedPortionUnit, $resolvedPortionsPerUnit] = $this->resolvePortionConfig(
+                $newUnit,
+                $incomingPortionUnit,
+                $incomingPortionsPerUnit
+            );
+            $data['portion_unit'] = $resolvedPortionUnit;
+            $data['portions_per_unit'] = $resolvedPortionsPerUnit;
+        }
+
         $stock = array_key_exists('stock', $data) ? (float) $data['stock'] : $prevStock;
         $reorder = array_key_exists('reorder_level', $data)
             ? (float) $data['reorder_level']
@@ -225,14 +305,26 @@ class InventoryController extends Controller
             'status' => InventoryItem::deriveStatus($stock, $reorder, $expiry),
         ]);
 
-        if (array_key_exists('stock', $data) && $inventory->batches()->exists()) {
+        if ($inventory->batches()->exists()) {
             if ($inventory->batches()->count() === 1) {
                 $b = $inventory->batches()->first();
-                $b->update([
-                    'stock' => $stock,
-                    'status' => \App\Models\InventoryBatch::deriveBatchStatus($stock, $expiry ?? $b->expiry_date),
-                ]);
-            } else {
+                $batchUpdates = [];
+                if (array_key_exists('stock', $data)) {
+                    $batchUpdates['stock'] = $stock;
+                }
+                if (array_key_exists('expiry_date', $data)) {
+                    $batchUpdates['expiry_date'] = $expiry;
+                }
+                if (array_key_exists('date_placed', $data)) {
+                    $batchUpdates['date_placed'] = $data['date_placed'];
+                }
+                if (! empty($batchUpdates)) {
+                    $effectiveBatchStock = array_key_exists('stock', $batchUpdates) ? $stock : (float) $b->stock;
+                    $effectiveBatchExpiry = array_key_exists('expiry_date', $batchUpdates) ? $expiry : $b->expiry_date;
+                    $batchUpdates['status'] = \App\Models\InventoryBatch::deriveBatchStatus($effectiveBatchStock, $effectiveBatchExpiry);
+                    $b->update($batchUpdates);
+                }
+            } elseif (array_key_exists('stock', $data)) {
                 $diff = $stock - $prevStock;
                 if ($diff > 0) {
                     $latestBatch = $inventory->batches()->latest('id')->first();
@@ -273,6 +365,19 @@ class InventoryController extends Controller
 
         Notification::notifyIfLowStock($inventory->fresh());
 
+        // Keep linked recipe ingredient prices synchronized with updated inventory price/unit
+        $freshInventory = $inventory->fresh();
+        \App\Models\MenuItemIngredient::query()
+            ->where('inventory_item_id', $freshInventory->id)
+            ->with('inventoryItem')
+            ->get()
+            ->each(function (\App\Models\MenuItemIngredient $ing) {
+                $computed = $ing->computedPrice();
+                if (abs((float) $ing->price - $computed) > 0.001) {
+                    $ing->update(['price' => $computed]);
+                }
+            });
+
         app(InventoryDeductionService::class)->syncMenusUsingInventory($inventory->id);
 
         return response()->json(['data' => $this->transform($inventory->fresh())]);
@@ -292,7 +397,7 @@ class InventoryController extends Controller
 
         $datePlaced = ! empty($data['date_placed'])
             ? Carbon::parse($data['date_placed'])->startOfDay()
-            : now()->startOfDay();
+            : Carbon::createFromFormat('Y-m-d', \App\Support\ManilaTime::todayString())->startOfDay();
         $expiry = ! empty($data['expiry_date'])
             ? Carbon::parse($data['expiry_date'])->startOfDay()
             : null;
@@ -426,16 +531,17 @@ class InventoryController extends Controller
         }
 
         $range = $request->query('range', 'all');
+        $todayRangeUtc = \App\Support\ManilaTime::dayRangeUtc();
         if ($range === 'today') {
-            $query->whereDate('created_at', now()->toDateString());
+            $query->whereBetween('created_at', $todayRangeUtc);
         } elseif ($range === '7d') {
-            $query->where('created_at', '>=', now()->subDays(7));
+            $query->where('created_at', '>=', \App\Support\ManilaTime::now()->subDays(7)->startOfDay()->setTimezone('UTC'));
         } elseif ($range === '30d') {
-            $query->where('created_at', '>=', now()->subDays(30));
+            $query->where('created_at', '>=', \App\Support\ManilaTime::now()->subDays(30)->startOfDay()->setTimezone('UTC'));
         }
 
         $logs = $query->take(200)->get();
-        $today = InventoryLog::query()->whereDate('created_at', now()->toDateString());
+        $today = InventoryLog::query()->whereBetween('created_at', $todayRangeUtc);
 
         return response()->json([
             'data' => $logs->map(fn (InventoryLog $log) => $log->transformForApi())->values(),
@@ -516,6 +622,33 @@ class InventoryController extends Controller
         }
     }
 
+    /**
+     * Validates and normalizes the optional kitchen portion tool mapping (e.g. 1 pack = 8 scoops).
+     *
+     * @return array{0: ?string, 1: ?float}
+     */
+    private function resolvePortionConfig(string $stockUnit, ?string $portionUnit, ?float $portionsPerUnit): array
+    {
+        $cleanPortion = $portionUnit !== null ? UnitConverter::normalize($portionUnit) : null;
+        if ($cleanPortion === null || $cleanPortion === '') {
+            return [null, null];
+        }
+
+        $cleanStock = UnitConverter::normalize($stockUnit);
+        if ($cleanStock !== null && $cleanPortion === $cleanStock) {
+            // Direct 1:1 tracking in the portion unit itself — no secondary multiplier needed
+            return [null, null];
+        }
+
+        if ($portionsPerUnit === null || $portionsPerUnit <= 0) {
+            throw ValidationException::withMessages([
+                'portions_per_unit' => ["Please enter how many {$cleanPortion}s are in 1 {$stockUnit}."],
+            ]);
+        }
+
+        return [$cleanPortion, round($portionsPerUnit, 4)];
+    }
+
     private function transform(InventoryItem $i): array
     {
         $daysLeft = $i->daysLeft();
@@ -563,7 +696,12 @@ class InventoryController extends Controller
             ])->filter()->implode(' › '),
             'stock' => (float) $i->stock,
             'unit' => $i->unit,
+            'portion_unit' => $i->portion_unit,
+            'portions_per_unit' => $i->portions_per_unit !== null ? (float) $i->portions_per_unit : null,
+            'price_per_portion' => $i->pricePerPortion(),
+            'stock_in_portions' => $i->stockInPortions(),
             'reorder' => (float) $i->reorder_level,
+            'price' => (float) ($i->price ?? 0.0),
             'date_placed' => $i->date_placed?->format('M d, Y'),
             'date_placed_raw' => $i->date_placed?->format('Y-m-d'),
             'expiry_date' => $i->expiry_date?->format('M d, Y'),

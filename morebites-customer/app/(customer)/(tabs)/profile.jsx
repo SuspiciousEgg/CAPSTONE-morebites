@@ -71,6 +71,7 @@ function getHistoryMeta(item) {
 export default function ProfileScreen() {
   const [user, setUser] = useState({ fullName: "Customer", phone: "", photo: null });
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [loyalty, setLoyalty] = useState({
     points: 0,
     points_worth: 0,
@@ -137,9 +138,18 @@ export default function ProfileScreen() {
   );
 
   const logOut = async () => {
-    setLogoutVisible(false);
-    await customerApi.logout();
-    router.replace("/(auth)/login");
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await customerApi.logout();
+    } finally {
+      setLoggingOut(false);
+      setLogoutVisible(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(auth)/login");
+    }
   };
 
   return (
@@ -257,15 +267,23 @@ export default function ProfileScreen() {
         animationType="fade"
         onRequestClose={() => setLogoutVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setLogoutVisible(false)}>
+        <Pressable style={styles.modalOverlay}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
             <Image source={require("../../../assets/images/logout.png")} style={styles.modalImage} />
             <Text style={styles.modalTitle}>Log Out?</Text>
             <Text style={styles.modalText}>Are you sure want to log out of your account?</Text>
-            <Pressable style={styles.logoutButton} onPress={logOut}>
-              <Text style={styles.logoutButtonText}>Yes, Log Out</Text>
+            <Pressable
+              style={[styles.logoutButton, loggingOut && { opacity: 0.7 }]}
+              onPress={logOut}
+              disabled={loggingOut}
+            >
+              <Text style={styles.logoutButtonText}>{loggingOut ? "Logging Out..." : "Yes, Log Out"}</Text>
             </Pressable>
-            <Pressable style={styles.cancelButton} onPress={() => setLogoutVisible(false)}>
+            <Pressable
+              style={styles.cancelButton}
+              onPress={() => setLogoutVisible(false)}
+              disabled={loggingOut}
+            >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
           </Pressable>

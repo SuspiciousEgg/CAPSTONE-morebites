@@ -206,7 +206,9 @@
 
 .reports-select-filter {
   border: 1px solid #E5E7EB;
-  background: #F9FAFB;
+  background-color: #FFFFFF;
+  min-width: 156px;
+  height: 38px;
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 14px;
@@ -1085,7 +1087,9 @@
 
 .reports-history-select {
   border: 1px solid #E5E7EB;
-  background: #FFFFFF;
+  background-color: #FFFFFF;
+  min-width: 140px;
+  height: 38px;
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 14px;
@@ -1306,7 +1310,7 @@
   font-size: 13.5px;
   font-family: inherit;
   color: #1C1B18;
-  background: #FFFFFF;
+  background-color: #FFFFFF;
   box-sizing: border-box;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;

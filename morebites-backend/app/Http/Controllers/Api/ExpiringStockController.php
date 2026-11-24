@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\InventoryBatch;
 use App\Models\InventoryDisposition;
 use App\Models\InventoryItem;
@@ -10,12 +11,15 @@ use App\Models\InventoryLog;
 use App\Models\MenuItem;
 use App\Models\MenuItemIngredient;
 use App\Services\InventoryDeductionService;
+use App\Support\UnitConverter;
 use Illuminate\Http\Request;
 
 class ExpiringStockController extends Controller
 {
     public function index(Request $request)
     {
+        app(InventoryDeductionService::class)->clearExpiredBatchPromos();
+
         $batches = InventoryBatch::query()
             ->whereHas('item', fn ($q) => $q->where('status', '!=', 'Archived')->whereNull('deleted_at'))
             ->whereNotNull('expiry_date')
@@ -48,7 +52,7 @@ class ExpiringStockController extends Controller
             ->sortBy(fn ($row) => [$row['days_until_expiry'] ?? 999, $row['name'], $row['batch_no']])
             ->values();
 
-        $weekStart = now()->startOfWeek();
+        $weekStart = \App\Support\ManilaTime::startOfWeekUtc();
 
         return response()->json([
             'data' => $batches,
@@ -131,35 +135,62 @@ class ExpiringStockController extends Controller
         }
 
         $data = $request->validate([
-            'menu_item_id' => ['required', 'integer', 'exists:menu_items,id'],
+            'menu_item_id' => ['required_without:menu_item_ids', 'nullable', 'integer', 'exists:menu_items,id'],
+            'menu_item_ids' => ['required_without:menu_item_id', 'nullable', 'array', 'min:1'],
+            'menu_item_ids.*' => ['integer', 'exists:menu_items,id'],
             'discount_percent' => ['required', 'numeric', 'min:1', 'max:90'],
+            'promo_label' => ['nullable', 'string', 'max:60'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $linked = MenuItemIngredient::query()
+        $selectedIds = collect($data['menu_item_ids'] ?? [])
+            ->when(! empty($data['menu_item_id']), fn ($c) => $c->push((int) $data['menu_item_id']))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        abort_if($selectedIds->isEmpty(), 422, 'Select at least one menu item for this promo.');
+
+        $linkedIds = MenuItemIngredient::query()
             ->where('inventory_item_id', $batch->inventory_item_id)
-            ->where('menu_item_id', $data['menu_item_id'])
-            ->exists();
+            ->whereIn('menu_item_id', $selectedIds)
+            ->pluck('menu_item_id')
+            ->unique();
 
-        abort_unless($linked, 422, 'Selected menu item does not use this inventory item.');
+        foreach ($selectedIds as $menuId) {
+            abort_unless($linkedIds->contains($menuId), 422, 'Selected menu item does not use this inventory item.');
+        }
 
-        $menu = MenuItem::query()->findOrFail($data['menu_item_id']);
-        $label = 'Use It Up — '.$batch->item->name;
+        $menus = MenuItem::query()->whereIn('id', $selectedIds)->get();
+        $defaultLabel = $this->suggestedPromoLabel($daysUntil);
+        $customerLabel = trim((string) ($data['promo_label'] ?? '')) ?: $defaultLabel;
 
         $this->clearPromosForInventory($batch->inventory_item_id);
 
-        $menu->update([
-            'promo_active' => true,
-            'promo_discount_percent' => (float) $data['discount_percent'],
-            'promo_label' => $label,
-        ]);
+        foreach ($menus as $menu) {
+            $menu->update([
+                'promo_active' => true,
+                'promo_discount_percent' => (float) $data['discount_percent'],
+                'promo_label' => $customerLabel,
+            ]);
+        }
+
+        $menuNames = $menus->pluck('name')->implode(', ');
+        $internalNote = trim((string) ($data['notes'] ?? ''))
+            ?: "Promo ({$data['discount_percent']}% off · {$customerLabel}) on {$menuNames} to clear Batch {$batch->batch_no}.";
 
         $this->upsertBatchDisposition($batch, [
             'disposition' => InventoryDisposition::PROMO,
-            'promo_menu_item_id' => $menu->id,
+            'promo_menu_item_id' => $selectedIds->first(),
             'promo_discount_percent' => (float) $data['discount_percent'],
-            'notes' => $data['notes'] ?? null,
+            'notes' => $internalNote,
             'user_id' => $request->user()?->id,
+        ]);
+
+        $actor = $request->user()?->name ?: 'Staff';
+        ActivityLog::query()->create([
+            'actor' => $actor,
+            'action' => "Activated {$data['discount_percent']}% promo ({$customerLabel}) on {$menuNames} for expiring {$batch->item->name} (Batch {$batch->batch_no})",
         ]);
 
         return response()->json(['data' => $this->transformBatch($batch->fresh())]);
@@ -249,7 +280,7 @@ class ExpiringStockController extends Controller
                 'batch_no' => $inventory->batch_no ?: InventoryItem::makeBatchNo($inventory->name, $inventory->date_placed),
                 'stock' => (float) $inventory->stock,
                 'initial_stock' => (float) $inventory->stock,
-                'date_placed' => $inventory->date_placed ?? now()->toDateString(),
+                'date_placed' => $inventory->date_placed ?? \App\Support\ManilaTime::todayString(),
                 'expiry_date' => $inventory->expiry_date,
                 'status' => InventoryItem::deriveStatus((float) $inventory->stock, (float) $inventory->reorder_level, $inventory->expiry_date),
             ]);
@@ -345,19 +376,121 @@ class ExpiringStockController extends Controller
         $item = $batch->item;
         $disposition = $batch->activeDisposition();
         $daysUntil = $batch->daysUntilExpiry();
+        $batchStock = (float) $batch->stock;
+        $stockUnit = $item->unit ?: 'pcs';
 
-        $linkedMenus = MenuItemIngredient::query()
+        $ingredientRows = MenuItemIngredient::query()
             ->where('inventory_item_id', $item->id)
-            ->with('menuItem')
+            ->with(['menuItem.sizes', 'menuItemSize'])
             ->get()
-            ->map(fn (MenuItemIngredient $row) => [
-                'id' => $row->menuItem?->id,
-                'name' => $row->menuItem?->name,
-                'category' => $row->menuItem?->category,
-                'promo_active' => (bool) ($row->menuItem?->promo_active),
-            ])
-            ->filter(fn ($row) => $row['id'])
-            ->values();
+            ->filter(fn (MenuItemIngredient $row) => $row->menuItem && ! $row->menuItem->archived);
+
+        $linkedMenus = $ingredientRows
+            ->groupBy('menu_item_id')
+            ->map(function ($rows) use ($batchStock, $stockUnit) {
+                /** @var MenuItem $menu */
+                $menu = $rows->first()->menuItem;
+                $sizeEstimates = [];
+
+                foreach ($rows as $row) {
+                    $recipeQty = (float) $row->qty_per_serving;
+                    $recipeUnit = $row->unit ?: $stockUnit;
+                    try {
+                        $qtyInStockUnit = UnitConverter::convert($recipeQty, $recipeUnit, $stockUnit);
+                    } catch (\Throwable) {
+                        $qtyInStockUnit = $recipeQty;
+                    }
+
+                    $ordersToClear = ($qtyInStockUnit > 0 && $batchStock > 0)
+                        ? (int) ceil($batchStock / $qtyInStockUnit)
+                        : null;
+
+                    $sizeName = $row->menuItemSize?->name;
+                    $sizePrice = $row->menuItemSize ? (float) $row->menuItemSize->price : (float) $menu->price;
+
+                    $sizeEstimates[] = [
+                        'size_id' => $row->menu_item_size_id,
+                        'size_name' => $sizeName,
+                        'price' => $sizePrice,
+                        'qty_per_serving' => $recipeQty,
+                        'unit' => $recipeUnit,
+                        'qty_in_stock_unit' => round($qtyInStockUnit, 4),
+                        'usage_label' => $this->formatQtyLabel($recipeQty, $recipeUnit),
+                        'orders_to_clear' => $ordersToClear,
+                    ];
+                }
+
+                // Order size estimates from smallest to largest usage
+                usort($sizeEstimates, fn ($a, $b) => $a['qty_in_stock_unit'] <=> $b['qty_in_stock_unit']);
+
+                $usages = array_column($sizeEstimates, 'qty_in_stock_unit');
+                $maxUsage = count($usages) ? (float) max($usages) : 0.0;
+                $minUsage = count($usages) ? (float) min($usages) : 0.0;
+
+                $orderCounts = array_values(array_filter(
+                    array_column($sizeEstimates, 'orders_to_clear'),
+                    fn ($v) => $v !== null
+                ));
+                $minOrders = count($orderCounts) ? (int) min($orderCounts) : null;
+                $maxOrders = count($orderCounts) ? (int) max($orderCounts) : null;
+
+                $firstEst = $sizeEstimates[0] ?? null;
+                $lastEst = $sizeEstimates[count($sizeEstimates) - 1] ?? null;
+                if ($firstEst && $lastEst && $firstEst['usage_label'] !== $lastEst['usage_label']) {
+                    $usageSummary = "{$firstEst['usage_label']} – {$lastEst['usage_label']} / order";
+                } elseif ($firstEst) {
+                    $usageSummary = "{$firstEst['usage_label']} / order";
+                } else {
+                    $usageSummary = '—';
+                }
+
+                if ($minOrders !== null && $maxOrders !== null) {
+                    $ordersToClearLabel = $minOrders === $maxOrders
+                        ? "~{$minOrders} ".($minOrders === 1 ? 'order' : 'orders')
+                        : "~{$minOrders}–{$maxOrders} orders";
+                } else {
+                    $ordersToClearLabel = null;
+                }
+
+                $sizePrices = $menu->has_sizes && $menu->sizes->isNotEmpty()
+                    ? $menu->sizes->pluck('price')->map(fn ($p) => (float) $p)
+                    : collect([(float) $menu->price]);
+
+                return [
+                    'id' => $menu->id,
+                    'name' => $menu->name,
+                    'category' => $menu->category,
+                    'has_sizes' => (bool) $menu->has_sizes,
+                    'min_price' => (float) ($sizePrices->min() ?? $menu->price),
+                    'max_price' => (float) ($sizePrices->max() ?? $menu->price),
+                    'promo_active' => (bool) $menu->promo_active,
+                    'promo_discount_percent' => $menu->promo_active ? (float) $menu->promo_discount_percent : null,
+                    'promo_label' => $menu->promo_active ? $menu->promo_label : null,
+                    'max_usage_in_stock_unit' => $maxUsage,
+                    'min_usage_in_stock_unit' => $minUsage,
+                    'usage_summary' => $usageSummary,
+                    'min_orders_to_clear' => $minOrders,
+                    'max_orders_to_clear' => $maxOrders,
+                    'orders_to_clear_label' => $ordersToClearLabel,
+                    'size_estimates' => $sizeEstimates,
+                    'recommended' => false,
+                ];
+            })
+            ->sort(function ($a, $b) {
+                if ($b['max_usage_in_stock_unit'] !== $a['max_usage_in_stock_unit']) {
+                    return $b['max_usage_in_stock_unit'] <=> $a['max_usage_in_stock_unit'];
+                }
+
+                return strcasecmp($a['name'], $b['name']);
+            })
+            ->values()
+            ->map(function ($row, $idx) {
+                if ($idx === 0 && $row['max_usage_in_stock_unit'] > 0) {
+                    $row['recommended'] = true;
+                }
+
+                return $row;
+            });
 
         $parts = array_filter([$item->category, $item->subcategory, $item->subcategory_detail]);
 
@@ -371,8 +504,8 @@ class ExpiringStockController extends Controller
             'subcategory' => $item->subcategory,
             'subcategory_detail' => $item->subcategory_detail,
             'category_label' => implode(' › ', $parts),
-            'stock' => (float) $batch->stock,
-            'unit' => $item->unit,
+            'stock' => $batchStock,
+            'unit' => $stockUnit,
             'date_placed' => $batch->date_placed?->format('M d, Y'),
             'expiry_date' => $batch->expiry_date?->format('M d, Y'),
             'expiry_date_raw' => $batch->expiry_date?->format('Y-m-d'),
@@ -382,9 +515,45 @@ class ExpiringStockController extends Controller
             'disposition_label' => $this->dispositionLabel($disposition?->disposition ?? InventoryDisposition::PENDING),
             'promo_menu_item_id' => $disposition?->promo_menu_item_id,
             'promo_discount_percent' => $disposition?->promo_discount_percent,
+            'suggested_discount_percent' => $this->suggestedDiscountPercent($daysUntil),
+            'suggested_promo_label' => $this->suggestedPromoLabel($daysUntil),
             'notes' => $disposition?->notes,
             'linked_menus' => $linkedMenus,
         ];
+    }
+
+    private function suggestedDiscountPercent(?int $daysUntil): int
+    {
+        if ($daysUntil !== null && $daysUntil <= 0) {
+            return 25;
+        }
+        if ($daysUntil !== null && $daysUntil <= 3) {
+            return 15;
+        }
+
+        return 10;
+    }
+
+    private function suggestedPromoLabel(?int $daysUntil): string
+    {
+        if ($daysUntil !== null && $daysUntil <= 0) {
+            return 'Flash Deal';
+        }
+        if ($daysUntil !== null && $daysUntil <= 3) {
+            return "Today's Special";
+        }
+
+        return 'Limited Deal';
+    }
+
+    private function formatQtyLabel(float $qty, string $unit): string
+    {
+        $formatted = rtrim(rtrim(number_format($qty, 3, '.', ''), '0'), '.');
+        if ($formatted === '' || $formatted === '-0') {
+            $formatted = '0';
+        }
+
+        return "{$formatted} {$unit}";
     }
 
     private function dispositionLabel(string $disposition): string

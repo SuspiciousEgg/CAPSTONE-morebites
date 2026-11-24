@@ -47,7 +47,46 @@ class UnitConverter
     ];
 
     /**
-     * Normalizes a unit string to its canonical representation ('g', 'kg', 'L', 'ml', 'pcs').
+     * Canonical normalization map for kitchen portion tools and packaging units.
+     */
+    private const KITCHEN_UNIT_ALIASES = [
+        'scoop' => 'scoop',
+        'scoops' => 'scoop',
+        'cup' => 'cup',
+        'cups' => 'cup',
+        'ladle' => 'ladle',
+        'ladles' => 'ladle',
+        'slice' => 'slice',
+        'slices' => 'slice',
+        'portion' => 'portion',
+        'portions' => 'portion',
+        'serving' => 'portion',
+        'servings' => 'portion',
+        'tbsp' => 'tbsp',
+        'tablespoon' => 'tbsp',
+        'tablespoons' => 'tbsp',
+        'tsp' => 'tsp',
+        'teaspoon' => 'tsp',
+        'teaspoons' => 'tsp',
+        'pack' => 'pack',
+        'packs' => 'pack',
+        'pkg' => 'pack',
+        'bag' => 'bag',
+        'bags' => 'bag',
+        'bottle' => 'bottle',
+        'bottles' => 'bottle',
+        'can' => 'can',
+        'cans' => 'can',
+        'box' => 'box',
+        'boxes' => 'box',
+        'jar' => 'jar',
+        'jars' => 'jar',
+        'tray' => 'tray',
+        'trays' => 'tray',
+    ];
+
+    /**
+     * Normalizes a unit string to its canonical representation (e.g. 'g', 'kg', 'L', 'ml', 'pcs', 'scoop', 'ladle', 'pack').
      */
     public static function normalize(?string $unit): ?string
     {
@@ -72,11 +111,15 @@ class UnitConverter
             return 'pcs';
         }
 
+        if (isset(self::KITCHEN_UNIT_ALIASES[$clean])) {
+            return self::KITCHEN_UNIT_ALIASES[$clean];
+        }
+
         return $clean;
     }
 
     /**
-     * Returns the physical category of the unit ('mass', 'volume', 'count'), or null if unrecognized.
+     * Returns the physical category of the unit ('mass', 'volume', 'count'), or null for custom/kitchen units.
      */
     public static function category(?string $unit): ?string
     {
@@ -101,7 +144,7 @@ class UnitConverter
     }
 
     /**
-     * Checks whether two units belong to the same physical category and can be converted.
+     * Checks whether two units belong to the same physical category (or are the exact same custom/kitchen unit).
      */
     public static function isCompatible(?string $fromUnit, ?string $toUnit): bool
     {
@@ -111,6 +154,10 @@ class UnitConverter
 
         $normFrom = self::normalize($fromUnit);
         $normTo = self::normalize($toUnit);
+
+        if ($normFrom === null || $normTo === null) {
+            return true;
+        }
 
         if ($normFrom === $normTo) {
             return true;
@@ -124,6 +171,35 @@ class UnitConverter
         }
 
         return $catFrom === $catTo;
+    }
+
+    /**
+     * Checks whether a recipe unit is compatible with an inventory item, taking into account
+     * any configured kitchen portion tool (e.g. 1 pack = 8 scoops, 1 L = 12 ladles).
+     */
+    public static function isCompatibleWithInventory(
+        ?string $recipeUnit,
+        ?string $stockUnit,
+        ?string $portionUnit = null,
+        ?float $portionsPerUnit = null
+    ): bool {
+        if ($recipeUnit === null || trim($recipeUnit) === '') {
+            return true;
+        }
+
+        if (self::isCompatible($recipeUnit, $stockUnit)) {
+            return true;
+        }
+
+        if ($portionUnit !== null && trim($portionUnit) !== '' && $portionsPerUnit !== null && $portionsPerUnit > 0) {
+            $normRecipe = self::normalize($recipeUnit);
+            $normPortion = self::normalize($portionUnit);
+            if ($normRecipe !== null && $normRecipe === $normPortion) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -175,6 +251,34 @@ class UnitConverter
     }
 
     /**
+     * Converts a recipe quantity into the inventory item's stock unit, supporting
+     * kitchen portion tools (e.g. 1.5 scoops / 8 scoops-per-pack = 0.1875 pack).
+     */
+    public static function toStockUnit(
+        float $qty,
+        ?string $recipeUnit,
+        ?string $stockUnit,
+        ?string $portionUnit = null,
+        ?float $portionsPerUnit = null
+    ): float {
+        $normRecipe = self::normalize($recipeUnit);
+        $normStock = self::normalize($stockUnit);
+
+        if ($normRecipe === null || $normStock === null || $normRecipe === $normStock) {
+            return $qty;
+        }
+
+        if ($portionUnit !== null && trim($portionUnit) !== '' && $portionsPerUnit !== null && $portionsPerUnit > 0) {
+            $normPortion = self::normalize($portionUnit);
+            if ($normPortion !== null && $normRecipe === $normPortion) {
+                return round($qty / $portionsPerUnit, 6);
+            }
+        }
+
+        return self::convert($qty, $recipeUnit, $stockUnit);
+    }
+
+    /**
      * Returns a list of compatible units for a given inventory unit.
      */
     public static function compatibleUnits(?string $unit): array
@@ -187,5 +291,25 @@ class UnitConverter
             self::CATEGORY_COUNT => ['pcs'],
             default => $unit ? [self::normalize($unit)] : ['pcs', 'g', 'kg', 'ml', 'L'],
         };
+    }
+
+    /**
+     * Returns compatible units for an inventory item, putting its configured kitchen portion tool first.
+     */
+    public static function compatibleUnitsForInventory(
+        ?string $stockUnit,
+        ?string $portionUnit = null,
+        ?float $portionsPerUnit = null
+    ): array {
+        $units = self::compatibleUnits($stockUnit);
+
+        if ($portionUnit !== null && trim($portionUnit) !== '' && $portionsPerUnit !== null && $portionsPerUnit > 0) {
+            $normPortion = self::normalize($portionUnit);
+            if ($normPortion !== null && ! in_array($normPortion, $units, true)) {
+                array_unshift($units, $normPortion);
+            }
+        }
+
+        return array_values($units);
     }
 }

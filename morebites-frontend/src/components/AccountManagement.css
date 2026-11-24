@@ -753,9 +753,9 @@
   font-size: 13px;
   font-weight: 500;
   background: #FEF2F2;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border-left: 3px solid #EF4444;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
 }
 
 .ac-modal-foot {
@@ -881,6 +881,23 @@
   margin: 0 auto 20px;
   border: 1px solid #EDEDED;
   overflow: hidden;
+}
+
+.ac-drawer-photo.editable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.ac-drawer-photo.editable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 0 3px rgba(249, 112, 0, 0.2);
+  border-color: #F97000;
+}
+
+.ac-drawer-photo-uploader {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 
 .ac-drawer-img {

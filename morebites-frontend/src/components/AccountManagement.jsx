@@ -26,13 +26,14 @@ import {
   IconUser,
   IconWarning,
 } from './Icons'
-import { accountsApi, getStoredUser } from '../api/client'
+import { accountsApi, getStoredUser, mediaUrl } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { MoreButton, RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import ArchivePage from './ArchivePage'
 import DriverManagement from './DriverManagement'
 import BlacklistDrivers from './BlacklistDrivers'
 import EmptyState from './EmptyState'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
 import './AccountManagement.css'
 
 /**
@@ -193,7 +194,7 @@ function PhotoUploader({ photo, onChange, disabled = false }) {
       >
         {photo ? (
           <div className="ac-avatar-preview">
-            <img src={photo} alt="Avatar Preview" className="ac-avatar-img" />
+            <img src={mediaUrl(photo)} alt="Avatar Preview" className="ac-avatar-img" />
             <div className="ac-avatar-overlay">
               <LuCamera size={18} />
               <span>Change</span>
@@ -507,7 +508,7 @@ function AccountConfirmModal({ target, saving, onClose, onConfirm }) {
     : 'this account'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -579,6 +580,7 @@ export default function AccountManagement() {
   const [cashierForm, setCashierForm] = useState(emptyCashier())
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [adminPage, setAdminPage] = useState(1)
   const [driverPage, setDriverPage] = useState(1)
   const [cashierPage, setCashierPage] = useState(1)
@@ -613,11 +615,15 @@ export default function AccountManagement() {
   }
 
   async function loadAccounts() {
-    const r = await accountsApi.list()
-    const d = r.data?.data || r.data || {}
-    setAdmins((d.admins || []).map(sanitizeAccountPages))
-    setDrivers((d.drivers || []).map(sanitizeAccountPages))
-    setCashiers((d.cashiers || []).map(sanitizeAccountPages))
+    try {
+      const r = await accountsApi.list()
+      const d = r.data?.data || r.data || {}
+      setAdmins((d.admins || []).map(sanitizeAccountPages))
+      setDrivers((d.drivers || []).map(sanitizeAccountPages))
+      setCashiers((d.cashiers || []).map(sanitizeAccountPages))
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -815,7 +821,7 @@ export default function AccountManagement() {
     }
     setSaving(true)
     try {
-      await accountsApi.update(item.db_id, {
+      const res = await accountsApi.update(item.db_id, {
         first_name: item.firstName,
         last_name: item.lastName,
         email: item.email,
@@ -825,15 +831,46 @@ export default function AccountManagement() {
         birthday: item.birthday || null,
         license_number: item.license || null,
         license_expiry: item.expiry || null,
+        photo: item.photo !== undefined ? item.photo : null,
       })
       await loadAccounts()
+      const updatedUser = res.data?.data
+      if (updatedUser) {
+        setProfile((prev) => (prev ? { ...prev, item: { ...prev.item, ...updatedUser } } : null))
+      }
+      const stored = getStoredUser()
+      if (stored && (Number(stored.id) === Number(item.db_id) || String(stored.admin_id) === String(item.id))) {
+        if (updatedUser?.photo !== undefined) stored.photo = updatedUser.photo
+        if (updatedUser?.firstName) stored.first_name = updatedUser.firstName
+        if (updatedUser?.lastName) stored.last_name = updatedUser.lastName
+        if (updatedUser?.name) stored.name = updatedUser.name
+        localStorage.setItem('mb_user', JSON.stringify(stored))
+        window.dispatchEvent(new CustomEvent('mb:user-updated', { detail: stored }))
+      }
       setEditing(false)
-      setProfile(null)
     } catch (err) {
       console.error(err)
+      const msg =
+        err.response?.data?.message ||
+        Object.values(err.response?.data?.errors || {})?.[0]?.[0] ||
+        'Failed to save profile edits.'
+      alert(msg)
     } finally {
       setSaving(false)
     }
+  }
+
+  function cancelProfileEdits() {
+    if (!profile?.item?.db_id) {
+      setEditing(false)
+      return
+    }
+    const all = [...admins, ...drivers, ...cashiers]
+    const orig = all.find((u) => u.db_id === profile.item.db_id)
+    if (orig) {
+      setProfile((prev) => ({ ...prev, item: { ...orig } }))
+    }
+    setEditing(false)
   }
 
   async function saveRoleAccess() {
@@ -907,6 +944,14 @@ export default function AccountManagement() {
 
       {section === 'accounts' ? (
       <>
+      {loading ? (
+        <StatCardsSkeleton
+          count={3}
+          gridClassName="ac-stats ac-stats-3"
+          cardClassName="ac-stat sa-card"
+          labelFirst
+        />
+      ) : (
       <section className="ac-stats ac-stats-3">
         <article className="ac-stat sa-card">
           <div className="ac-stat-icon blue"><LuShield size={20} /></div>
@@ -930,6 +975,7 @@ export default function AccountManagement() {
           </div>
         </article>
       </section>
+      )}
 
       <section className="ac-section sa-card">
         <div className="ac-section-head">
@@ -951,7 +997,12 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {admins.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={3}
+                  shapes={['id', 'text', 'text', 'pills', 'badge', 'icon-action']}
+                />
+              ) : admins.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="ac-empty">
                     <EmptyState
@@ -1047,7 +1098,12 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {drivers.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={3}
+                  shapes={['id', 'text', 'text', 'short', 'pills', 'badge', 'icon-action']}
+                />
+              ) : drivers.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="ac-empty">
                     <EmptyState
@@ -1144,7 +1200,12 @@ export default function AccountManagement() {
               </tr>
             </thead>
             <tbody>
-              {cashiers.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={3}
+                  shapes={['id', 'text', 'text', 'short', 'pills', 'badge', 'icon-action']}
+                />
+              ) : cashiers.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="ac-empty">
                     <EmptyState
@@ -1245,7 +1306,29 @@ export default function AccountManagement() {
             >
               Edit Admin
             </button>
-          ) : null}
+          ) : menu.type === 'driver' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setProfile({ type: 'driver', item: menu.item })
+                setEditing(true)
+                closeMenu()
+              }}
+            >
+              Edit Driver
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setProfile({ type: 'cashier', item: menu.item })
+                setEditing(true)
+                closeMenu()
+              }}
+            >
+              Edit Cashier
+            </button>
+          )}
           {!isSelfAccount(menu.item, currentUser) ? (
             <>
               <button
@@ -1283,7 +1366,7 @@ export default function AccountManagement() {
       )}
 
       {addAdmin && (
-        <div className="ac-backdrop" onClick={() => setAddAdmin(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Admin</h2>
@@ -1381,7 +1464,7 @@ export default function AccountManagement() {
       )}
 
       {addDriver && (
-        <div className="ac-backdrop" onClick={() => setAddDriver(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal ac-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Driver</h2>
@@ -1528,7 +1611,7 @@ export default function AccountManagement() {
       )}
 
       {addCashier && (
-        <div className="ac-backdrop" onClick={() => setAddCashier(false)} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="ac-modal-head">
               <h2>Add New Cashier</h2>
@@ -1627,7 +1710,7 @@ export default function AccountManagement() {
 
       {profile && (
         <>
-          <div className="ac-backdrop" onClick={() => setProfile(null)} role="presentation" />
+          <div className="ac-backdrop" role="presentation" />
           <aside className="ac-drawer" role="dialog" aria-modal="true">
             <div className="ac-drawer-head">
               <div>
@@ -1635,21 +1718,51 @@ export default function AccountManagement() {
                 <span className="ac-status-dot">Active</span>
               </div>
               <div className="ac-drawer-actions">
-                <button type="button" className="ac-modal-close-circle" onClick={() => (editing ? saveProfileEdits() : setEditing(true))} aria-label="Edit">
-                  <LuPencil size={15} />
-                </button>
-                <button type="button" className="ac-modal-close-circle" onClick={() => setProfile(null)} aria-label="Close">
+                {!editing && (
+                  <button
+                    type="button"
+                    className="ac-modal-close-circle"
+                    disabled={saving}
+                    onClick={() => setEditing(true)}
+                    aria-label="Edit Profile"
+                    title="Edit Profile"
+                  >
+                    <LuPencil size={15} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ac-modal-close-circle"
+                  onClick={() => { setProfile(null); setEditing(false) }}
+                  aria-label="Close"
+                >
                   <LuX size={18} />
                 </button>
               </div>
             </div>
-            <div className="ac-drawer-photo">
-              {profile.item.photo ? (
-                <img src={profile.item.photo} alt={profile.item.firstName} className="ac-drawer-img" />
-              ) : (
-                <LuUser size={40} />
-              )}
-            </div>
+            {editing ? (
+              <div className="ac-drawer-photo-uploader">
+                <PhotoUploader
+                  photo={profile.item.photo}
+                  onChange={(photo) => updateProfileField('photo', photo)}
+                  disabled={saving}
+                />
+              </div>
+            ) : (
+              <div
+                className="ac-drawer-photo editable"
+                onClick={() => setEditing(true)}
+                title="Click to edit profile photo"
+                role="button"
+                tabIndex={0}
+              >
+                {profile.item.photo ? (
+                  <img src={mediaUrl(profile.item.photo)} alt={profile.item.firstName} className="ac-drawer-img" />
+                ) : (
+                  <LuUser size={40} />
+                )}
+              </div>
+            )}
             <dl className="ac-profile-list">
               {[
                 ['Full Name', `${profile.item.firstName} ${profile.item.lastName}`, 'name'],
@@ -1714,6 +1827,28 @@ export default function AccountManagement() {
                 </div>
               )}
             </dl>
+            {editing && (
+              <div style={{ display: 'flex', gap: 10, margin: '14px 0 20px' }}>
+                <button
+                  type="button"
+                  className="ac-btn-primary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={saveProfileEdits}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving Changes...' : 'Save Profile Changes'}
+                </button>
+                <button
+                  type="button"
+                  className="ac-btn-cancel"
+                  style={{ justifyContent: 'center' }}
+                  onClick={cancelProfileEdits}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             <div className="ac-drawer-access">
               <PageAccessEditor
                 value={profile.item.allowedPages || []}
@@ -1736,7 +1871,7 @@ export default function AccountManagement() {
       )}
 
       {blockTarget && (
-        <div className="ac-backdrop" onClick={() => { setBlockTarget(null); setBlockStep(1); }} role="presentation">
+        <div className="ac-backdrop" role="presentation">
           <div className="ac-modal ac-block" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             {blockStep === 1 ? (
               <>
@@ -1805,7 +1940,7 @@ export default function AccountManagement() {
                   </div>
                 </div>
                 <div className="ac-modal-foot">
-                  <button type="button" className="ac-btn-cancel" onClick={() => setBlockStep(1)}>← Go Back</button>
+                  <button type="button" className="ac-btn-cancel" disabled={saving} onClick={() => setBlockStep(1)}>← Go Back</button>
                   <button
                     type="button"
                     className="ac-btn-primary"

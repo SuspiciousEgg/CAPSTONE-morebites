@@ -167,17 +167,31 @@ function EmptyState() {
 }
 
 function SummaryRow({ label, value, total, discount }) {
+  const numVal = Number(value || 0);
   return (
     <View style={styles.summaryRow}>
-      <Text style={[styles.summaryLabel, total && styles.summaryTotalLabel]}>{label}</Text>
+      <Text
+        style={[
+          styles.summaryLabel,
+          total && styles.summaryTotalLabel,
+          discount && numVal > 0 && { color: "#16A34A", fontWeight: "700" },
+        ]}
+      >
+        {label}
+      </Text>
       <Text
         style={[
           styles.summaryValue,
           total && styles.summaryTotalValue,
           discount && styles.discountValue,
+          discount && numVal > 0 && { color: "#16A34A", fontWeight: "700" },
         ]}
       >
-        {discount ? "- ₱0" : `₱${Number(value).toLocaleString()}`}
+        {discount
+          ? numVal > 0
+            ? `- ₱${numVal.toLocaleString()}`
+            : "- ₱0"
+          : `₱${numVal.toLocaleString()}`}
       </Text>
     </View>
   );
@@ -187,11 +201,23 @@ function OrderDetailsModal({ visible, order, onClose }) {
   if (!order) return null;
 
   const { deliveryFee, serviceFee } = feesFromOrder(order);
-  const subtotal = Math.max(0, Number(order.total) - deliveryFee - serviceFee);
+  const pointsUsed = Number(order.points_used || 0);
+  const pointsDiscount = Number(order.points_discount || 0);
+  const lateMinutes = Number(order.late_minutes || 0);
+  const lateDiscountPercent = Number(order.late_discount_percent || 0);
+  const lateDiscount = Number(order.late_discount || 0);
+  const computedItemsSubtotal = (order.items || []).reduce(
+    (sum, item) => sum + Number(item.price || item.unit_price || 0) * Number(item.quantity || item.qty || 1),
+    0
+  );
+  const subtotal =
+    computedItemsSubtotal > 0
+      ? computedItemsSubtotal
+      : Math.max(0, Number(order.total || 0) + pointsDiscount + lateDiscount - deliveryFee - serviceFee);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.detailsModalOverlay} onPress={onClose}>
+      <Pressable style={styles.detailsModalOverlay}>
         <Pressable style={styles.detailsSheet} onPress={(event) => event.stopPropagation()}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.detailsHeader}>
@@ -233,6 +259,32 @@ function OrderDetailsModal({ visible, order, onClose }) {
               </View>
             )}
 
+            {order.status === "Cancelled" && order.cancellation_reason ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  backgroundColor: "#FEF2F2",
+                  borderColor: "#FECACA",
+                  borderWidth: 1,
+                  borderRadius: 10,
+                  padding: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: FONT, fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                    Cancellation Reason
+                  </Text>
+                  <Text style={{ fontFamily: FONT, fontSize: 12.5, color: "#B91C1C", marginTop: 1 }}>
+                    {order.cancellation_reason}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             <Text style={styles.sectionTitle}>Items</Text>
             <View style={styles.sectionCard}>
               {(order.items || []).map((item, index) => (
@@ -247,6 +299,23 @@ function OrderDetailsModal({ visible, order, onClose }) {
                   <View style={styles.detailItemInfo}>
                     <Text style={styles.detailItemName}>{item.name}</Text>
                     {item.size ? <Text style={styles.detailItemSize}>Size: {item.size}</Text> : null}
+                    {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
+                      <Text style={{ fontFamily: FONT, fontSize: 11.5, color: "#D97706", fontWeight: "500", marginTop: 2 }}>
+                        Without:{" "}
+                        {item.removed_ingredients
+                          .map((r) =>
+                            typeof r === "string"
+                              ? r
+                              : `${r.name}${Number(r.price) > 0 ? ` (-₱${r.price})` : ""}`
+                          )
+                          .join(", ")}
+                      </Text>
+                    ) : null}
+                    {item.special_instructions ? (
+                      <Text style={{ fontFamily: FONT, fontSize: 11.5, color: "#6B7280", fontStyle: "italic", marginTop: 2 }}>
+                        Note: {item.special_instructions}
+                      </Text>
+                    ) : null}
                     <Text style={styles.detailItemPrice}>₱{item.price}</Text>
                   </View>
                   <Text style={styles.detailQuantity}>x{item.quantity}</Text>
@@ -257,9 +326,27 @@ function OrderDetailsModal({ visible, order, onClose }) {
             <Text style={styles.sectionTitle}>Order Summary</Text>
             <View style={styles.sectionCard}>
               <SummaryRow label="Subtotal" value={subtotal} />
+              {pointsDiscount > 0 ? (
+                <SummaryRow
+                  label={`Points Discount (${pointsUsed} pts)`}
+                  value={pointsDiscount}
+                  discount
+                />
+              ) : null}
+              {lateDiscount > 0 ? (
+                <SummaryRow
+                  label={`Late Delivery Discount (${lateDiscountPercent}%${
+                    lateMinutes > 0 ? ` · ${lateMinutes}m late` : ""
+                  })`}
+                  value={lateDiscount}
+                  discount
+                />
+              ) : null}
+              {pointsDiscount <= 0 && lateDiscount <= 0 ? (
+                <SummaryRow label="Discount" value={0} discount />
+              ) : null}
               <SummaryRow label="Delivery Fee" value={deliveryFee} />
               <SummaryRow label="Service Fee" value={serviceFee} />
-              <SummaryRow label="Discount" value={0} discount />
               <View style={styles.summaryDivider} />
               <SummaryRow label="Total Amount" value={order.total} total />
             </View>
@@ -350,7 +437,7 @@ function NotificationsModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
+      <Pressable style={styles.modalOverlay}>
         <Pressable style={styles.notificationsPanel} onPress={(e) => e.stopPropagation()}>
           <View style={styles.notificationsHeader}>
             <Text style={styles.notificationsTitle}>Notifications</Text>
@@ -397,10 +484,22 @@ function NotificationsModal({
                       <Text style={styles.notificationTime}>
                         {item.time ||
                           (item.created_at
-                            ? new Date(item.created_at).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
+                            ? (() => {
+                                const d = new Date(item.created_at);
+                                if (Number.isNaN(d.getTime())) return "Just now";
+                                try {
+                                  return d.toLocaleTimeString("en-PH", {
+                                    timeZone: "Asia/Manila",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  });
+                                } catch {
+                                  const pht = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+                                  const h24 = pht.getUTCHours();
+                                  return `${h24 % 12 || 12}:${String(pht.getUTCMinutes()).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
+                                }
+                              })()
                             : "Just now")}
                       </Text>
                     </View>
@@ -569,22 +668,91 @@ export default function OrdersScreen() {
       }
     }
 
-    const orderData = item.data || {};
-    const orderStatus = orderData.status;
+    let orderData = item.data || {};
+    if (typeof orderData === "string") {
+      try {
+        orderData = JSON.parse(orderData);
+      } catch {
+        orderData = {};
+      }
+    }
 
-    if (
-      TRACKABLE_STATUSES.includes(orderStatus) ||
+    const orderDbId = orderData.order_id ? String(orderData.order_id) : "";
+    const orderCode = orderData.order_code ? String(orderData.order_code) : "";
+    const isOutForDeliveryOrTrackable =
+      TRACKABLE_STATUSES.includes(orderData.status) ||
       item.message?.toLowerCase().includes("out for delivery") ||
-      item.message?.toLowerCase().includes("track")
-    ) {
-      setNotificationsVisible(false);
-      router.push({
-        pathname: "/(customer)/order-tracking",
-        params: {
-          orderId: orderData.order_code || String(orderData.order_id || ""),
-          dbId: String(orderData.order_id || ""),
-        },
-      });
+      item.message?.toLowerCase().includes("track");
+
+    if (orderDbId || orderCode || isOutForDeliveryOrTrackable) {
+      let liveOrder = orders.find(
+        (o) =>
+          (orderDbId && String(o.db_id || o.id) === orderDbId) ||
+          (orderCode && (String(o.id) === orderCode || String(o.order_code) === orderCode))
+      );
+
+      // Verify fresh status from backend to handle orders finished since last poll
+      if (orderDbId && (!liveOrder || ["Out for Delivery", "Picked Up", "Assigned"].includes(liveOrder.status))) {
+        try {
+          const res = await customerApi.order(orderDbId);
+          const fresh = res?.data || res;
+          if (fresh && typeof fresh === "object" && (fresh.id || fresh.db_id)) {
+            liveOrder = fresh;
+          }
+        } catch (err) {
+          console.warn("Could not fetch fresh order status on notification tap:", err);
+        }
+      }
+
+      const currentStatus = liveOrder?.status || liveOrder?.raw_status || orderData.status;
+
+      // 1. If the order has finished delivery (Delivered or Completed), open digital receipt
+      if (["Delivered", "Completed"].includes(currentStatus)) {
+        setNotificationsVisible(false);
+        router.push({
+          pathname: "/(customer)/receipt",
+          params: {
+            orderId: String(liveOrder?.id || orderCode || orderDbId || ""),
+            dbId: String(liveOrder?.db_id || orderDbId || ""),
+            order: liveOrder ? JSON.stringify(liveOrder) : undefined,
+          },
+        });
+        return;
+      }
+
+      // 2. If the order was cancelled, open the order details modal with cancellation reason
+      if (currentStatus === "Cancelled") {
+        setNotificationsVisible(false);
+        if (liveOrder) {
+          openDetails(liveOrder);
+        } else {
+          router.push({
+            pathname: "/(customer)/receipt",
+            params: {
+              orderId: String(orderCode || orderDbId || ""),
+              dbId: String(orderDbId || ""),
+            },
+          });
+        }
+        return;
+      }
+
+      // 3. If the order is still Out for Delivery / Trackable, open Live Tracking as before
+      if (
+        TRACKABLE_STATUSES.includes(currentStatus) ||
+        isOutForDeliveryOrTrackable
+      ) {
+        setNotificationsVisible(false);
+        router.push({
+          pathname: "/(customer)/order-tracking",
+          params: {
+            orderId: orderCode || String(orderDbId || ""),
+            dbId: String(orderDbId || ""),
+            order: liveOrder ? JSON.stringify(liveOrder) : undefined,
+          },
+        });
+        return;
+      }
     }
   };
 

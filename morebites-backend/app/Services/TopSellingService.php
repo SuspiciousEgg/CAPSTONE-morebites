@@ -47,8 +47,8 @@ class TopSellingService
     public function getTopSelling(int $limit = 10, ?Carbon $from = null, ?Carbon $to = null): Collection
     {
         $hasExplicitRange = $from !== null || $to !== null;
-        $start = $from ? $from->copy()->startOfDay() : Carbon::now()->subDays(30);
-        $end = $to ? $to->copy()->endOfDay() : Carbon::now();
+        $start = $from ? $from->copy() : Carbon::now()->subDays(30);
+        $end = $to ? $to->copy() : Carbon::now();
 
         $dateExpr = Schema::hasColumn('orders', 'order_date')
             ? 'COALESCE(orders.order_date, orders.created_at)'
@@ -83,9 +83,9 @@ class TopSellingService
             ->orderByDesc('units_sold')
             ->get();
 
-        $rangeDays = max(1, (int) $start->copy()->startOfDay()->diffInDays($end->copy()->startOfDay()) + 1);
+        $rangeSeconds = max(86400, (int) $start->diffInSeconds($end) + 1);
         $priorStart = $hasExplicitRange
-            ? $start->copy()->subDays($rangeDays)->startOfDay()
+            ? $start->copy()->subSeconds($rangeSeconds)
             : Carbon::now()->subDays(60);
         $priorEnd = $hasExplicitRange
             ? $start->copy()
@@ -121,7 +121,7 @@ class TopSellingService
             $itemIds = $salesRows->pluck('id')->take($limit)->all();
 
             $items = MenuItem::query()
-                ->with(['sizes', 'ingredients.inventoryItem'])
+                ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
                 ->whereIn('id', $itemIds)
                 ->get()
                 ->sortBy(fn ($m) => array_search($m->id, $itemIds))
@@ -136,7 +136,7 @@ class TopSellingService
 
         // 2. Fallback Tier 1: Return menu items where is_featured is true
         $featuredItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('is_featured', true)
@@ -149,7 +149,7 @@ class TopSellingService
 
         // 3. Fallback Tier 2: Return most recently created active menu items, newest first
         $newestItems = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+            ->with(['sizes.ingredients.inventoryItem', 'ingredients.inventoryItem'])
             ->where('archived', false)
             ->whereRaw('LOWER(TRIM(name)) NOT IN (?, ?)', $excludedTestNames)
             ->where('available', true)
@@ -182,22 +182,71 @@ class TopSellingService
             ->keyBy('menu_item_id');
 
         return $items->map(function (MenuItem $m) use ($unitsMap, $priorUnitsMap, $ratingStats) {
-            $stockOk = $this->inventoryService->canServe($m);
-            $stockReason = $stockOk ? '' : $this->inventoryService->outOfStockReason($m);
+            $stockReason = $this->inventoryService->unserviceableReason($m) ?? '';
+            $stockOk = $stockReason === '';
             $isAvailable = (bool) $m->available && ! (bool) $m->archived && $stockOk;
 
-            $sizes = $m->sizes->map(fn ($s) => [
-                'id' => (string) $s->id,
-                'sizeName' => $s->name,
-                'name' => $s->name,
-                'price' => (float) $s->price,
-            ])->values();
+            $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
+            $isBeverage = strcasecmp(trim((string) $m->category), 'Beverages') === 0;
+
+            $sizes = $m->sizes->map(function ($s) use ($m, $isBeverage) {
+                $orig = (float) $s->price;
+                $eff = $m->applyPromoPrice($orig);
+
+                return [
+                    'id' => (string) $s->id,
+                    'sizeName' => $s->name,
+                    'name' => $s->name,
+                    'originalPrice' => $orig,
+                    'price' => $eff,
+                    'ingredients' => $isBeverage
+                        ? collect()
+                        : $s->ingredients
+                            ->filter(fn ($ing) => $ing->is_removable !== false)
+                            ->map(fn ($ing) => [
+                                'id' => $ing->id,
+                                'inventory_item_id' => $ing->inventory_item_id,
+                                'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                                'qty_per_serving' => (float) $ing->qty_per_serving,
+                                'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                                'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                                'price' => $ing->computedPrice(),
+                                'is_removable' => true,
+                            ])->values(),
+                ];
+            })->values();
+
+            $ingredients = $isBeverage
+                ? collect()
+                : $m->ingredients
+                    ->filter(fn ($ing) => $ing->is_removable !== false)
+                    ->map(fn ($ing) => [
+                        'id' => $ing->id,
+                        'menu_item_size_id' => $ing->menu_item_size_id,
+                        'inventory_item_id' => $ing->inventory_item_id,
+                        'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                        'qty_per_serving' => (float) $ing->qty_per_serving,
+                        'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                        'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                        'price' => $ing->computedPrice(),
+                        'is_removable' => true,
+                    ])->values();
+
+            $origMin = $sizes->min('originalPrice');
+            $origMax = $sizes->max('originalPrice');
             $min = $sizes->min('price');
             $max = $sizes->max('price');
+            $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
+
+            $originalPriceLabel = $m->has_sizes && $sizes->count()
+                ? '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax)
+                : '₱'.$formatNum((float) $m->price);
+
+            $effectiveBase = $m->applyPromoPrice((float) $m->price);
             $priceLabel = $m->has_sizes && $sizes->count()
-                ? '₱'.number_format((float) $min, 0).' - ₱'.number_format((float) $max, 0)
-                : '₱'.number_format((float) $m->price, 0);
+                ? '₱'.$formatNum((float) $min).' - ₱'.$formatNum((float) $max)
+                : '₱'.$formatNum($effectiveBase);
 
             $stat = $ratingStats->get($m->id);
             $rating = $stat ? (float) $stat->avg_rating : null;
@@ -232,13 +281,16 @@ class TopSellingService
                 'product_id' => $m->id,
                 'db_id' => $m->id,
                 'name' => $m->name,
-                'price' => (float) ($m->has_sizes && $min ? $min : $m->price),
+                'originalPrice' => (float) ($m->has_sizes && $origMin !== null ? $origMin : $m->price),
+                'originalPriceLabel' => $originalPriceLabel,
+                'price' => (float) ($m->has_sizes && $min !== null ? $min : $effectiveBase),
                 'image' => Media::url($m->image),
                 'category' => $m->category,
                 'description' => $m->description,
                 'priceLabel' => $priceLabel,
                 'hasSizes' => (bool) $m->has_sizes,
                 'sizes' => $sizes,
+                'ingredients' => $ingredients,
                 'available' => $isAvailable,
                 'availability' => $isAvailable,
                 'stockOk' => $stockOk,
@@ -246,9 +298,9 @@ class TopSellingService
                 'rating' => $rating,
                 'reviewCount' => $reviewCount,
                 'reviews' => $reviewCount,
-                'promoActive' => (bool) $m->promo_active,
-                'promoDiscountPercent' => $m->promo_active ? (float) ($m->promo_discount_percent ?? 0) : null,
-                'promoLabel' => $m->promo_active ? ($m->promo_label ?: 'Limited deal') : null,
+                'promoActive' => $promoActive,
+                'promoDiscountPercent' => $promoActive ? (float) $m->promo_discount_percent : null,
+                'promoLabel' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
                 'units' => $units,
                 'units_sold' => $units,
                 'prior_units' => $priorUnits,

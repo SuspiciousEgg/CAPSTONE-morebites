@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authStorage, driverApi, mediaUrl } from "../../../src/api/client";
 
 const FONT = "Plus Jakarta Sans";
+const DANGER = "#EF4444";
 const EMPTY_USER = {
   fullName: "Driver",
   phone: "Not provided",
@@ -26,6 +27,7 @@ const EMPTY_USER = {
 export default function ProfileScreen() {
   const [user, setUser] = useState(EMPTY_USER);
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,9 +53,18 @@ export default function ProfileScreen() {
   );
 
   const logOut = async () => {
-    await driverApi.logout();
-    setLogoutVisible(false);
-    router.replace("/(auth)/login");
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await driverApi.logout();
+    } finally {
+      setLoggingOut(false);
+      setLogoutVisible(false);
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace("/(auth)/login");
+    }
   };
 
   return (
@@ -118,11 +129,11 @@ export default function ProfileScreen() {
           >
             <View style={styles.menuLeft}>
               <View style={styles.menuIconWrap}>
-                <Ionicons name="log-out-outline" size={20} color="red" />
+                <Ionicons name="log-out-outline" size={20} color={DANGER} />
               </View>
               <Text style={styles.logoutText}>Log Out</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="red" />
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -135,7 +146,6 @@ export default function ProfileScreen() {
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setLogoutVisible(false)}
         >
           <Pressable style={styles.logoutModal} onPress={() => {}}>
             <Image
@@ -146,12 +156,19 @@ export default function ProfileScreen() {
             <Text style={styles.logoutModalText}>
               Are you sure want to log out of your account?
             </Text>
-            <TouchableOpacity style={styles.confirmButton} onPress={logOut}>
-              <Text style={styles.confirmButtonText}>Yes, Log Out</Text>
+            <TouchableOpacity
+              style={[styles.confirmButton, loggingOut && { opacity: 0.7 }]}
+              onPress={logOut}
+              disabled={loggingOut}
+            >
+              <Text style={styles.confirmButtonText}>
+                {loggingOut ? "Logging Out..." : "Yes, Log Out"}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setLogoutVisible(false)}
+              disabled={loggingOut}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -288,7 +305,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   logoutText: {
-    color: "red",
+    color: DANGER,
     fontFamily: FONT,
     fontSize: 14,
     fontWeight: "600",
@@ -299,53 +316,47 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
   },
   modalOverlay: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.05)",
     flex: 1,
+    alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     paddingHorizontal: 24,
   },
   logoutModal: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    elevation: 8,
-    maxWidth: 380,
-    padding: 26,
-    shadowColor: "#121212",
-    shadowOffset: { height: 4, width: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
     width: "100%",
+    maxWidth: 380,
+    alignItems: "center",
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    padding: 20,
   },
   logoutModalIconImage: {
-    height: 74,
+    height: 72,
     resizeMode: "contain",
-    width: 74,
+    width: 72,
   },
   logoutModalTitle: {
     color: "#121212",
     fontFamily: FONT,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
-    marginTop: 16,
+    marginTop: 10,
   },
   logoutModalText: {
-    color: "#9CA3AF",
+    color: "#8A8A8A",
     fontFamily: FONT,
     fontSize: 14,
-    lineHeight: 20,
     marginTop: 8,
+    marginBottom: 20,
     textAlign: "center",
   },
   confirmButton: {
-    alignItems: "center",
-    backgroundColor: "red",
-    borderRadius: 12,
-    justifyContent: "center",
-    marginTop: 22,
-    minHeight: 52,
     width: "100%",
+    height: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
+    backgroundColor: DANGER,
   },
   confirmButtonText: {
     color: "#FFFFFF",
@@ -354,15 +365,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   cancelButton: {
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
-    borderWidth: 1,
-    justifyContent: "center",
-    marginTop: 10,
-    minHeight: 52,
     width: "100%",
+    height: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#D4D4D4",
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
+    marginTop: 10,
   },
   cancelButtonText: {
     color: "#121212",

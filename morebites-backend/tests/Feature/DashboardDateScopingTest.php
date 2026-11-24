@@ -59,6 +59,30 @@ class DashboardDateScopingTest extends TestCase
         $this->assertNotContains('Yesterday Action', $actions);
     }
 
+    public function test_activity_log_returns_only_latest_top_5_activities(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        for ($i = 1; $i <= 8; $i++) {
+            $log = ActivityLog::query()->create([
+                'actor' => 'Admin',
+                'action' => "Activity #{$i}",
+            ]);
+            $log->created_at = now()->subMinutes(10 - $i);
+            $log->save();
+        }
+
+        $res = $this->getJson('/api/dashboard');
+        $res->assertOk();
+
+        $activityLog = $res->json('data.activity_log');
+        $this->assertCount(5, $activityLog);
+        $this->assertSame(
+            ['Activity #8', 'Activity #7', 'Activity #6', 'Activity #5', 'Activity #4'],
+            collect($activityLog)->pluck('action')->all()
+        );
+    }
+
     public function test_recent_orders_are_strictly_scoped_to_today(): void
     {
         Sanctum::actingAs($this->admin);

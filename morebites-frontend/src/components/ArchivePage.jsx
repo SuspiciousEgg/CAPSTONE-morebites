@@ -10,6 +10,7 @@ import {
 import { IconCheck } from './Icons'
 import { archiveApi } from '../api/client'
 import EmptyState from './EmptyState'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
 import './ArchivePage.css'
 
 const PAGE_SIZE = 5
@@ -20,7 +21,7 @@ function ArchiveRestoreModal({ target, saving, onClose, onConfirm }) {
   const name = target?.item?.name || 'this account'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -73,6 +74,7 @@ export default function ArchivePage({ embedded = false }) {
   const [stats, setStats] = useState({ active_admins: 0, active_drivers: 0 })
   const [restoreTarget, setRestoreTarget] = useState(null)
   const [restoring, setRestoring] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [adminPage, setAdminPage] = useState(1)
   const [driverPage, setDriverPage] = useState(1)
 
@@ -85,11 +87,15 @@ export default function ArchivePage({ embedded = false }) {
   const pagedDrivers = drivers.slice((currentDriverPage - 1) * PAGE_SIZE, currentDriverPage * PAGE_SIZE)
 
   async function loadArchive() {
-    const r = await archiveApi.list()
-    const d = r.data?.data || r.data || {}
-    setAdmins(d.admins || [])
-    setDrivers(d.drivers || [])
-    setStats(d.stats || { active_admins: 0, active_drivers: 0 })
+    try {
+      const r = await archiveApi.list()
+      const d = r.data?.data || r.data || {}
+      setAdmins(d.admins || [])
+      setDrivers(d.drivers || [])
+      setStats(d.stats || { active_admins: 0, active_drivers: 0 })
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -118,6 +124,14 @@ export default function ArchivePage({ embedded = false }) {
         </header>
       ) : null}
 
+      {loading ? (
+        <StatCardsSkeleton
+          count={2}
+          gridClassName="ar-stats"
+          cardClassName="ar-stat sa-card"
+          labelFirst
+        />
+      ) : (
       <section className="ar-stats">
         <article className="ar-stat sa-card">
           <div className="ar-stat-icon blue"><LuShield size={20} /></div>
@@ -134,6 +148,7 @@ export default function ArchivePage({ embedded = false }) {
           </div>
         </article>
       </section>
+      )}
 
       <section className="ar-section sa-card">
         <h2>Admin Archives</h2>
@@ -149,7 +164,12 @@ export default function ArchivePage({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {admins.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={3}
+                  shapes={['id', 'text', 'text', 'badge', 'icon-action']}
+                />
+              ) : admins.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="ar-empty">
                     <EmptyState
@@ -161,7 +181,7 @@ export default function ArchivePage({ embedded = false }) {
                 </tr>
               ) : (
                 pagedAdmins.map((a) => (
-                  <tr key={a.id}>
+                  <tr key={a.id} className="ar-row-archived">
                     <td className="ar-id">{a.id}</td>
                     <td>{a.name}</td>
                     <td>{a.email}</td>
@@ -232,7 +252,12 @@ export default function ArchivePage({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {drivers.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={3}
+                  shapes={['id', 'text', 'text', 'badge', 'icon-action']}
+                />
+              ) : drivers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="ar-empty">
                     <EmptyState
@@ -244,7 +269,7 @@ export default function ArchivePage({ embedded = false }) {
                 </tr>
               ) : (
                 pagedDrivers.map((d) => (
-                  <tr key={d.id}>
+                  <tr key={d.id} className="ar-row-archived">
                     <td className="ar-id">{d.id}</td>
                     <td>{d.name}</td>
                     <td>{d.email}</td>

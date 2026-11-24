@@ -72,16 +72,17 @@ class ReportController extends Controller
                 'id' => $o->order_code,
                 'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
                 'items_sold' => $itemsSummary ?: 'No items listed',
-                'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                'datetime' => \App\Support\ManilaTime::format($o->created_at, 'Y-m-d') ?? \App\Support\ManilaTime::todayString(),
                 'type' => $o->order_type ?: 'Online Order',
                 'amount' => (float) $o->total,
                 'payment' => $o->payment_method ?: 'COD',
                 'status' => $o->status ?: 'Preparing',
+                'cancellation_reason' => $o->cancellation_reason,
             ];
         })->values();
 
         $deliveryQuery = Order::query()
-            ->with(['driver', 'customer'])
+            ->with(['driver', 'customer', 'items'])
             ->where('order_type', 'Online Order')
             ->latest();
         if ($from) {
@@ -99,19 +100,73 @@ class ReportController extends Controller
 
         $delivery = $deliveryQuery
             ->get()
-            ->map(fn (Order $o) => [
-                'id' => $o->order_code,
-                'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
-                'driver' => $o->driver?->name ?? 'Unassigned',
-                'rider' => $o->driver?->name ?? 'Unassigned',
-                'datetime' => $o->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'),
-                'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
-                'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
-                'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
-                'status' => $o->status ?: 'Preparing',
-                'type' => $o->order_type,
-                'order_type' => $o->order_type,
-            ])->values();
+            ->map(function (Order $o) {
+                $issues = $o->reportedIssues();
+                $incidentText = collect($issues)
+                    ->map(function (array $iss) {
+                        $label = trim((string) ($iss['issue'] ?? 'Delivery Issue'));
+                        $notes = trim((string) ($iss['notes'] ?? ''));
+                        if ($notes !== '') {
+                            return strtolower($label) === 'other'
+                                ? "Other: {$notes}"
+                                : "{$label} ({$notes})";
+                        }
+
+                        return $label;
+                    })
+                    ->filter()
+                    ->implode('; ');
+
+                if ($o->status === 'Cancelled') {
+                    $cancelText = $o->cancellation_reason
+                        ? "Cancelled: {$o->cancellation_reason}"
+                        : 'Order cancelled';
+                    $remarks = $incidentText !== ''
+                        ? "{$cancelText}; {$incidentText}"
+                        : $cancelText;
+                } else {
+                    $remarks = $incidentText !== ''
+                        ? $incidentText
+                        : 'Delivery completed successfully without any incidents.';
+                }
+
+                $deliveryDate = \App\Support\ManilaTime::format($o->delivered_at ?? $o->created_at, 'Y-m-d') ?? \App\Support\ManilaTime::todayString();
+                $deliveryTime = $o->delivered_at
+                    ? \App\Support\ManilaTime::format($o->delivered_at, 'g:i A')
+                    : ($o->delivery_minutes
+                        ? $o->delivery_minutes.' mins'
+                        : (\App\Support\ManilaTime::format($o->created_at, 'g:i A') ?? '--'));
+
+                $quantity = (int) ($o->items->sum('qty') ?: 1);
+                $drNumber = preg_replace('/^#ORD-/', '', (string) $o->order_code);
+                if (! $drNumber) {
+                    $drNumber = (string) $o->order_code;
+                }
+
+                return [
+                    'id' => $o->order_code,
+                    'dr_number' => $drNumber,
+                    'quantity' => $quantity,
+                    'customer' => $o->customer_name ?: ($o->customer?->full_name ?? 'Customer'),
+                    'address' => $o->delivery_address ?: ($o->customer?->delivery_address ?: 'N/A'),
+                    'driver' => $o->driver?->name ?? 'Unassigned',
+                    'rider' => $o->driver?->name ?? 'Unassigned',
+                    'vehicle_name' => $o->driver?->vehicle_type ?: 'Motorcycle',
+                    'plate_number' => $o->driver?->plate_no ?: 'N/A',
+                    'datetime' => \App\Support\ManilaTime::format($o->created_at, 'Y-m-d') ?? \App\Support\ManilaTime::todayString(),
+                    'delivery_date' => $deliveryDate,
+                    'delivery_time' => $deliveryTime,
+                    'time' => $o->delivery_minutes ? $o->delivery_minutes.' mins' : '-- mins',
+                    'distance' => $o->delivery_distance_km ? $o->delivery_distance_km.' km' : '-- km',
+                    'delivery_fee' => (float) ($o->delivery_fee ?? 40.0),
+                    'status' => $o->status ?: 'Preparing',
+                    'cancellation_reason' => $o->cancellation_reason,
+                    'type' => $o->order_type,
+                    'order_type' => $o->order_type,
+                    'reported_issues' => $issues,
+                    'remarks' => $remarks,
+                ];
+            })->values();
 
         $orderRangeFilter = function ($q) use ($from, $to) {
             $q->whereIn('status', ['Completed', 'Delivered']);
@@ -157,7 +212,7 @@ class ReportController extends Controller
                 $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
                 $pts = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
                 $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
-                $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
+                $lastDate = $c->last_order_date ? \App\Support\ManilaTime::format($c->last_order_date, 'Y-m-d') : '—';
 
                 return [
                     'id' => $c->id,
@@ -227,7 +282,7 @@ class ReportController extends Controller
         $from = null;
         $to = null;
         if ($fromDate || $toDate) {
-            $today = now()->toDateString();
+            $today = \App\Support\ManilaTime::todayString();
             $request->validate([
                 'from_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.$today],
                 'to_date' => array_filter([
@@ -242,8 +297,8 @@ class ReportController extends Controller
                 'to_date.after_or_equal' => 'The From date cannot be later than the To date.',
             ]);
 
-            $from = $fromDate ? Carbon::createFromFormat('Y-m-d', $fromDate)->startOfDay() : null;
-            $to = $toDate ? Carbon::createFromFormat('Y-m-d', $toDate)->endOfDay() : null;
+            $from = $fromDate ? \App\Support\ManilaTime::startOfDayUtc($fromDate) : null;
+            $to = $toDate ? \App\Support\ManilaTime::endOfDayUtc($toDate) : null;
         }
 
         $manilaNow = Carbon::now('Asia/Manila');
@@ -324,7 +379,7 @@ class ReportController extends Controller
                 'id' => $e->id,
                 'amount' => (float) $e->amount,
                 'amount_label' => '₱'.number_format((float) $e->amount, 2),
-                'expense_date' => $e->expense_date?->format('Y-m-d') ?: $e->created_at?->format('Y-m-d'),
+                'expense_date' => $e->expense_date?->format('Y-m-d') ?: \App\Support\ManilaTime::format($e->created_at, 'Y-m-d'),
                 'note' => $e->note ?: 'Fuel / Gas Expense',
                 'driver_id' => $e->driver_id,
                 'driver_name' => $e->driver?->name ?: null,
@@ -365,7 +420,7 @@ class ReportController extends Controller
             ->map(fn ($e) => [
                 'id' => $e->id,
                 'name' => $e->name,
-                'date' => $e->created_at?->format('M d, Y'),
+                'date' => \App\Support\ManilaTime::format($e->created_at, 'M d, Y'),
                 'size' => $e->size ?: '0 B',
                 'format' => $e->format,
                 'type' => $e->type ?? $e->format,
@@ -437,7 +492,7 @@ class ReportController extends Controller
             $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
             $pts = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
             $freq = $count >= 15 ? 'Frequent' : ($count >= 5 ? 'Regular' : 'New');
-            $lastDate = $c->last_order_date ? Carbon::parse($c->last_order_date)->format('Y-m-d') : '—';
+            $lastDate = $c->last_order_date ? \App\Support\ManilaTime::format($c->last_order_date, 'Y-m-d') : '—';
 
             return [
                 'id' => $c->id,
@@ -479,7 +534,7 @@ class ReportController extends Controller
 
     public function generate(Request $request)
     {
-        $today = now()->toDateString();
+        $today = \App\Support\ManilaTime::todayString();
         $data = $request->validate([
             'from_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$today],
             'to_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:from_date', 'before_or_equal:'.$today],
@@ -500,8 +555,8 @@ class ReportController extends Controller
             'to_date.before_or_equal' => 'The To date cannot be in the future.',
         ]);
 
-        $from = Carbon::createFromFormat('Y-m-d', $data['from_date'])->startOfDay();
-        $to = Carbon::createFromFormat('Y-m-d', $data['to_date'])->endOfDay();
+        $from = \App\Support\ManilaTime::startOfDayUtc($data['from_date']);
+        $to = \App\Support\ManilaTime::endOfDayUtc($data['to_date']);
 
         $status = $data['status'] ?? null;
         $dataset = $this->buildReportDataset($from, $to, null, null, $status);
@@ -527,7 +582,7 @@ class ReportController extends Controller
                 'id' => $e->id,
                 'amount' => (float) $e->amount,
                 'amount_label' => '₱'.number_format((float) $e->amount, 2),
-                'expense_date' => $e->expense_date?->format('Y-m-d') ?: $e->created_at?->format('Y-m-d'),
+                'expense_date' => $e->expense_date?->format('Y-m-d') ?: \App\Support\ManilaTime::format($e->created_at, 'Y-m-d'),
                 'note' => $e->note ?: 'Fuel / Gas Expense',
                 'driver_id' => $e->driver_id,
                 'driver_name' => $e->driver?->name ?: null,
@@ -575,7 +630,7 @@ class ReportController extends Controller
             $reportPayload = [
                 'id' => $report->id,
                 'name' => $report->name,
-                'date' => $report->created_at?->format('M d, Y'),
+                'date' => \App\Support\ManilaTime::format($report->created_at, 'M d, Y'),
                 'size' => $report->size,
                 'format' => $report->format,
                 'type' => $report->type,
@@ -588,7 +643,7 @@ class ReportController extends Controller
             'data' => [
                 'id' => $reportPayload['id'] ?? null,
                 'name' => $fileName,
-                'date' => $reportPayload['date'] ?? now()->format('M d, Y'),
+                'date' => $reportPayload['date'] ?? \App\Support\ManilaTime::now()->format('M d, Y'),
                 'size' => $reportPayload['size'] ?? null,
                 'format' => strtoupper($data['export_as']),
                 'type' => $data['format_type'],
@@ -604,7 +659,7 @@ class ReportController extends Controller
 
     public function logExport(Request $request)
     {
-        $today = now()->toDateString();
+        $today = \App\Support\ManilaTime::todayString();
         $data = $request->validate([
             'name' => ['required', 'string'],
             'format' => ['nullable', 'string'],
@@ -645,7 +700,7 @@ class ReportController extends Controller
             'data' => [
                 'id' => $report->id,
                 'name' => $report->name,
-                'date' => $report->created_at?->format('M d, Y'),
+                'date' => \App\Support\ManilaTime::format($report->created_at, 'M d, Y'),
                 'size' => $report->size,
                 'format' => $report->format,
                 'type' => $report->type,

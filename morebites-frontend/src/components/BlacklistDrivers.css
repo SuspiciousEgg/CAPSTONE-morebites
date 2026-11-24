@@ -678,13 +678,12 @@
 }
 
 .bl-confirm-notice {
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-left: 4px solid #10B981;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
   padding: 12px 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
-  color: #475569;
+  color: #166534;
   line-height: 1.45;
 }
 

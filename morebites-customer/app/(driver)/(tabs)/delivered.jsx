@@ -20,12 +20,21 @@ function formatDeliveredAt(value) {
   if (!value) return "Delivered";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Delivered";
-  return date.toLocaleString("en-PH", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  try {
+    return date.toLocaleString("en-PH", {
+      timeZone: "Asia/Manila",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    const pht = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const h24 = pht.getUTCHours();
+    return `${months[pht.getUTCMonth()]} ${pht.getUTCDate()}, ${h24 % 12 || 12}:${String(pht.getUTCMinutes()).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
+  }
 }
 
 export default function DeliveredScreen() {
@@ -174,7 +183,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   countText: {
-    color: "#16A34A",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 13,
     fontWeight: "700",
@@ -253,7 +262,7 @@ const styles = StyleSheet.create({
     width: 8,
   },
   pillText: {
-    color: "#15803D",
+    color: "#22C55E",
     fontFamily: FONT,
     fontSize: 12,
     fontWeight: "700",

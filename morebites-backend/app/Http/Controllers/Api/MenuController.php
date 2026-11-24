@@ -19,7 +19,13 @@ class MenuController extends Controller
     public function index(Request $request)
     {
         $tab = $request->query('tab', 'active');
-        $query = MenuItem::query()->with(['sizes', 'ingredients.inventoryItem'])->latest();
+        $query = MenuItem::query()->with([
+            'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+            'ingredients' => fn ($q) => $q->with([
+                'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                'menuItemSize',
+            ]),
+        ])->latest();
 
         if ($tab === 'archived') {
             $query->where('archived', true);
@@ -235,6 +241,9 @@ class MenuController extends Controller
                                 ? (float) $row['qty_per_serving']
                                 : 1.0,
                             'unit' => ! empty($row['unit']) ? (string) $row['unit'] : null,
+                            'is_removable' => array_key_exists('is_removable', $row)
+                                ? filter_var($row['is_removable'], FILTER_VALIDATE_BOOLEAN)
+                                : true,
                         ])
                         ->values()
                         ->all();
@@ -257,6 +266,9 @@ class MenuController extends Controller
                         ? (float) $row['qty_per_serving']
                         : 1.0,
                     'unit' => ! empty($row['unit']) ? (string) $row['unit'] : null,
+                    'is_removable' => array_key_exists('is_removable', $row)
+                        ? filter_var($row['is_removable'], FILTER_VALIDATE_BOOLEAN)
+                        : true,
                 ])
                 ->values()
                 ->all();
@@ -295,7 +307,9 @@ class MenuController extends Controller
                 Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
             ],
             'sizes.*.ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
-            'sizes.*.ingredients.*.unit' => ['nullable', 'string', 'max:20'],
+            'sizes.*.ingredients.*.unit' => ['nullable', 'string', 'max:30'],
+            'sizes.*.ingredients.*.price' => ['nullable', 'numeric', 'min:0'],
+            'sizes.*.ingredients.*.is_removable' => ['nullable', 'boolean'],
             'ingredients' => ['nullable', 'array'],
             'ingredients.*.menu_item_size_id' => ['nullable', 'integer'],
             'ingredients.*.size_name' => ['nullable', 'string'],
@@ -305,7 +319,9 @@ class MenuController extends Controller
                 Rule::exists('inventory_items', 'id')->whereNull('deleted_at'),
             ],
             'ingredients.*.qty_per_serving' => ['nullable', 'numeric', 'gt:0'],
-            'ingredients.*.unit' => ['nullable', 'string', 'max:20'],
+            'ingredients.*.unit' => ['nullable', 'string', 'max:30'],
+            'ingredients.*.price' => ['nullable', 'numeric', 'min:0'],
+            'ingredients.*.is_removable' => ['nullable', 'boolean'],
         ]);
 
         if (!empty($validated['has_sizes']) && !empty($validated['sizes'])) {
@@ -348,9 +364,11 @@ class MenuController extends Controller
             foreach ($allIngredientRows as $row) {
                 $inv = $invMap->get($row['inventory_item_id']);
                 if ($inv && ! empty($row['unit'])) {
-                    if (! UnitConverter::isCompatible($row['unit'], $inv->unit)) {
+                    $portionsPerUnit = $inv->portions_per_unit !== null ? (float) $inv->portions_per_unit : null;
+                    if (! UnitConverter::isCompatibleWithInventory($row['unit'], $inv->unit, $inv->portion_unit, $portionsPerUnit)) {
+                        $allowed = implode(', ', UnitConverter::compatibleUnitsForInventory($inv->unit, $inv->portion_unit, $portionsPerUnit));
                         throw ValidationException::withMessages([
-                            'ingredients' => ["Unit '{$row['unit']}' is incompatible with inventory unit '{$inv->unit}' for {$inv->name}."],
+                            'ingredients' => ["Unit '{$row['unit']}' is incompatible with inventory unit '{$inv->unit}' for {$inv->name}. Allowed units: {$allowed}."],
                         ]);
                     }
                 }
@@ -386,6 +404,7 @@ class MenuController extends Controller
     private function syncIngredients(MenuItem $item, array $data): void
     {
         $item->ingredients()->delete();
+        $isBeverage = strcasecmp(trim((string) $item->category), 'Beverages') === 0;
 
         if ($item->has_sizes) {
             $sizes = $data['sizes'] ?? [];
@@ -417,12 +436,26 @@ class MenuController extends Controller
                             ? (float) $row['qty_per_serving']
                             : 1.0;
                         $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+                        $invItem = InventoryItem::find($inventoryId);
+                        $invPrice = (float) ($invItem?->price ?? 0.0);
+                        $recipeUnit = $unit ?: $invItem?->unit;
+                        $stockUnit = $invItem?->unit;
+                        $invPortionUnit = $invItem?->portion_unit;
+                        $invPortionsPerUnit = $invItem?->portions_per_unit !== null ? (float) $invItem->portions_per_unit : null;
+                        $qtyInStockUnit = ($invItem && UnitConverter::isCompatibleWithInventory($recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit))
+                            ? UnitConverter::toStockUnit($qty, $recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit)
+                            : $qty;
+                        $price = $invPrice > 0
+                            ? round($invPrice * $qtyInStockUnit, 2)
+                            : (isset($row['price']) && (float) $row['price'] >= 0 ? round((float) $row['price'], 2) : 0.0);
 
                         $item->ingredients()->create([
                             'menu_item_size_id' => $matchingSize->id,
                             'inventory_item_id' => $inventoryId,
                             'qty_per_serving' => $qty,
                             'unit' => $unit,
+                            'price' => $price,
+                            'is_removable' => $isBeverage ? false : (bool) ($row['is_removable'] ?? true),
                         ]);
                     }
                 }
@@ -456,12 +489,26 @@ class MenuController extends Controller
                         ? (float) $row['qty_per_serving']
                         : 1.0;
                     $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+                    $invItem = InventoryItem::find((int) $row['inventory_item_id']);
+                    $invPrice = (float) ($invItem?->price ?? 0.0);
+                    $recipeUnit = $unit ?: $invItem?->unit;
+                    $stockUnit = $invItem?->unit;
+                    $invPortionUnit = $invItem?->portion_unit;
+                    $invPortionsPerUnit = $invItem?->portions_per_unit !== null ? (float) $invItem->portions_per_unit : null;
+                    $qtyInStockUnit = ($invItem && UnitConverter::isCompatibleWithInventory($recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit))
+                        ? UnitConverter::toStockUnit($qty, $recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit)
+                        : $qty;
+                    $price = $invPrice > 0
+                        ? round($invPrice * $qtyInStockUnit, 2)
+                        : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
                     $item->ingredients()->create([
                         'menu_item_size_id' => $sizeId,
                         'inventory_item_id' => (int) $row['inventory_item_id'],
                         'qty_per_serving' => $qty,
                         'unit' => $unit,
+                        'price' => $price,
+                        'is_removable' => $isBeverage ? false : (bool) ($row['is_removable'] ?? true),
                     ]);
                 }
 
@@ -484,12 +531,26 @@ class MenuController extends Controller
                 ? (float) $row['qty_per_serving']
                 : 1.0;
             $unit = ! empty($row['unit']) ? UnitConverter::normalize($row['unit']) : null;
+            $invItem = InventoryItem::find($inventoryId);
+            $invPrice = (float) ($invItem?->price ?? 0.0);
+            $recipeUnit = $unit ?: $invItem?->unit;
+            $stockUnit = $invItem?->unit;
+            $invPortionUnit = $invItem?->portion_unit;
+            $invPortionsPerUnit = $invItem?->portions_per_unit !== null ? (float) $invItem->portions_per_unit : null;
+            $qtyInStockUnit = ($invItem && UnitConverter::isCompatibleWithInventory($recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit))
+                ? UnitConverter::toStockUnit($qty, $recipeUnit, $stockUnit, $invPortionUnit, $invPortionsPerUnit)
+                : $qty;
+            $price = $invPrice > 0
+                ? round($invPrice * $qtyInStockUnit, 2)
+                : (isset($row['price']) && (float) $row['price'] > 0 ? round((float) $row['price'], 2) : 0.0);
 
             $item->ingredients()->create([
                 'menu_item_size_id' => null,
                 'inventory_item_id' => $inventoryId,
                 'qty_per_serving' => $qty,
                 'unit' => $unit,
+                'price' => $price,
+                'is_removable' => $isBeverage ? false : (bool) ($row['is_removable'] ?? true),
             ]);
         }
     }
@@ -498,11 +559,15 @@ class MenuController extends Controller
     {
         $service ??= app(InventoryDeductionService::class);
         $m->loadMissing([
-            'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed(),
-            'ingredients' => fn ($q) => $q->with(['inventoryItem' => fn ($q) => $q->withTrashed(), 'menuItemSize']),
+            'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+            'ingredients' => fn ($q) => $q->with([
+                'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                'menuItemSize',
+            ]),
         ]);
-        $stockOk = $service->canServe($m);
         $stockReason = $service->unserviceableReason($m);
+        $stockOk = $stockReason === null;
+        $isBeverage = strcasecmp(trim((string) $m->category), 'Beverages') === 0;
 
         return [
             'id' => $m->id,
@@ -517,7 +582,7 @@ class MenuController extends Controller
                 'id' => $s->id,
                 'name' => $s->name,
                 'price' => (float) $s->price,
-                'ingredients' => $s->ingredients->map(function ($ing) {
+                'ingredients' => $s->ingredients->map(function ($ing) use ($isBeverage) {
                     $inv = $ing->inventoryItem;
 
                     return [
@@ -528,11 +593,16 @@ class MenuController extends Controller
                         'name' => $inv?->name,
                         'unit' => $ing->unit ?: $inv?->unit,
                         'inventory_unit' => $inv?->unit,
+                        'portion_unit' => $inv?->portion_unit,
+                        'portions_per_unit' => $inv?->portions_per_unit !== null ? (float) $inv->portions_per_unit : null,
+                        'inventory_price' => (float) ($inv?->price ?? 0),
+                        'price' => $ing->computedPrice(),
+                        'is_removable' => ! $isBeverage && ($ing->is_removable !== false),
                         'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                     ];
                 })->values(),
             ])->values(),
-            'ingredients' => $m->ingredients->map(function ($ing) {
+            'ingredients' => $m->ingredients->map(function ($ing) use ($isBeverage) {
                 $inv = $ing->inventoryItem;
 
                 return [
@@ -544,6 +614,11 @@ class MenuController extends Controller
                     'name' => $inv?->name,
                     'unit' => $ing->unit ?: $inv?->unit,
                     'inventory_unit' => $inv?->unit,
+                    'portion_unit' => $inv?->portion_unit,
+                    'portions_per_unit' => $inv?->portions_per_unit !== null ? (float) $inv->portions_per_unit : null,
+                    'inventory_price' => (float) ($inv?->price ?? 0),
+                    'price' => $ing->computedPrice(),
+                    'is_removable' => ! $isBeverage && ($ing->is_removable !== false),
                     'stock' => ($inv && ! $inv->trashed()) ? (float) $inv->stock : 0.0,
                 ];
             })->values(),

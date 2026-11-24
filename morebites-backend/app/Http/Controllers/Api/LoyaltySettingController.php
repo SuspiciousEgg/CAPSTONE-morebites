@@ -103,7 +103,7 @@ class LoyaltySettingController extends Controller
                 'order_id' => $l->order_id,
                 'order_code' => $orderCode,
                 'note' => $l->note,
-                'date' => $l->created_at?->format('M d, Y h:i A') ?? '—',
+                'date' => \App\Support\ManilaTime::format($l->created_at, 'M d, Y h:i A') ?? '—',
                 'created_at' => $l->created_at?->toIso8601String(),
             ];
         });

@@ -163,6 +163,14 @@
   border-color: #D1D5DB;
 }
 
+.cm-filter-chevron {
+  transition: transform 0.18s ease;
+}
+
+.cm-filter-btn.open .cm-filter-chevron {
+  transform: rotate(180deg);
+}
+
 .cm-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -298,6 +306,20 @@
 
 .cm-table tr:last-child td {
   border-bottom: none;
+}
+
+/* Inactive Customer Rows - Legible Muted-Gray State (Consistent System-Wide) */
+.cm-table tr.cm-row-inactive {
+  background-color: #F8FAFC;
+}
+
+.cm-table tr.cm-row-inactive:hover {
+  background-color: #F1F5F9;
+}
+
+.cm-table tr.cm-row-inactive td,
+.cm-table tr.cm-row-inactive .cm-name {
+  color: #64748B;
 }
 
 .cm-name {

@@ -1,0 +1,205 @@
+/* ============================================================================
+ * Shared Skeleton Loaders (Stat Cards, Tables, Lists, Charts)
+ * ============================================================================ */
+
+@keyframes mb-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes mb-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.mb-skel {
+  display: inline-block;
+  vertical-align: middle;
+  background: linear-gradient(
+    90deg,
+    #f1f5f9 25%,
+    #e5e7eb 50%,
+    #f1f5f9 75%
+  );
+  background-size: 200% 100%;
+  animation: mb-skeleton-shimmer 1.45s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-skel {
+    background: #eef2f6;
+    animation: mb-skeleton-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+/* Stat card skeleton internals */
+.mb-skel-stat-card {
+  pointer-events: none;
+  user-select: none;
+}
+
+.mb-skel-stat-icon {
+  flex-shrink: 0;
+}
+
+.mb-skel-stat-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Table row skeleton helpers */
+.mb-skel-row td {
+  pointer-events: none;
+  user-select: none;
+}
+
+.mb-skel-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mb-skel-cell-avatar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mb-skel-cell-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mb-skel-cell-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* List card skeleton (Top Selling, Recent Exports, Low Stocks) */
+.mb-skel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.mb-skel-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.mb-skel-list-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mb-skel-stock-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.mb-skel-stock-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Dashboard chart & donut skeletons */
+.mb-skel-chart {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 18px 14px 10px;
+  box-sizing: border-box;
+}
+
+.mb-skel-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.mb-skel-chart-bar {
+  flex: 1;
+  max-width: 28px;
+  border-radius: 6px 6px 2px 2px;
+}
+
+.mb-skel-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mb-skel-donut-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 4px;
+}
+
+.mb-skel-donut-ring {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mb-skel-donut-hole {
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.mb-skel-donut-legend {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mb-skel-donut-legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+

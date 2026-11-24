@@ -44,10 +44,21 @@ function toLatLng(point) {
 }
 
 function markerIcon(kind) {
+  let innerSvg = ''
+  if (kind === 'store') {
+    innerSvg = `<svg viewBox="0 0 24 24" width="14" height="14" fill="#ffffff" aria-hidden="true"><path d="M4 4h16v2H4V4zm16 4l1.2 6H19v6h-4v-4h-6v4H5v-6H2.8L4 8h16zm-3 6H7v4h10v-4z"/></svg>`
+  } else if (kind === 'rider') {
+    innerSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5V14l-3-3 4-3 2 3h2"/></svg>`
+  } else {
+    // customer destination pin
+    innerSvg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="#ffffff" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`
+  }
+
   return L.divIcon({
-    className: `fm-marker fm-marker-${kind}`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
+    className: `fm-marker-wrap fm-marker-wrap-${kind}`,
+    html: `<span class="fm-marker fm-marker-${kind}">${innerSvg}</span>`,
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
   })
 }
 
@@ -79,6 +90,7 @@ function FleetMap({
   const layerRef = useRef(null)
   const riderMarkerRef = useRef(null)
   const customerMarkerRef = useRef(null)
+  const storeMarkerRef = useRef(null)
   const routePolylineRef = useRef(null)
   const fetchedRoutesRef = useRef(new Map())
   const hasInitializedViewRef = useRef(false)
@@ -106,11 +118,11 @@ function FleetMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
-    const defaultCenter = [7.6094, 124.9883]
+    const defaultCenter = [7.610688, 125.005047]
     const map = L.map(containerRef.current, {
       zoomControl: true,
       attributionControl: true,
-    }).setView(defaultCenter, 13)
+    }).setView(defaultCenter, 16)
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -121,6 +133,11 @@ function FleetMap({
     layerRef.current = layer
     mapRef.current = map
     hasInitializedViewRef.current = true
+
+    const storePopup = `<strong>MOREBITES Food Corner</strong><br/>Sayre Hwy, Dangcagan, Bukidnon`
+    storeMarkerRef.current = L.marker(defaultCenter, { icon: markerIcon('store') })
+      .bindPopup(storePopup)
+      .addTo(layer)
 
     const resize = () => map.invalidateSize()
     setTimeout(resize, 80)
@@ -133,6 +150,7 @@ function FleetMap({
       layerRef.current = null
       riderMarkerRef.current = null
       customerMarkerRef.current = null
+      storeMarkerRef.current = null
       routePolylineRef.current = null
       fetchedRoutesRef.current.clear()
       hasInitializedViewRef.current = false
@@ -154,6 +172,20 @@ function FleetMap({
     if (active) {
       const dest = toLatLng(active.destination)
       const rider = toLatLng(active.rider)
+      const store = toLatLng(active.store) || [7.610688, 125.005047]
+
+      // 0. Store Origin Marker: update in place via setLatLng
+      if (store) {
+        const storePopup = `<strong>MOREBITES Food Corner</strong><br/>Sayre Hwy, Dangcagan, Bukidnon`
+        if (storeMarkerRef.current) {
+          storeMarkerRef.current.setLatLng(store)
+          storeMarkerRef.current.setPopupContent(storePopup)
+        } else {
+          storeMarkerRef.current = L.marker(store, { icon: markerIcon('store') })
+            .bindPopup(storePopup)
+            .addTo(layer)
+        }
+      }
 
       // 1. Customer Marker: update in place via setLatLng
       if (dest) {
@@ -267,6 +299,12 @@ function FleetMap({
       if (riderMarkerRef.current) {
         layer.removeLayer(riderMarkerRef.current)
         riderMarkerRef.current = null
+      }
+      if (!storeMarkerRef.current) {
+        const storePopup = `<strong>MOREBITES Food Corner</strong><br/>Sayre Hwy, Dangcagan, Bukidnon`
+        storeMarkerRef.current = L.marker([7.610688, 125.005047], { icon: markerIcon('store') })
+          .bindPopup(storePopup)
+          .addTo(layer)
       }
       if (routePolylineRef.current) {
         layer.removeLayer(routePolylineRef.current)

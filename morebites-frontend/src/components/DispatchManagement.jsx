@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LuClock,
   LuMapPin,
@@ -14,6 +14,7 @@ import {
 import { dispatchApi } from '../api/client'
 import FleetMap from './FleetMap'
 import EmptyState from './EmptyState'
+import { TableRowsSkeleton } from './Skeleton'
 import './DispatchManagement.css'
 
 /**
@@ -88,7 +89,7 @@ function badgeClass(status) {
   return 'waiting'
 }
 
-export default function DispatchManagement() {
+export default function DispatchManagement({ focusOrder = null, onFocusOrderHandled } = {}) {
   const [pending, setPending] = useState([])
   const [riders, setRiders] = useState([])
   const [monitoring, setMonitoring] = useState([])
@@ -100,9 +101,12 @@ export default function DispatchManagement() {
   const [monitorPage, setMonitorPage] = useState(1)
   const [assignOrder, setAssignOrder] = useState(null)
   const [selectedRider, setSelectedRider] = useState(null)
+  const [assigning, setAssigning] = useState(false)
   const [viewDelivery, setViewDelivery] = useState(null)
   const [focusId, setFocusId] = useState(null)
   const [showMapModal, setShowMapModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const loadingDispatchRef = useRef(false)
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -167,6 +171,16 @@ export default function DispatchManagement() {
 
     setMonitoring(activeDeliveries)
     setActiveDeliveriesCount(activeDeliveries.length)
+    setViewDelivery((prev) => {
+      if (!prev) return null
+      return (
+        activeDeliveries.find(
+          (item) =>
+            (prev.db_id != null && String(item.db_id) === String(prev.db_id)) ||
+            String(item.id) === String(prev.id)
+        ) || prev
+      )
+    })
 
     const focused = activeDeliveries.find((item) => String(item.db_id) === String(focusId))
     const active = focused || activeDeliveries[0]
@@ -186,7 +200,9 @@ export default function DispatchManagement() {
     })
   }
 
-  async function loadDispatch() {
+  async function loadDispatch({ force = false } = {}) {
+    if (!force && loadingDispatchRef.current) return
+    loadingDispatchRef.current = true
     try {
       const r = await dispatchApi.get()
       const d = r.data?.data || r.data || {}
@@ -196,6 +212,9 @@ export default function DispatchManagement() {
       applyActiveDeliveries(d.deliveries || d.monitoring || [], d.store)
     } catch (err) {
       console.error(err)
+    } finally {
+      loadingDispatchRef.current = false
+      setLoading(false)
     }
   }
 
@@ -214,7 +233,7 @@ export default function DispatchManagement() {
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadDispatch().catch(() => {})
-    }, 10000)
+    }, 3000)
     return () => clearInterval(timer)
   }, [])
 
@@ -235,19 +254,66 @@ export default function DispatchManagement() {
   const currentMonitorPage = Math.min(monitorPage, monitorTotalPages)
   const monitorRows = monitoring.slice((currentMonitorPage - 1) * pageSize, currentMonitorPage * pageSize)
 
+  useEffect(() => {
+    if (!focusOrder) return
+    const targetId = focusOrder.orderId != null ? String(focusOrder.orderId) : null
+    const targetCode = focusOrder.orderCode
+      ? String(focusOrder.orderCode).replace(/^#/, '').toUpperCase()
+      : null
+
+    if (focusOrder.openAssign && pending.length > 0) {
+      const pendingIndex = pending.findIndex((p) => {
+        if (targetId && p.db_id != null && String(p.db_id) === targetId) return true
+        if (targetCode && p.id && String(p.id).replace(/^#/, '').toUpperCase() === targetCode) return true
+        return false
+      })
+      if (pendingIndex !== -1) {
+        const matchedPending = pending[pendingIndex]
+        const targetPage = Math.floor(pendingIndex / pageSize) + 1
+        setPage(targetPage)
+        setAssignOrder(matchedPending)
+        setSelectedRider(null)
+        if (onFocusOrderHandled) onFocusOrderHandled()
+        return
+      }
+    }
+
+    if (monitoring.length === 0) return
+
+    const matchedIndex = monitoring.findIndex((m) => {
+      if (targetId && m.db_id != null && String(m.db_id) === targetId) return true
+      if (targetCode && m.id && String(m.id).replace(/^#/, '').toUpperCase() === targetCode) return true
+      return false
+    })
+
+    if (matchedIndex !== -1) {
+      const matched = monitoring[matchedIndex]
+      setFocusId(matched.db_id || null)
+      const targetPage = Math.floor(matchedIndex / pageSize) + 1
+      setMonitorPage(targetPage)
+      if (focusOrder.openDetails !== false) {
+        setViewDelivery(matched)
+      }
+      if (onFocusOrderHandled) onFocusOrderHandled()
+    }
+  }, [focusOrder, pending, monitoring, onFocusOrderHandled, pageSize])
+
   async function assignDelivery() {
-    if (!assignOrder || !selectedRider) return
+    if (!assignOrder || !selectedRider || assigning) return
     const orderId = assignOrder.db_id || assignOrder.id
     const riderParam = selectedRider.name || selectedRider.label || selectedRider
+    setAssigning(true)
     try {
       await dispatchApi.assign(orderId, riderParam)
-      await loadDispatch()
+      await loadDispatch({ force: true })
       setAssignOrder(null)
       setSelectedRider(null)
       setPage(1)
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Failed to assign rider.')
+    } finally {
+      setAssigning(false)
     }
   }
 
@@ -261,9 +327,6 @@ export default function DispatchManagement() {
       <section className="dp-card dp-pending-card">
         <div className="dp-card-head">
           <div className="dp-card-title-group">
-            <span className="dp-icon-pill amber">
-              <LuClock size={18} />
-            </span>
             <h2 className="dp-card-title">Pending Deliveries</h2>
           </div>
         </div>
@@ -281,7 +344,12 @@ export default function DispatchManagement() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['id', 'text', 'text', 'money', 'badge', 'action-btn']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dp-empty-row">
                     <EmptyState
@@ -369,9 +437,6 @@ export default function DispatchManagement() {
         <section className="dp-card dp-map-section-card">
           <div className="dp-card-head">
             <div className="dp-card-title-group">
-              <span className="dp-icon-pill amber">
-                <LuMapPin size={18} />
-              </span>
               <h2 className="dp-card-title">Live Delivery Map</h2>
             </div>
             <button
@@ -416,9 +481,6 @@ export default function DispatchManagement() {
         <section className="dp-card dp-monitor-section-card">
           <div className="dp-card-head">
             <div className="dp-card-title-group">
-              <span className="dp-icon-pill green">
-                <LuBike size={18} />
-              </span>
               <div>
                 <h2 className="dp-card-title">Delivery Status Monitoring</h2>
                 <p className="dp-card-subtitle">Track the status of ongoing deliveries</p>
@@ -438,7 +500,12 @@ export default function DispatchManagement() {
                 </tr>
               </thead>
               <tbody>
-                {monitorRows.length === 0 ? (
+                {loading ? (
+                  <TableRowsSkeleton
+                    rows={4}
+                    shapes={['avatar', 'id', 'badge', 'two-line', 'action-btn']}
+                  />
+                ) : monitorRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="dp-empty-row">
                       <EmptyState
@@ -464,9 +531,19 @@ export default function DispatchManagement() {
                         </td>
                         <td className="dp-assigned-order-id">{m.id}</td>
                         <td>
-                          <span className={`dp-status-pill ${badgeClass(m.status)}`}>
-                            {m.status}
-                          </span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span className={`dp-status-pill ${badgeClass(m.status)}`}>
+                              {m.status}
+                            </span>
+                            {m.reported_issues && m.reported_issues.length > 0 && (
+                              <span className="dp-issue-badge" title={m.reported_issues[0]?.issue || 'Issue reported'}>
+                                <LuTriangleAlert size={12} />
+                                <span>
+                                  {m.reported_issues.length} {m.reported_issues.length === 1 ? 'Issue' : 'Issues'}
+                                </span>
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="dp-last-update-text">
                           <div className="dp-update-time">{m.updated_time || m.updated || '—'}</div>
@@ -537,7 +614,6 @@ export default function DispatchManagement() {
       {assignOrder && (
         <div
           className="dp-modal-backdrop"
-          onClick={() => setAssignOrder(null)}
           role="presentation"
         >
           <div
@@ -632,6 +708,7 @@ export default function DispatchManagement() {
               <button
                 type="button"
                 className="dp-btn-ghost"
+                disabled={assigning}
                 onClick={() => setAssignOrder(null)}
               >
                 Cancel
@@ -639,10 +716,10 @@ export default function DispatchManagement() {
               <button
                 type="button"
                 className="dp-btn-confirm-assign"
-                disabled={!selectedRider}
+                disabled={!selectedRider || assigning}
                 onClick={assignDelivery}
               >
-                Confirm Assignment
+                {assigning ? 'Assigning...' : 'Confirm Assignment'}
               </button>
             </div>
           </div>
@@ -653,7 +730,6 @@ export default function DispatchManagement() {
       {showMapModal && (
         <div
           className="dp-map-modal-backdrop"
-          onClick={() => setShowMapModal(false)}
           role="presentation"
         >
           <div
@@ -665,9 +741,6 @@ export default function DispatchManagement() {
           >
             <div className="dp-map-modal-head">
               <div className="dp-card-title-group">
-                <span className="dp-icon-pill amber">
-                  <LuMapPin size={18} />
-                </span>
                 <h2 id="dp-map-modal-title" className="dp-card-title">Live Delivery Map</h2>
               </div>
               <button
@@ -718,7 +791,6 @@ export default function DispatchManagement() {
       {viewDelivery && (
         <div
           className="dp-modal-backdrop"
-          onClick={() => setViewDelivery(null)}
           role="presentation"
         >
           <div
@@ -779,6 +851,32 @@ export default function DispatchManagement() {
                 <dd className="dp-summary-price">₱{Number(viewDelivery.total || 0).toLocaleString()}</dd>
               </div>
             </dl>
+            {viewDelivery.reported_issues && viewDelivery.reported_issues.length > 0 && (
+              <div className="dp-issue-section">
+                <div className="dp-issue-heading">
+                  <LuTriangleAlert size={14} /> Reported Issues ({viewDelivery.reported_issues.length})
+                </div>
+                <div className="dp-issue-list">
+                  {viewDelivery.reported_issues.map((iss) => (
+                    <div key={iss.id} className="dp-issue-card">
+                      <div className="dp-issue-card-head">
+                        <div className="dp-issue-title-group">
+                          <span className="dp-issue-title">{iss.issue}</span>
+                          <span className="dp-issue-dot">•</span>
+                          <span className="dp-issue-reporter">
+                            Reported by: {iss.driver_name || viewDelivery.name || 'Rider'}
+                          </span>
+                        </div>
+                        <span className="dp-issue-time">{iss.time_label || iss.created_at}</span>
+                      </div>
+                      {iss.notes ? (
+                        <p className="dp-issue-notes">{iss.notes}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="dp-modal-foot">
               <button
                 type="button"

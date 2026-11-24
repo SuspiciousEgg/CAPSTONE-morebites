@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
 import { storeSettingsApi } from '../api/client'
+import { formatManilaDate } from '../utils/manilaTime'
 
 export default function PrepTimeSettingsSection() {
   const [minTime, setMinTime] = useState(15)
@@ -158,7 +159,7 @@ export default function PrepTimeSettingsSection() {
             {updatedBy ? (
               <span>
                 Last updated by <strong>{updatedBy}</strong>
-                {updatedAt ? ` on ${new Date(updatedAt).toLocaleDateString()}` : ''}
+                {updatedAt ? ` on ${formatManilaDate(updatedAt)}` : ''}
               </span>
             ) : null}
           </div>

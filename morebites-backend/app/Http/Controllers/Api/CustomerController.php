@@ -43,7 +43,7 @@ class CustomerController extends Controller
                 'stats' => [
                     'total' => (clone $base)->count(),
                     'active' => (clone $base)->where('status', 'ACTIVE')->count(),
-                    'new_month' => (clone $base)->where('registered_at', '>=', now()->copy()->startOfMonth())->count(),
+                    'new_month' => (clone $base)->where('registered_at', '>=', \App\Support\ManilaTime::startOfMonthUtc())->count(),
                     'frequent' => (clone $base)->withCount('orders')->get()->filter(fn ($c) => $c->orders_count >= 15)->count(),
                 ],
             ],
@@ -62,7 +62,7 @@ class CustomerController extends Controller
 
         $history = $customer->orders->map(fn ($o) => [
             'id' => $o->order_code,
-            'datetime' => $o->created_at?->format('M d, Y h:i A'),
+            'datetime' => \App\Support\ManilaTime::format($o->created_at, 'M d, Y h:i A'),
             'items' => $o->items->sum('qty').' items',
             'total' => (float) $o->total,
             'status' => $o->status === 'Completed' ? 'Delivered' : $o->status,
@@ -95,7 +95,7 @@ class CustomerController extends Controller
 
         $isExpired = $c->points_expire_at !== null && now()->greaterThan($c->points_expire_at);
         $points = $isExpired ? 0 : (int) ($c->loyalty_points ?? 0);
-        $expiryFormatted = $c->points_expire_at ? $c->points_expire_at->format('M d, Y') : null;
+        $expiryFormatted = \App\Support\ManilaTime::format($c->points_expire_at, 'M d, Y');
 
         return [
             'id' => $c->customer_code,
@@ -105,11 +105,11 @@ class CustomerController extends Controller
             'email' => $c->email,
             'photo' => $user?->photo ? Media::url($user->photo) : null,
             'address' => $c->delivery_address,
-            'registered' => $c->registered_at?->format('M d, Y'),
-            'registeredFull' => $c->registered_at?->format('M d, Y h:i A'),
+            'registered' => \App\Support\ManilaTime::format($c->registered_at, 'M d, Y'),
+            'registeredFull' => \App\Support\ManilaTime::format($c->registered_at, 'M d, Y h:i A'),
             'orders' => $c->orders_count ?? $c->orders()->count(),
             'spent' => (float) ($c->orders_sum_total ?? 0),
-            'lastOrder' => $last?->created_at?->format('M d, Y') ?? '-',
+            'lastOrder' => \App\Support\ManilaTime::format($last?->created_at, 'M d, Y') ?? '-',
             'status' => $c->status,
             'rider_rating_avg' => $ratingAvg !== null ? round($ratingAvg, 1) : null,
             'rider_rating_count' => $ratingCount,

@@ -252,6 +252,14 @@
   border-color: #D1D5DB;
 }
 
+.inv-filter-chevron {
+  transition: transform 0.18s ease;
+}
+
+.inv-filter-btn.open .inv-filter-chevron {
+  transform: rotate(180deg);
+}
+
 .inv-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -522,6 +530,43 @@
   color: #FFFFFF !important;
 }
 
+/* Archived Inventory Rows - Legible Muted-Gray State (Consistent System-Wide) */
+.inv-table tr.inv-row-archived {
+  background-color: #F8FAFC;
+}
+
+.inv-table tr.inv-row-archived:hover {
+  background-color: #F1F5F9;
+}
+
+.inv-table tr.inv-row-archived .inv-name,
+.inv-table tr.inv-row-archived .inv-stock-val,
+.inv-table tr.inv-row-archived .inv-stock-val strong,
+.inv-table tr.inv-row-archived .inv-price-val,
+.inv-table tr.inv-row-archived .inv-date-cell {
+  color: #64748B !important;
+}
+
+.inv-table tr.inv-row-archived .inv-category-text,
+.inv-table tr.inv-row-archived .inv-reorder-val,
+.inv-table tr.inv-row-archived .inv-unit {
+  color: #94A3B8 !important;
+}
+
+.inv-table tr.inv-row-archived .inv-days-pill,
+.inv-table tr.inv-row-archived .inv-batch-pill-item {
+  background-color: #F1F5F9 !important;
+  color: #64748B !important;
+  border-color: #E2E8F0 !important;
+}
+
+.inv-table tr.inv-row-archived .inv-batch-pill-badge,
+.inv-table tr.inv-row-archived .inv-batch-pill-qty,
+.inv-table tr.inv-row-archived .inv-batch-pill-exp {
+  background-color: transparent !important;
+  color: #64748B !important;
+}
+
 /* Actions */
 .inv-actions {
   display: flex;
@@ -785,7 +830,8 @@
 }
 
 .inv-modal-body input,
-.inv-modal-body select {
+.inv-modal-body select,
+.inv-modal-body .mb-select-trigger {
   width: 100%;
   height: 38px;
   padding: 0 12px;
@@ -794,7 +840,7 @@
   font-size: 13px;
   font-family: inherit;
   color: #1C1B18;
-  background: #FFFFFF;
+  background-color: #FFFFFF;
   box-sizing: border-box;
   outline: none;
   transition: border-color 0.15s ease;
@@ -835,6 +881,33 @@
   margin: 0;
   font-size: 12px;
   color: #9CA3AF;
+}
+
+.inv-portion-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.inv-portion-preview strong {
+  color: #78350F;
+  font-weight: 700;
+}
+
+.inv-portion-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #B45309;
+  line-height: 1.3;
 }
 
 .inv-modal-foot {
@@ -1352,6 +1425,34 @@
   font-size: 10.5px;
   color: #9CA3AF;
   font-style: italic;
+}
+
+.inv-input-currency {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inv-input-currency input {
+  width: 100%;
+  padding-left: 26px !important;
+  padding-right: 52px !important;
+}
+
+.inv-currency-symbol {
+  position: absolute;
+  left: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B7280;
+  pointer-events: none;
+}
+
+.inv-price-val {
+  font-weight: 600;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
 }
 
 

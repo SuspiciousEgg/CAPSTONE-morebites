@@ -8,6 +8,9 @@ import {
   LuRefreshCw,
 } from 'react-icons/lu'
 import { loyaltySettingsApi } from '../api/client'
+import CustomSelect from './CustomSelect'
+import { TableRowsSkeleton } from './Skeleton'
+import { formatManilaDate } from '../utils/manilaTime'
 
 /*
  * DIAGNOSIS REPORT — Loyalty UI vs. Existing System Design:
@@ -326,7 +329,7 @@ export default function LoyaltySettingsSection() {
         <div className="loyalty-foot">
           <div className="loyalty-meta-note">
             {settings?.updated_at ? (
-              <span>Last updated by <strong>{settings.updated_by_name || 'Owner'}</strong> on {new Date(settings.updated_at).toLocaleDateString()}</span>
+              <span>Last updated by <strong>{settings.updated_by_name || 'Owner'}</strong> on {formatManilaDate(settings.updated_at)}</span>
             ) : (
               <span>Default system rates</span>
             )}
@@ -376,7 +379,7 @@ export default function LoyaltySettingsSection() {
 
           <div className="loyalty-history-filter">
             <label className="loyalty-history-filter-label">Filter by type:</label>
-            <select
+            <CustomSelect
               value={historyType}
               onChange={handleTypeChange}
               className="loyalty-history-select"
@@ -386,7 +389,7 @@ export default function LoyaltySettingsSection() {
               <option value="redeem">Redeemed (-)</option>
               <option value="refund">Refunded (+)</option>
               <option value="expire">Expired (-)</option>
-            </select>
+            </CustomSelect>
           </div>
         </div>
 
@@ -405,11 +408,10 @@ export default function LoyaltySettingsSection() {
             </thead>
             <tbody>
               {historyLoading && historyList.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="loyalty-history-empty">
-                    Loading loyalty ledger history…
-                  </td>
-                </tr>
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['text', 'badge', 'short', 'id', 'short', 'short']}
+                />
               ) : historyList.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="loyalty-history-empty">

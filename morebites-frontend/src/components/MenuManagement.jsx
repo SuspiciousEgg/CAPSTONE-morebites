@@ -12,9 +12,13 @@ import {
   LuImage,
   LuTrash2,
   LuTriangleAlert,
+  LuCopy,
 } from 'react-icons/lu'
 import { inventoryApi, mediaUrl, menuApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import PaginationControls from './PaginationControls'
+import { TableRowsSkeleton } from './Skeleton'
 import './MenuManagement.css'
 
 /**
@@ -76,7 +80,7 @@ import './MenuManagement.css'
 const CATEGORIES = ['Pizza', 'Meal', 'Rice Meals', 'Pasta', 'Sides', 'Snacks', 'Beverages', 'Desserts']
 
 export const MENU_SUBCATEGORIES = {
-  Pizza: ['Premium Pizza', 'Pizzadilla'],
+  Pizza: ['Premium Pizza', 'Pizzadilla', 'Thin-Crust Pizza', 'Quesadilla'],
   Meal: ['Breakfast', 'Lunch'],
   'Rice Meals': ['Breakfast', 'Lunch'],
 }
@@ -97,7 +101,43 @@ function formatPrice(item) {
   return peso(item.price || 0)
 }
 
-const STANDARD_UNITS = ['pcs', 'g', 'kg', 'ml', 'L']
+const STANDARD_UNITS = ['pcs', 'scoop', 'cup', 'ladle', 'slice', 'portion', 'tbsp', 'tsp', 'pack', 'bag', 'bottle', 'can', 'box', 'tray', 'g', 'kg', 'ml', 'L']
+
+const KITCHEN_UNIT_ALIASES = {
+  scoop: 'scoop',
+  scoops: 'scoop',
+  cup: 'cup',
+  cups: 'cup',
+  ladle: 'ladle',
+  ladles: 'ladle',
+  slice: 'slice',
+  slices: 'slice',
+  portion: 'portion',
+  portions: 'portion',
+  serving: 'portion',
+  servings: 'portion',
+  tbsp: 'tbsp',
+  tablespoon: 'tbsp',
+  tablespoons: 'tbsp',
+  tsp: 'tsp',
+  teaspoon: 'tsp',
+  teaspoons: 'tsp',
+  pack: 'pack',
+  packs: 'pack',
+  pkg: 'pack',
+  bag: 'bag',
+  bags: 'bag',
+  bottle: 'bottle',
+  bottles: 'bottle',
+  can: 'can',
+  cans: 'can',
+  box: 'box',
+  boxes: 'box',
+  jar: 'jar',
+  jars: 'jar',
+  tray: 'tray',
+  trays: 'tray',
+}
 
 function normalizeUnitName(unit) {
   if (!unit) return ''
@@ -107,6 +147,7 @@ function normalizeUnitName(unit) {
   if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return 'ml'
   if (u === 'l' || u === 'liter' || u === 'liters') return 'L'
   if (['pcs', 'pc', 'piece', 'pieces'].includes(u)) return 'pcs'
+  if (KITCHEN_UNIT_ALIASES[u]) return KITCHEN_UNIT_ALIASES[u]
   return unit
 }
 
@@ -118,20 +159,58 @@ function getUnitCategory(unit) {
   return 'other'
 }
 
-function areUnitsCompatible(unitA, unitB) {
+function areUnitsCompatible(unitA, unitB, portionUnit = null, portionsPerUnit = null) {
   if (!unitA || !unitB) return true
+  const normA = normalizeUnitName(unitA).toLowerCase()
+  const normB = normalizeUnitName(unitB).toLowerCase()
+  if (normA === normB) return true
+  if (portionUnit && Number(portionsPerUnit) > 0) {
+    const normPortion = normalizeUnitName(portionUnit).toLowerCase()
+    if (normA === normPortion) return true
+  }
   const catA = getUnitCategory(unitA)
   const catB = getUnitCategory(unitB)
   if (catA === 'other' || catB === 'other') {
-    return normalizeUnitName(unitA).toLowerCase() === normalizeUnitName(unitB).toLowerCase()
+    return normA === normB
   }
   return catA === catB
 }
 
-function getSelectableUnits(inventoryUnit) {
+function convertUnitQty(qty, fromUnit, toUnit, portionUnit = null, portionsPerUnit = null) {
+  const q = Number(qty)
+  if (!Number.isFinite(q) || q <= 0) return 0
+  const from = normalizeUnitName(fromUnit)
+  const to = normalizeUnitName(toUnit || fromUnit)
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return q
+  if (portionUnit && Number(portionsPerUnit) > 0) {
+    const normPortion = normalizeUnitName(portionUnit)
+    if (from.toLowerCase() === normPortion.toLowerCase()) {
+      return q / Number(portionsPerUnit)
+    }
+  }
+  if (from === 'g' && to === 'kg') return q / 1000
+  if (from === 'kg' && to === 'g') return q * 1000
+  if (from === 'ml' && to === 'L') return q / 1000
+  if (from === 'L' && to === 'ml') return q * 1000
+  return q
+}
+
+function computeIngredientPortionPrice(unitPrice, qtyPerServing, recipeUnit, inventoryUnit, portionUnit = null, portionsPerUnit = null) {
+  const uPrice = Number(unitPrice || 0)
+  if (!Number.isFinite(uPrice) || uPrice <= 0) return 0
+  const qtyInStockUnit = convertUnitQty(qtyPerServing, recipeUnit, inventoryUnit, portionUnit, portionsPerUnit)
+  return Math.round(uPrice * qtyInStockUnit * 100) / 100
+}
+
+function getSelectableUnits(inventoryUnit, portionUnit = null, portionsPerUnit = null) {
   const normInv = normalizeUnitName(inventoryUnit)
+  const normPortion = portionUnit && Number(portionsPerUnit) > 0 ? normalizeUnitName(portionUnit) : ''
   const cat = getUnitCategory(normInv)
   const list = []
+
+  if (normPortion) {
+    list.push(normPortion)
+  }
 
   if (cat === 'mass') {
     list.push('g', 'kg')
@@ -142,7 +221,11 @@ function getSelectableUnits(inventoryUnit) {
   }
 
   if (normInv && !list.includes(normInv)) {
-    list.unshift(normInv)
+    if (normPortion) {
+      list.splice(1, 0, normInv)
+    } else {
+      list.unshift(normInv)
+    }
   }
 
   STANDARD_UNITS.forEach((u) => {
@@ -154,18 +237,58 @@ function getSelectableUnits(inventoryUnit) {
   return list
 }
 
+function isLikelyMainIngredient(invName, menuCategory) {
+  if (String(menuCategory || '').trim().toLowerCase() === 'beverages') return true
+  const lower = String(invName || '').trim().toLowerCase()
+  return (
+    lower.includes('dough') ||
+    lower.includes('tortilla') ||
+    lower.includes('thin-crust') ||
+    lower.includes('pizza sauce') ||
+    lower.includes('chicken wing') ||
+    lower.includes('chicken tender') ||
+    lower.includes('steamed rice') ||
+    lower.includes('shaved ice') ||
+    lower.includes('milk base') ||
+    lower.includes('bottle')
+  )
+}
+
 function mapIngredientRows(list) {
-  return (list || []).map((row) => ({
-    inventory_item_id: String(row.inventory_item_id || ''),
-    qty_per_serving:
+  return (list || []).map((row) => {
+    const qtyStr =
       row.qty_per_serving != null && row.qty_per_serving !== ''
         ? String(Number(row.qty_per_serving))
-        : '1',
-    name: row.name || '',
-    unit: row.unit || row.inventory_unit || '',
-    inventory_unit: row.inventory_unit || row.unit || '',
-    stock: row.stock ?? '',
-  }))
+        : '1'
+    const recipeUnit = row.unit || row.inventory_unit || ''
+    const invUnit = row.inventory_unit || row.unit || ''
+    const portionUnit = row.portion_unit || ''
+    const portionsPerUnit = row.portions_per_unit != null ? Number(row.portions_per_unit) : null
+    const invPrice =
+      row.inventory_price != null && row.inventory_price !== ''
+        ? Number(row.inventory_price)
+        : 0
+    const computed =
+      invPrice > 0
+        ? computeIngredientPortionPrice(invPrice, qtyStr, recipeUnit, invUnit, portionUnit, portionsPerUnit)
+        : row.price != null && row.price !== ''
+          ? Number(row.price)
+          : 0
+
+    return {
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: qtyStr,
+      inventory_price: invPrice,
+      price: String(computed),
+      name: row.name || '',
+      unit: recipeUnit,
+      inventory_unit: invUnit,
+      portion_unit: portionUnit,
+      portions_per_unit: portionsPerUnit,
+      is_removable: row.is_removable !== false,
+      stock: row.stock ?? '',
+    }
+  })
 }
 
 function emptyForm() {
@@ -230,6 +353,8 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   const [form, setForm] = useState(() => buildInitialForm(initial))
   const [activeSizeIndex, setActiveSizeIndex] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
+  const copyMenuRef = useRef(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -273,7 +398,70 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
   const safeActiveSizeIndex = Math.min(activeSizeIndex, Math.max(0, (form.sizes || []).length - 1))
 
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target)) {
+        setCopyMenuOpen(false)
+      }
+    }
+    if (copyMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [copyMenuOpen])
+
+  useEffect(() => {
+    setCopyMenuOpen(false)
+  }, [safeActiveSizeIndex])
+
   function updateIngredient(index, key, value) {
+    const syncRowComputedPrice = (row) => {
+      const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+      const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+      const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+      const portionUnit = inv?.portion_unit || row.portion_unit || ''
+      const portionsPerUnit = inv?.portions_per_unit ?? row.portions_per_unit ?? null
+      const recipeUnit = row.unit || (portionUnit && Number(portionsPerUnit) > 0 ? portionUnit : invUnit) || 'pcs'
+      row.inventory_price = unitPrice
+      row.portion_unit = portionUnit
+      row.portions_per_unit = portionsPerUnit
+      if (unitPrice > 0) {
+        row.price = String(
+          computeIngredientPortionPrice(
+            unitPrice,
+            row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+            recipeUnit,
+            invUnit,
+            portionUnit,
+            portionsPerUnit,
+          ),
+        )
+      }
+      return row
+    }
+
+    const applyPickedInventory = (nextRow, inv) => {
+      if (!inv) return
+      nextRow.name = inv.name
+      nextRow.stock = inv.stock
+      nextRow.inventory_unit = inv.unit
+      nextRow.portion_unit = inv.portion_unit || ''
+      nextRow.portions_per_unit = inv.portions_per_unit ?? null
+      nextRow.inventory_price = Number(inv.price || 0)
+      nextRow.is_removable = !isLikelyMainIngredient(inv.name, form.category)
+      const preferredUnit =
+        inv.portion_unit && Number(inv.portions_per_unit) > 0 ? inv.portion_unit : inv.unit || 'pcs'
+      if (
+        !nextRow.unit ||
+        !areUnitsCompatible(nextRow.unit, inv.unit, inv.portion_unit, inv.portions_per_unit) ||
+        (inv.portion_unit && Number(inv.portions_per_unit) > 0)
+      ) {
+        nextRow.unit = preferredUnit
+      }
+    }
+
     if (form.hasSizes) {
       setForm((prev) => {
         const nextSizes = prev.sizes.map((size, sIdx) => {
@@ -283,16 +471,9 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             const nextRow = { ...row, [key]: value }
             if (key === 'inventory_item_id') {
               const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
-              if (inv) {
-                nextRow.name = inv.name
-                nextRow.stock = inv.stock
-                nextRow.inventory_unit = inv.unit
-                if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
-                  nextRow.unit = inv.unit || 'pcs'
-                }
-              }
+              applyPickedInventory(nextRow, inv)
             }
-            return nextRow
+            return syncRowComputedPrice(nextRow)
           })
           return { ...size, ingredients: nextIngs }
         })
@@ -306,29 +487,23 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           const nextRow = { ...row, [key]: value }
           if (key === 'inventory_item_id') {
             const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
-            if (inv) {
-              nextRow.name = inv.name
-              nextRow.stock = inv.stock
-              nextRow.inventory_unit = inv.unit
-              if (!nextRow.unit || !areUnitsCompatible(nextRow.unit, inv.unit)) {
-                nextRow.unit = inv.unit || 'pcs'
-              }
-            }
+            applyPickedInventory(nextRow, inv)
           }
-          return nextRow
+          return syncRowComputedPrice(nextRow)
         }),
       }))
     }
   }
 
   function addIngredientRow() {
+    const defaultRemovable = String(form.category || '').trim().toLowerCase() !== 'beverages'
     if (form.hasSizes) {
       setForm((prev) => {
         const nextSizes = prev.sizes.map((size, sIdx) => {
           if (sIdx !== safeActiveSizeIndex) return size
           const nextIngs = [
             ...(size.ingredients || []),
-            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+            { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0', is_removable: defaultRemovable },
           ]
           return { ...size, ingredients: nextIngs }
         })
@@ -339,7 +514,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         ...prev,
         ingredients: [
           ...prev.ingredients,
-          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '' },
+          { inventory_item_id: '', qty_per_serving: '', unit: '', inventory_unit: '', price: '0', is_removable: defaultRemovable },
         ],
       }))
     }
@@ -363,46 +538,52 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     }
   }
 
-  function hasIngredientChanges() {
-    const normalize = (list) =>
-      (list || [])
-        .filter((row) => String(row.inventory_item_id || '').trim() !== '')
-        .map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving:
-            row.qty_per_serving === '' || row.qty_per_serving == null
-              ? 1
-              : Number(row.qty_per_serving),
-          unit: row.unit || '',
-        }))
-
-    if (form.hasSizes) {
-      const current = form.sizes.map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      const init = (initial?.sizes || []).map((s) => ({
-        name: s.name,
-        price: s.price,
-        ingredients: normalize(s.ingredients),
-      }))
-      return JSON.stringify(current) !== JSON.stringify(init)
-    }
-
-    return (
-      JSON.stringify(normalize(form.ingredients)) !==
-      JSON.stringify(normalize(initial?.ingredients))
+  function copyIngredientsFrom(sourceIndex) {
+    const sourceSize = form.sizes[sourceIndex]
+    if (!sourceSize) return
+    const sourceIngs = (sourceSize.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
     )
-  }
-
-  async function handleDismiss() {
-    if (saving) return
-    if (mode === 'edit' && hasIngredientChanges()) {
-      await submit()
+    if (!sourceIngs.length) {
+      alert(`No ingredients found in ${sourceSize.name.trim() || `Size ${sourceIndex + 1}`}.`)
       return
     }
-    onClose()
+
+    const currentSize = form.sizes[safeActiveSizeIndex]
+    const currentName = currentSize?.name?.trim() || `Size ${safeActiveSizeIndex + 1}`
+    const sourceName = sourceSize.name?.trim() || `Size ${sourceIndex + 1}`
+
+    const currentIngs = (currentSize?.ingredients || []).filter(
+      (row) => String(row.inventory_item_id || '').trim() !== '',
+    )
+    if (currentIngs.length > 0) {
+      const ok = window.confirm(
+        `Replace current ingredients in "${currentName}" with the ${sourceIngs.length} ingredients from "${sourceName}"?`
+      )
+      if (!ok) return
+    }
+
+    const cloned = sourceIngs.map((row) => ({
+      inventory_item_id: String(row.inventory_item_id || ''),
+      qty_per_serving: String(row.qty_per_serving || '1'),
+      inventory_price: Number(row.inventory_price || 0),
+      price: String(row.price != null && row.price !== '' ? row.price : '0'),
+      name: row.name || '',
+      unit: row.unit || row.inventory_unit || '',
+      inventory_unit: row.inventory_unit || row.unit || '',
+      portion_unit: row.portion_unit || '',
+      portions_per_unit: row.portions_per_unit ?? null,
+      is_removable: row.is_removable !== false,
+      stock: row.stock ?? '',
+    }))
+
+    setForm((prev) => {
+      const nextSizes = prev.sizes.map((size, sIdx) => {
+        if (sIdx !== safeActiveSizeIndex) return size
+        return { ...size, ingredients: cloned }
+      })
+      return { ...prev, sizes: nextSizes }
+    })
   }
 
   async function submit(e) {
@@ -475,10 +656,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
             return
           }
           const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
-          const selectedUnit = row.unit || inv?.unit || 'pcs'
-          if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit)) {
+          const selectedUnit = row.unit || inv?.portion_unit || inv?.unit || 'pcs'
+          if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit, inv.portion_unit, inv.portions_per_unit)) {
+            const allowedLabel = inv.portion_unit && Number(inv.portions_per_unit) > 0
+              ? `"${inv.portion_unit}" or "${inv.unit}"`
+              : `"${inv.unit}"`
             alert(
-              `In size "${s.name.trim()}", unit "${selectedUnit}" is incompatible with inventory unit "${inv.unit}" for "${inv.name}". Please choose a compatible unit.`
+              `In size "${s.name.trim()}", unit "${selectedUnit}" is incompatible with "${inv.name}". Please choose ${allowedLabel}.`
             )
             return
           }
@@ -493,11 +677,25 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         processedSizes.push({
           name: s.name.trim(),
           price: Number(s.price),
-          ingredients: recipeRows.map((row) => ({
-            inventory_item_id: Number(row.inventory_item_id),
-            qty_per_serving: Number(row.qty_per_serving),
-            unit: row.unit || undefined,
-          })),
+          ingredients: recipeRows.map((row) => {
+            const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+            const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+            const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+            const portionUnit = inv?.portion_unit || row.portion_unit || ''
+            const portionsPerUnit = inv?.portions_per_unit ?? row.portions_per_unit ?? null
+            const recipeUnit = row.unit || invUnit || 'pcs'
+            const effectivePrice =
+              unitPrice > 0
+                ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit, portionUnit, portionsPerUnit)
+                : Number(row.price || 0)
+            return {
+              inventory_item_id: Number(row.inventory_item_id),
+              qty_per_serving: Number(row.qty_per_serving),
+              unit: row.unit || undefined,
+              price: effectivePrice,
+              is_removable: String(form.category || '').trim().toLowerCase() === 'beverages' ? false : row.is_removable !== false,
+            }
+          }),
         })
       }
 
@@ -527,10 +725,13 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           return
         }
         const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
-        const selectedUnit = row.unit || inv?.unit || 'pcs'
-        if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit)) {
+        const selectedUnit = row.unit || inv?.portion_unit || inv?.unit || 'pcs'
+        if (inv && inv.unit && !areUnitsCompatible(selectedUnit, inv.unit, inv.portion_unit, inv.portions_per_unit)) {
+          const allowedLabel = inv.portion_unit && Number(inv.portions_per_unit) > 0
+            ? `"${inv.portion_unit}" or "${inv.unit}"`
+            : `"${inv.unit}"`
           alert(
-            `Unit "${selectedUnit}" is incompatible with inventory unit "${inv.unit}" for "${inv.name}". Please choose a compatible unit.`
+            `Unit "${selectedUnit}" is incompatible with "${inv.name}". Please choose ${allowedLabel}.`
           )
           return
         }
@@ -554,11 +755,25 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
         subcategory,
         price: Number(form.price),
         sizes: [],
-        ingredients: recipeRows.map((row) => ({
-          inventory_item_id: Number(row.inventory_item_id),
-          qty_per_serving: Number(row.qty_per_serving),
-          unit: row.unit || undefined,
-        })),
+        ingredients: recipeRows.map((row) => {
+          const inv = inventoryOptions.find((opt) => String(opt.id) === String(row.inventory_item_id))
+          const unitPrice = inv?.price != null ? Number(inv.price) : Number(row.inventory_price || 0)
+          const invUnit = inv?.unit || row.inventory_unit || row.unit || ''
+          const portionUnit = inv?.portion_unit || row.portion_unit || ''
+          const portionsPerUnit = inv?.portions_per_unit ?? row.portions_per_unit ?? null
+          const recipeUnit = row.unit || invUnit || 'pcs'
+          const effectivePrice =
+            unitPrice > 0
+              ? computeIngredientPortionPrice(unitPrice, row.qty_per_serving, recipeUnit, invUnit, portionUnit, portionsPerUnit)
+              : Number(row.price || 0)
+          return {
+            inventory_item_id: Number(row.inventory_item_id),
+            qty_per_serving: Number(row.qty_per_serving),
+            unit: row.unit || undefined,
+            price: effectivePrice,
+            is_removable: String(form.category || '').trim().toLowerCase() === 'beverages' ? false : row.is_removable !== false,
+          }
+        }),
       }
     }
 
@@ -580,8 +795,21 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
     activeIngredientsList.map((r) => r.inventory_item_id).filter(Boolean),
   )
 
+  const availableSourceSizes = useMemo(() => {
+    if (!form.hasSizes || !Array.isArray(form.sizes)) return []
+    return form.sizes
+      .map((s, idx) => ({ ...s, idx }))
+      .filter(
+        (s) =>
+          s.idx !== safeActiveSizeIndex &&
+          (s.name || '').trim() !== '' &&
+          Array.isArray(s.ingredients) &&
+          s.ingredients.some((row) => String(row.inventory_item_id || '').trim() !== ''),
+      )
+  }, [form.hasSizes, form.sizes, safeActiveSizeIndex])
+
   return (
-    <div className="menu-modal-overlay" onClick={handleDismiss} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-content"
         role="dialog"
@@ -678,7 +906,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
           {/* Category */}
           <div className="menu-form-group">
             <label htmlFor="form-item-cat">Category *</label>
-            <select
+            <CustomSelect
               id="form-item-cat"
               value={form.category}
               onChange={(e) => {
@@ -700,7 +928,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                   {c}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
           </div>
 
           {/* Subcategory (Conditional: Pizza and Meal only, optional) */}
@@ -709,7 +937,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
               <label htmlFor="form-item-subcat">
                 Subcategory <span className="menu-form-optional-tag">(Optional)</span>
               </label>
-              <select
+              <CustomSelect
                 id="form-item-subcat"
                 value={form.subcategory || ''}
                 onChange={(e) => setField('subcategory', e.target.value)}
@@ -720,7 +948,7 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                     {sub}
                   </option>
                 ))}
-              </select>
+              </CustomSelect>
             </div>
           )}
 
@@ -903,12 +1131,79 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
             {form.hasSizes && (
               <div className="menu-recipe-size-banner">
-                <span>
-                  Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
-                </span>
-                <span className="banner-note">
-                  Directly entered amounts for this size only (no multipliers).
-                </span>
+                <div className="menu-recipe-banner-left">
+                  <span>
+                    Portions for: <strong>{(form.sizes[safeActiveSizeIndex]?.name || '').trim() || `Size ${safeActiveSizeIndex + 1}`}</strong>
+                  </span>
+                  <span className="banner-note">
+                    Directly entered amounts for this size only (no multipliers).
+                  </span>
+                </div>
+                {availableSourceSizes.length === 1 ? (
+                  <button
+                    type="button"
+                    className="menu-recipe-copy-btn"
+                    onClick={() => copyIngredientsFrom(availableSourceSizes[0].idx)}
+                    title={`Copy ingredients and prices from ${availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}`}
+                  >
+                    <LuCopy size={13} />
+                    <span>Copy from {availableSourceSizes[0].name.trim() || `Size ${availableSourceSizes[0].idx + 1}`}</span>
+                  </button>
+                ) : availableSourceSizes.length > 1 ? (
+                  <div className="menu-recipe-copy-dropdown" ref={copyMenuRef}>
+                    <button
+                      type="button"
+                      className={`menu-recipe-copy-btn ${copyMenuOpen ? 'active' : ''}`}
+                      onClick={() => setCopyMenuOpen((prev) => !prev)}
+                      aria-expanded={copyMenuOpen}
+                      title="Copy ingredients from another size"
+                    >
+                      <LuCopy size={13} />
+                      <span>Copy from...</span>
+                      <LuChevronDown
+                        size={12}
+                        className={`menu-recipe-copy-caret ${copyMenuOpen ? 'open' : ''}`}
+                      />
+                    </button>
+                    {copyMenuOpen && (
+                      <div className="menu-recipe-copy-menu">
+                        <div className="menu-recipe-copy-menu-header">Select Size to Copy</div>
+                        {availableSourceSizes.map((s) => {
+                          const count = s.ingredients.filter((r) => r.inventory_item_id).length
+                          const sizeLabel = s.name.trim() || `Size ${s.idx + 1}`
+                          return (
+                            <button
+                              key={s.idx}
+                              type="button"
+                              className="menu-recipe-copy-menu-item"
+                              onClick={() => {
+                                setCopyMenuOpen(false)
+                                copyIngredientsFrom(s.idx)
+                              }}
+                            >
+                              <LuCopy size={12} className="copy-item-icon" />
+                              <span className="copy-item-name">{sizeLabel}</span>
+                              <span className="copy-item-badge">
+                                {count} {count === 1 ? 'item' : 'items'}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {activeIngredientsList.length > 0 && (
+              <div className="menu-recipe-columns-header">
+                <span className="col-ingredient">Ingredient</span>
+                <span className="col-qty">Portion</span>
+                <span className="col-unit">Unit</span>
+                <span className="col-price">Price (₱)</span>
+                <span className="col-removable">Type</span>
+                <span className="col-action"></span>
               </div>
             )}
 
@@ -920,75 +1215,138 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                 )
                 const pickedInv = inventoryOptions.find((opt) => String(opt.id) === currentId)
                 const invUnit = pickedInv?.unit || row.inventory_unit || ''
-                const currentUnit = row.unit || invUnit || 'pcs'
+                const portionUnit = pickedInv?.portion_unit || row.portion_unit || ''
+                const portionsPerUnit = pickedInv?.portions_per_unit ?? row.portions_per_unit ?? null
+                const currentUnit = row.unit || (portionUnit && Number(portionsPerUnit) > 0 ? portionUnit : invUnit) || 'pcs'
                 const isMismatch = Boolean(
-                  pickedInv && invUnit && currentUnit && !areUnitsCompatible(currentUnit, invUnit),
+                  pickedInv && invUnit && currentUnit && !areUnitsCompatible(currentUnit, invUnit, portionUnit, portionsPerUnit),
                 )
+                const usingPortionTool = Boolean(
+                  portionUnit &&
+                    Number(portionsPerUnit) > 0 &&
+                    normalizeUnitName(currentUnit).toLowerCase() === normalizeUnitName(portionUnit).toLowerCase() &&
+                    normalizeUnitName(currentUnit).toLowerCase() !== normalizeUnitName(invUnit).toLowerCase(),
+                )
+                const qtyNum = Number(row.qty_per_serving || 0)
+                const stockEquiv =
+                  usingPortionTool && qtyNum > 0
+                    ? Number((qtyNum / Number(portionsPerUnit)).toFixed(4))
+                    : null
 
                 return (
-                  <div key={i} className="menu-recipe-row">
-                    <select
-                      className="menu-recipe-item-select"
-                      value={currentId}
-                      onChange={(e) =>
-                        updateIngredient(i, 'inventory_item_id', e.target.value)
-                      }
-                    >
-                      <option value="">Select ingredient</option>
-                      {currentId && !hasCurrentInOptions && (
-                        <option value={currentId}>
-                          {row.name || `Ingredient #${currentId}`}
-                          {invUnit ? ` (${row.stock ?? 0} ${invUnit})` : ''}
-                        </option>
-                      )}
-                      {inventoryOptions.map((opt) => {
-                        const optId = String(opt.id)
-                        const taken =
-                          selectedIds.has(optId) && optId !== currentId
-                        return (
-                          <option key={optId} value={optId} disabled={taken}>
-                            {opt.name} ({opt.stock} {opt.unit})
+                  <div key={i} className="menu-recipe-row-wrap">
+                    <div className="menu-recipe-row">
+                      <CustomSelect
+                        className="menu-recipe-item-select"
+                        value={currentId}
+                        onChange={(e) =>
+                          updateIngredient(i, 'inventory_item_id', e.target.value)
+                        }
+                      >
+                        <option value="">Select ingredient</option>
+                        {currentId && !hasCurrentInOptions && (
+                          <option value={currentId}>
+                            {row.name || `Ingredient #${currentId}`}
+                            {invUnit ? ` (${row.stock ?? 0} ${invUnit})` : ''}
                           </option>
-                        )
-                      })}
-                    </select>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      className="menu-recipe-qty-input"
-                      placeholder="Qty"
-                      value={row.qty_per_serving}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) =>
-                        updateIngredient(i, 'qty_per_serving', e.target.value)
-                      }
-                    />
-                    <select
-                      className={`menu-recipe-unit-select ${isMismatch ? 'unit-incompatible' : ''}`}
-                      value={currentUnit}
-                      onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
-                      title={
-                        isMismatch
-                          ? `Incompatible unit! Stock is tracked in ${invUnit}.`
-                          : 'Recipe quantity unit'
-                      }
-                      aria-label="Recipe quantity unit"
-                    >
-                      {getSelectableUnits(invUnit).map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="menu-remove-size-btn"
-                      onClick={() => removeIngredientRow(i)}
-                      aria-label="Remove ingredient"
-                    >
-                      <LuTrash2 size={16} />
-                    </button>
+                        )}
+                        {inventoryOptions.map((opt) => {
+                          const optId = String(opt.id)
+                          const taken =
+                            selectedIds.has(optId) && optId !== currentId
+                          const hasOptTool = Boolean(opt.portion_unit && Number(opt.portions_per_unit) > 0)
+                          const optPortionStock = hasOptTool
+                            ? ` · ≈${Number((Number(opt.stock || 0) * Number(opt.portions_per_unit)).toFixed(1))} ${opt.portion_unit}`
+                            : ''
+                          const priceLabel = hasOptTool && opt.price_per_portion > 0
+                            ? ` · ₱${Number(opt.price_per_portion).toFixed(2)}/${opt.portion_unit}`
+                            : opt.price > 0
+                              ? ` · ₱${Number(opt.price) % 1 === 0 ? Number(opt.price) : Number(opt.price).toFixed(2)}${opt.unit ? `/${opt.unit}` : ''}`
+                              : ''
+                          return (
+                            <option key={optId} value={optId} disabled={taken}>
+                              {opt.name} ({opt.stock} {opt.unit}{optPortionStock}){priceLabel}
+                            </option>
+                          )
+                        })}
+                      </CustomSelect>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        className="menu-recipe-qty-input"
+                        placeholder="Qty"
+                        value={row.qty_per_serving}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) =>
+                          updateIngredient(i, 'qty_per_serving', e.target.value)
+                        }
+                      />
+                      <CustomSelect
+                        className={`menu-recipe-unit-select ${isMismatch ? 'unit-incompatible' : ''}`}
+                        value={currentUnit}
+                        onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
+                        title={
+                          isMismatch
+                            ? `Incompatible unit! Stock is tracked in ${invUnit}${portionUnit ? ` (or ${portionUnit})` : ''}.`
+                            : 'Recipe quantity unit'
+                        }
+                        aria-label="Recipe quantity unit"
+                      >
+                        {getSelectableUnits(invUnit, portionUnit, portionsPerUnit).map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </CustomSelect>
+                      <div
+                        className="menu-recipe-price-pill"
+                        title="Computed as Inventory unit price × portion for this size"
+                      >
+                        ₱{(
+                          (pickedInv?.price ?? row.inventory_price ?? 0) > 0
+                            ? computeIngredientPortionPrice(
+                                pickedInv?.price ?? row.inventory_price ?? 0,
+                                row.qty_per_serving === '' || row.qty_per_serving == null ? 0 : row.qty_per_serving,
+                                currentUnit,
+                                invUnit,
+                                portionUnit,
+                                portionsPerUnit,
+                              )
+                            : Number(row.price || 0)
+                        ).toFixed(2)}
+                      </div>
+                      <button
+                        type="button"
+                        className={`menu-recipe-removable-btn ${String(form.category || '').trim().toLowerCase() === 'beverages' || row.is_removable === false ? 'is-core' : 'is-optional'}`}
+                        disabled={String(form.category || '').trim().toLowerCase() === 'beverages'}
+                        onClick={() => updateIngredient(i, 'is_removable', row.is_removable === false)}
+                        title={
+                          String(form.category || '').trim().toLowerCase() === 'beverages'
+                            ? 'Beverages do not allow removing ingredients'
+                            : row.is_removable === false
+                              ? 'Main ingredient (hidden from customer/POS removal). Click to allow removal.'
+                              : 'Removable topping (shown to customer/POS). Click to lock as main ingredient.'
+                        }
+                      >
+                        {String(form.category || '').trim().toLowerCase() === 'beverages' || row.is_removable === false
+                          ? 'Main'
+                          : 'Opt.'}
+                      </button>
+                      <button
+                        type="button"
+                        className="menu-remove-size-btn"
+                        onClick={() => removeIngredientRow(i)}
+                        aria-label="Remove ingredient"
+                      >
+                        <LuTrash2 size={16} />
+                      </button>
+                    </div>
+                    {usingPortionTool && stockEquiv != null ? (
+                      <div className="menu-recipe-portion-note">
+                        Kitchen tool: {qtyNum} {portionUnit} deducts {stockEquiv} {invUnit} ({Number(portionsPerUnit)} {portionUnit}/{invUnit})
+                      </div>
+                    ) : null}
                   </div>
                 )
               })}
@@ -1025,12 +1383,12 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
   )
 }
 
-function ConfirmModal({ type, item, onClose, onConfirm }) {
+function ConfirmModal({ type, item, onClose, onConfirm, saving = false }) {
   const [step, setStep] = useState(1)
   const name = item?.name || 'this item'
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -1063,7 +1421,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               : `Are you sure you really want to restore "${name}" back to the active menu?`}
         </p>
         <div className="menu-confirm-actions">
-          <button type="button" className="menu-modal-btn cancel" onClick={onClose}>
+          <button type="button" className="menu-modal-btn cancel" onClick={onClose} disabled={saving}>
             Cancel
           </button>
           {step === 1 ? (
@@ -1071,6 +1429,7 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={() => setStep(2)}
+              disabled={saving}
             >
               {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
             </button>
@@ -1079,8 +1438,15 @@ function ConfirmModal({ type, item, onClose, onConfirm }) {
               type="button"
               className={`menu-modal-btn confirm-${type}`}
               onClick={onConfirm}
+              disabled={saving}
             >
-              {type === 'archive' ? 'Confirm Archive' : 'Confirm Restore'}
+              {saving
+                ? type === 'archive'
+                  ? 'Archiving…'
+                  : 'Restoring…'
+                : type === 'archive'
+                  ? 'Confirm Archive'
+                  : 'Confirm Restore'}
             </button>
           )}
         </div>
@@ -1099,12 +1465,16 @@ export default function MenuManagement() {
   const [page, setPage] = useState(1)
   const [formState, setFormState] = useState(null)
   const [confirm, setConfirm] = useState(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   const reloadMenu = useCallback(() => {
     menuApi
       .list({ tab: 'all' })
       .then((r) => setItems(r.data?.data || r.data || []))
       .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
 
   const reloadInventory = useCallback(() => {
@@ -1165,6 +1535,8 @@ export default function MenuManagement() {
   async function toggleAvailable(item) {
     if (item.archived) return
     if (item.stockOk === false) return
+    if (togglingId === item.id) return
+    setTogglingId(item.id)
     try {
       const { data } = await menuApi.toggleAvailability(item.id)
       const updated = data?.data || data
@@ -1172,6 +1544,8 @@ export default function MenuManagement() {
     } catch (err) {
       console.error(err)
       alert(err.response?.data?.message || 'Could not update availability.')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -1216,7 +1590,8 @@ export default function MenuManagement() {
   }
 
   async function runConfirm() {
-    if (!confirm) return
+    if (!confirm || confirmSaving) return
+    setConfirmSaving(true)
     try {
       if (confirm.type === 'archive') {
         const { data } = await menuApi.archive(confirm.item.id)
@@ -1231,6 +1606,8 @@ export default function MenuManagement() {
       setConfirm(null)
     } catch (err) {
       console.error(err)
+    } finally {
+      setConfirmSaving(false)
     }
   }
 
@@ -1258,7 +1635,7 @@ export default function MenuManagement() {
 
         {/* Category Filter Dropdown */}
         <div className="menu-category-wrapper">
-          <select
+          <CustomSelect
             className="menu-category-select"
             value={category}
             onChange={(e) => {
@@ -1273,14 +1650,14 @@ export default function MenuManagement() {
                 {c}
               </option>
             ))}
-          </select>
+          </CustomSelect>
           <LuChevronDown className="menu-select-arrow" size={16} />
         </div>
 
         {/* Subcategory Filter Dropdown (Conditional when selected category has subcategories) */}
         {Boolean(MENU_SUBCATEGORIES[category]) && (
           <div className="menu-category-wrapper">
-            <select
+            <CustomSelect
               className="menu-category-select"
               value={subcategoryFilter}
               onChange={(e) => {
@@ -1294,7 +1671,7 @@ export default function MenuManagement() {
                   {sub}
                 </option>
               ))}
-            </select>
+            </CustomSelect>
             <LuChevronDown className="menu-select-arrow" size={16} />
           </div>
         )}
@@ -1370,7 +1747,12 @@ export default function MenuManagement() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['thumb', 'two-line', 'pills', 'money', 'pills', 'toggle', 'icon-actions']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 0 }}>
                     <EmptyState
@@ -1482,7 +1864,7 @@ export default function MenuManagement() {
                           className={`menu-toggle-switch ${
                             item.available && !isArchived ? 'on' : 'off'
                           }`}
-                          disabled={isArchived || item.stockOk === false}
+                          disabled={isArchived || item.stockOk === false || togglingId === item.id}
                           onClick={() => toggleAvailable(item)}
                           aria-label={`Toggle availability for ${item.name}`}
                           title={
@@ -1570,37 +1952,11 @@ export default function MenuManagement() {
             Showing {(currentPage - 1) * PAGE_SIZE + (filtered.length ? 1 : 0)} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} items
           </span>
-          <div className="menu-pagination-controls">
-            <button
-              type="button"
-              className="menu-page-btn"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`menu-page-btn${n === currentPage ? ' active' : ''}`}
-                disabled={totalPages <= 1}
-                onClick={() => setPage(n)}
-              >
-                {n}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="menu-page-btn"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
       </div>
 
@@ -1624,7 +1980,10 @@ export default function MenuManagement() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}
-          onClose={() => setConfirm(null)}
+          saving={confirmSaving}
+          onClose={() => {
+            if (!confirmSaving) setConfirm(null)
+          }}
           onConfirm={runConfirm}
         />
       )}

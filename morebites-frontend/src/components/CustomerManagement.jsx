@@ -16,6 +16,7 @@ import {
 } from 'react-icons/lu'
 import { customersApi, mediaUrl } from '../api/client'
 import EmptyState from './EmptyState'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
 import './CustomerManagement.css'
 
 const PAGE_SIZE = 5
@@ -55,10 +56,10 @@ function peso(n) {
 function FilterSelect({ value, options, open, onToggle, onSelect, menuRef, icon: Icon }) {
   return (
     <div className="cm-filter" ref={menuRef}>
-      <button type="button" className="cm-filter-btn" onClick={onToggle}>
+      <button type="button" className={`cm-filter-btn${open ? ' open' : ''}`} onClick={onToggle}>
         {Icon && <Icon size={14} />}
         {value}
-        <LuChevronDown size={14} />
+        <LuChevronDown size={14} className="cm-filter-chevron" />
       </button>
       {open && (
         <div className="cm-menu">
@@ -119,6 +120,7 @@ export default function CustomerManagement() {
     frequent: 0,
   })
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     customersApi
@@ -135,6 +137,7 @@ export default function CustomerManagement() {
         )
       })
       .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
   const [sort, setSort] = useState('Highest Order')
   const [dateSort, setDateSort] = useState('Date Registered (Oldest)')
@@ -211,6 +214,14 @@ export default function CustomerManagement() {
         </div>
       </header>
 
+      {loading ? (
+        <StatCardsSkeleton
+          count={4}
+          gridClassName="cm-stats"
+          cardClassName="cm-stat sa-card"
+          labelFirst
+        />
+      ) : (
       <section className="cm-stats">
         <article className="cm-stat sa-card">
           <div className="cm-stat-icon purple"><LuUsers size={20} /></div>
@@ -241,6 +252,7 @@ export default function CustomerManagement() {
           </div>
         </article>
       </section>
+      )}
 
       <section className="cm-toolbar sa-card">
         <div className="cm-search">
@@ -307,7 +319,12 @@ export default function CustomerManagement() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['text', 'short', 'text', 'short', 'short', 'badge', 'action-btn']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: '24px 16px', borderBottom: 'none' }}>
                     <EmptyState
@@ -323,7 +340,10 @@ export default function CustomerManagement() {
                 </tr>
               ) : (
                 rows.map((c) => (
-                <tr key={c.db_id || c.id || c.name}>
+                <tr
+                  key={c.db_id || c.id || c.name}
+                  className={c.status && c.status !== 'ACTIVE' ? 'cm-row-inactive' : ''}
+                >
                   <td className="cm-name">{c.name}</td>
                   <td>{c.phone ? c.phone : <span className="cm-empty">Not provided yet</span>}</td>
                   <td className="cm-address-cell" title={c.address || undefined}>
@@ -387,7 +407,7 @@ export default function CustomerManagement() {
       </section>
 
       {selected && (
-        <div className="cm-backdrop" onClick={() => setSelected(null)} role="presentation">
+        <div className="cm-backdrop" role="presentation">
           <div className="cm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="cm-modal-head">
               <div className="cm-modal-title-wrap">

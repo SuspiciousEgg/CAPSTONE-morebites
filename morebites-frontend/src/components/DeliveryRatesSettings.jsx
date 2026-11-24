@@ -5,6 +5,7 @@ import { deliveryRatesApi } from '../api/client'
 import EmptyState from './EmptyState'
 import LoyaltySettingsSection from './LoyaltySettingsSection'
 import PrepTimeSettingsSection from './PrepTimeSettingsSection'
+import { TableRowsSkeleton } from './Skeleton'
 import './DeliveryRatesSettings.css'
 
 const EMPTY = {
@@ -107,11 +108,10 @@ export default function DeliveryRatesSettings() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={6} className="dr-empty">
-                    Loading…
-                  </td>
-                </tr>
+                <TableRowsSkeleton
+                  rows={4}
+                  shapes={['text', 'short', 'short', 'money', 'badge', 'icon-action']}
+                />
               ) : rates.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dr-empty">
@@ -204,7 +204,7 @@ export default function DeliveryRatesSettings() {
       <LoyaltySettingsSection />
 
       {modal && (
-        <div className="dr-backdrop" onClick={() => setModal(null)} role="presentation">
+        <div className="dr-backdrop" role="presentation">
           <div className="dr-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="dr-modal-head">
               <h2>Edit delivery fee</h2>

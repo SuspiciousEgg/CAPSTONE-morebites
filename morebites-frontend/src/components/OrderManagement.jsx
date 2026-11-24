@@ -17,6 +17,15 @@ import {
 import { ordersApi } from '../api/client'
 import { RowActionMenuPopup, useRowActionMenu } from './RowActionMenu'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import PaginationControls from './PaginationControls'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
+import {
+  formatManilaDateTime,
+  getManilaDateYmd,
+  getManilaYearMonth,
+  isSameManilaDay,
+} from '../utils/manilaTime'
 import './OrderManagement.css'
 
 const STATUS_OPTIONS = [
@@ -142,13 +151,12 @@ function CreateOrderModal({
   const [loyaltySearching, setLoyaltySearching] = useState(false)
   const [loyaltyNotFound, setLoyaltyNotFound] = useState(false)
   const [loyaltyError, setLoyaltyError] = useState('')
-  const [typeOpen, setTypeOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
   const [activeSizedItem, setActiveSizedItem] = useState(null)
   const [selectedSize, setSelectedSize] = useState(null)
+  const [removedIngredientIds, setRemovedIngredientIds] = useState([])
   const [qty, setQty] = useState(1)
   const [cart, setCart] = useState([])
-  const typeRef = useRef(null)
   const [submitting, setSubmitting] = useState(false)
   const [checkingOrder, setCheckingOrder] = useState(false)
   const [hasConnectionFailed, setHasConnectionFailed] = useState(false)
@@ -242,14 +250,6 @@ function CreateOrderModal({
   }, [menuCatalog])
 
   useEffect(() => {
-    function onDoc(e) {
-      if (typeRef.current && !typeRef.current.contains(e.target)) setTypeOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
-
-  useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') {
         if (activeSizedItem) {
@@ -280,16 +280,31 @@ function CreateOrderModal({
     return true
   }
 
+  function isBeverageCategory(item) {
+    return String(item?.category || '').trim().toLowerCase() === 'beverages'
+  }
+
+  function filterRemovableIngredients(list, item) {
+    if (isBeverageCategory(item) || !Array.isArray(list)) return []
+    return list.filter((ing) => ing && ing.is_removable !== false)
+  }
+
   function handleCardClick(item) {
     if (!isMenuItemAvailable(item)) return
     if (onClearError) onClearError()
 
     const hasSizes = Array.isArray(item.sizes) && item.sizes.length > 0
-    if (hasSizes) {
+    const hasRemovableIngredients =
+      !isBeverageCategory(item) &&
+      (filterRemovableIngredients(item.ingredients, item).length > 0 ||
+        (hasSizes && item.sizes.some((s) => filterRemovableIngredients(s.ingredients, item).length > 0)))
+
+    if (hasSizes || hasRemovableIngredients) {
       setActiveItem(null)
       setActiveSizedItem(item)
-      const firstAvailableSize = item.sizes.find((s) => s.available !== false)
+      const firstAvailableSize = item.sizes?.find((s) => s.available !== false)
       setSelectedSize(firstAvailableSize?.name || null)
+      setRemovedIngredientIds([])
       setQty(1)
     } else {
       setActiveSizedItem(null)
@@ -297,12 +312,13 @@ function CreateOrderModal({
         setActiveItem(null)
       } else {
         setActiveItem(item.id)
+        setRemovedIngredientIds([])
         setQty(1)
       }
     }
   }
 
-  function addToCart(item, sizeName, unitPrice) {
+  function addToCart(item, sizeName, unitPrice, removedIngredients = []) {
     if (!isMenuItemAvailable(item)) return
     if (sizeName && Array.isArray(item.sizes)) {
       const sizeObj = item.sizes.find((s) => s.name === sizeName)
@@ -310,7 +326,11 @@ function CreateOrderModal({
     }
     if (onClearError) onClearError()
 
-    const lineKey = sizeName ? `${item.id}-${sizeName}` : String(item.id)
+    const removedKey = (removedIngredients || [])
+      .map((r) => r.inventory_item_id ?? r.id ?? r.name)
+      .sort()
+      .join(',')
+    const lineKey = `${item.id}-${sizeName || 'base'}-${removedKey || 'all'}`
     const displayName = sizeName ? `${item.name} (${sizeName})` : item.name
     const price = unitPrice !== undefined ? unitPrice : Number(item.price || 0)
 
@@ -331,12 +351,14 @@ function CreateOrderModal({
           size: sizeName || null,
           price,
           qty,
+          removed_ingredients: removedIngredients,
         },
       ]
     })
     setActiveItem(null)
     setActiveSizedItem(null)
     setSelectedSize(null)
+    setRemovedIngredientIds([])
     setQty(1)
   }
 
@@ -377,6 +399,7 @@ function CreateOrderModal({
           size: c.size || null,
           qty: c.qty,
           unit_price: c.price,
+          removed_ingredients: c.removed_ingredients || [],
         })),
       })
       idempotencyKeyRef.current = generateIdempotencyKey()
@@ -410,7 +433,7 @@ function CreateOrderModal({
   }
 
   return (
-    <div className="om-modal-backdrop" onClick={submitting || checkingOrder ? undefined : onClose} role="presentation">
+    <div className="om-modal-backdrop" role="presentation">
       <div
         className="om-modal"
         role="dialog"
@@ -464,14 +487,41 @@ function CreateOrderModal({
                     >
                       <div className="om-menu-card-top">
                         <div className="om-menu-card-name">{item.name}</div>
-                        {!isAvailable && (
+                        {!isAvailable ? (
                           <span className="om-unavailable-badge">Unavailable</span>
-                        )}
+                        ) : item.promo_active && item.promo_discount_percent ? (
+                          <span
+                            style={{
+                              background: '#FFF4E5',
+                              color: '#EA580C',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: '999px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {item.promo_discount_percent}% OFF
+                          </span>
+                        ) : null}
                       </div>
                       <div className="om-menu-card-meta">
                         {item.category?.toUpperCase()}
                       </div>
                       <div className={`om-menu-card-price${!isAvailable ? ' unavailable' : ''}`}>
+                        {item.promo_active && item.original_price_formatted && (
+                          <span
+                            style={{
+                              textDecoration: 'line-through',
+                              color: '#9CA3AF',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              marginRight: '6px',
+                            }}
+                          >
+                            {item.original_price_formatted}
+                          </span>
+                        )}
                         {formatItemCardPrice(item)}
                       </div>
 
@@ -566,33 +616,19 @@ function CreateOrderModal({
             <label className="om-field-label" htmlFor="order-type">
               Order Type
             </label>
-            <div className="om-type-select" ref={typeRef}>
-              <button
+            <div className="om-type-select">
+              <CustomSelect
                 id="order-type"
-                type="button"
                 className="om-type-btn"
-                onClick={() => setTypeOpen((v) => !v)}
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value)}
               >
-                <span>{orderType}</span>
-                <LuChevronDown size={16} />
-              </button>
-              {typeOpen && (
-                <div className="om-filter-menu om-type-menu">
-                  {POS_ORDER_TYPES.map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      className={`om-filter-option${orderType === opt ? ' selected' : ''}`}
-                      onClick={() => {
-                        setOrderType(opt)
-                        setTypeOpen(false)
-                      }}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              )}
+                {POS_ORDER_TYPES.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </CustomSelect>
             </div>
 
             <label className="om-field-label" htmlFor="customer-name">
@@ -666,6 +702,11 @@ function CreateOrderModal({
                         <strong>
                           {line.qty}x {line.name}
                         </strong>
+                        {line.removed_ingredients?.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#D97706', marginTop: '2px', fontWeight: 500 }}>
+                            Without: {line.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+                          </div>
+                        )}
                         <span>{peso(line.price * line.qty)}.00</span>
                       </div>
                       <div className="om-cart-actions">
@@ -723,19 +764,35 @@ function CreateOrderModal({
           </section>
         </div>
 
-        {/* Floating Popover for Sized Items */}
+        {/* Floating Popover for Sized or Ingredient-Customizable Items */}
         {activeSizedItem && (() => {
-          const selectedSizeObj =
-            activeSizedItem.sizes?.find((s) => s.name === selectedSize && s.available !== false) ||
-            activeSizedItem.sizes?.find((s) => s.available !== false) ||
-            null
-          const sizeUnitPrice = selectedSizeObj ? Number(selectedSizeObj.price) : 0
-          const sizeSubtotal = sizeUnitPrice * qty
+          const hasSizes = Array.isArray(activeSizedItem.sizes) && activeSizedItem.sizes.length > 0
+          const selectedSizeObj = hasSizes
+            ? (activeSizedItem.sizes?.find((s) => s.name === selectedSize && s.available !== false) ||
+               activeSizedItem.sizes?.find((s) => s.available !== false) ||
+               null)
+            : null
+
+          const rawIngredients = (hasSizes
+            ? (selectedSizeObj?.ingredients?.length ? selectedSizeObj.ingredients : activeSizedItem.ingredients)
+            : activeSizedItem.ingredients) || []
+          const currentIngredients = filterRemovableIngredients(rawIngredients, activeSizedItem)
+
+          const basePrice = hasSizes
+            ? (selectedSizeObj ? Number(selectedSizeObj.price) : 0)
+            : Number(activeSizedItem.price || 0)
+
+          const removedObjs = currentIngredients.filter((ing) =>
+            removedIngredientIds.includes(ing.inventory_item_id ?? ing.id)
+          )
+          const removedDiscount = removedObjs.reduce((sum, ing) => sum + Number(ing.price || 0), 0)
+          const finalUnitPrice = Math.max(0, basePrice - removedDiscount)
+          const sizeSubtotal = finalUnitPrice * qty
+          const isSaveDisabled = hasSizes && (!selectedSizeObj || selectedSizeObj.available === false)
 
           return (
             <div
               className="om-size-popover-backdrop"
-              onClick={() => setActiveSizedItem(null)}
               role="presentation"
             >
               <div
@@ -743,7 +800,7 @@ function CreateOrderModal({
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
-                aria-label={`Select size for ${activeSizedItem.name}`}
+                aria-label={`Customize ${activeSizedItem.name}`}
               >
                 <div className="om-size-popover-header">
                   <div>
@@ -752,37 +809,100 @@ function CreateOrderModal({
                       {activeSizedItem.category?.toUpperCase()}
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    className="om-size-popover-close"
+                    onClick={() => setActiveSizedItem(null)}
+                    aria-label="Close"
+                  >
+                    <LuX size={16} />
+                  </button>
                 </div>
 
                 <div className="om-size-popover-body">
-                  <div>
-                    <label className="om-size-popover-label">Select Size</label>
-                    <div className="om-size-option-grid">
-                      {activeSizedItem.sizes?.map((s) => {
-                        const sizeAvailable = s.available !== false
-                        const isSel = sizeAvailable && selectedSizeObj?.name === s.name
-                        return (
-                          <button
-                            key={s.name}
-                            type="button"
-                            disabled={!sizeAvailable}
-                            className={`om-size-option-card${isSel ? ' selected' : ''}${!sizeAvailable ? ' unavailable' : ''}`}
-                            onClick={() => {
-                              if (sizeAvailable) setSelectedSize(s.name)
-                            }}
-                          >
-                            <span className="om-size-option-name">{s.name}</span>
-                            <span className={`om-size-option-price${!sizeAvailable ? ' unavailable' : ''}`}>
-                              {peso(s.price)}.00
-                            </span>
-                            {!sizeAvailable && (
-                              <span className="om-size-option-unavail">Unavailable</span>
-                            )}
-                          </button>
-                        )
-                      })}
+                  {hasSizes && (
+                    <div>
+                      <label className="om-size-popover-label">Select Size</label>
+                      <div className="om-size-option-grid">
+                        {activeSizedItem.sizes?.map((s) => {
+                          const sizeAvailable = s.available !== false
+                          const isSel = sizeAvailable && selectedSizeObj?.name === s.name
+                          return (
+                            <button
+                              key={s.name}
+                              type="button"
+                              disabled={!sizeAvailable}
+                              className={`om-size-option-card${isSel ? ' selected' : ''}${!sizeAvailable ? ' unavailable' : ''}`}
+                              onClick={() => {
+                                if (sizeAvailable) {
+                                  setSelectedSize(s.name)
+                                  setRemovedIngredientIds([])
+                                }
+                              }}
+                            >
+                              <span className="om-size-option-name">{s.name}</span>
+                              <span className={`om-size-option-price${!sizeAvailable ? ' unavailable' : ''}`}>
+                                {peso(s.price)}.00
+                              </span>
+                              {!sizeAvailable && (
+                                <span className="om-size-option-unavail">Unavailable</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {currentIngredients.length > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <label className="om-size-popover-label" style={{ margin: 0 }}>
+                          Ingredients
+                        </label>
+                        <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                          Tap to remove / omit from order
+                        </span>
+                      </div>
+                      <div className="om-ingredients-grid">
+                        {currentIngredients.map((ing) => {
+                          const ingKey = ing.inventory_item_id ?? ing.id
+                          const isRemoved = removedIngredientIds.includes(ingKey)
+                          const ingPrice = Number(ing.price || 0)
+
+                          return (
+                            <button
+                              key={ingKey}
+                              type="button"
+                              className={`om-ingredient-toggle-card ${isRemoved ? 'removed' : ''}`}
+                              onClick={() => {
+                                setRemovedIngredientIds((prev) =>
+                                  prev.includes(ingKey)
+                                    ? prev.filter((id) => id !== ingKey)
+                                    : [...prev, ingKey]
+                                )
+                              }}
+                              title={isRemoved ? `Restore ${ing.name}` : `Remove ${ing.name}`}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 13, color: isRemoved ? '#EF4444' : '#10B981', fontWeight: 700 }}>
+                                  {isRemoved ? '✕' : '✓'}
+                                </span>
+                                <span className="ing-name">{ing.name}</span>
+                              </div>
+                              {ingPrice > 0 ? (
+                                <span className="ing-price-tag">
+                                  {isRemoved ? `-${peso(ingPrice)}` : peso(ingPrice)}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: '#9CA3AF' }}>Included</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="om-size-popover-footer-row">
                     <div>
@@ -828,14 +948,25 @@ function CreateOrderModal({
                   <button
                     type="button"
                     className="om-btn-primary"
-                    disabled={!selectedSizeObj || selectedSizeObj.available === false}
+                    disabled={isSaveDisabled}
                     onClick={() => {
-                      if (selectedSizeObj && selectedSizeObj.available !== false) {
-                        addToCart(activeSizedItem, selectedSizeObj.name, sizeUnitPrice)
+                      if (!isSaveDisabled) {
+                        const removedPayload = removedObjs.map((ing) => ({
+                          id: ing.id,
+                          inventory_item_id: ing.inventory_item_id,
+                          name: ing.name,
+                          price: Number(ing.price || 0),
+                        }))
+                        addToCart(
+                          activeSizedItem,
+                          hasSizes ? selectedSizeObj?.name : null,
+                          finalUnitPrice,
+                          removedPayload
+                        )
                       }
                     }}
                   >
-                    Add to Cart — {peso(sizeSubtotal)}.00
+                    Add to Cart
                   </button>
                 </div>
               </div>
@@ -847,10 +978,63 @@ function CreateOrderModal({
   )
 }
 
+const CANCEL_REASON_OPTIONS = [
+  'Out of stock',
+  'Customer unreachable',
+  'Customer request',
+  'Unable to prepare in time',
+  'Duplicate order',
+  'Payment failed',
+  'Restaurant closed',
+  'Other',
+]
+
+const DELIVERY_LOGISTICS_CANCEL_REASONS = new Set([
+  'Customer unreachable',
+  'Bad weather',
+  'Wrong address',
+])
+
+function getCancelReasonOptionsForOrder(order) {
+  const orderType = String(order?.type || order?.order_type || '').trim()
+  const isDeliveryOrder =
+    !orderType ||
+    orderType.toLowerCase() === 'online order' ||
+    orderType.toLowerCase() === 'delivery'
+
+  if (isDeliveryOrder) {
+    return CANCEL_REASON_OPTIONS
+  }
+
+  return CANCEL_REASON_OPTIONS.filter((opt) => !DELIVERY_LOGISTICS_CANCEL_REASONS.has(opt))
+}
+
 function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   const [reason, setReason] = useState('')
   const [otherReason, setOtherReason] = useState('')
+  const [reasonOpen, setReasonOpen] = useState(false)
   const [error, setError] = useState('')
+  const reasonRef = useRef(null)
+  const reasonOptions = useMemo(() => getCancelReasonOptionsForOrder(order), [order])
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (reasonRef.current && !reasonRef.current.contains(e.target)) {
+        setReasonOpen(false)
+      }
+    }
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        setReasonOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
 
   const isAssignedOrEnRoute =
     order.type === 'Online Order' &&
@@ -863,15 +1047,15 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
       return
     }
     if (reason === 'Other' && !otherReason.trim()) {
-      setError('Please enter a specific cancellation reason.')
+      setError('Please describe the situation in your own words.')
       return
     }
-    const finalReason = reason === 'Other' ? otherReason.trim() : reason
+    const finalReason = reason === 'Other' ? `Other: ${otherReason.trim()}` : reason
     onConfirm(finalReason)
   }
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card om-cancel-modal-card"
         role="dialog"
@@ -895,42 +1079,64 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
 
         <form onSubmit={handleSubmit} className="om-cancel-form">
           <div className="om-cancel-field-group">
-            <label className="om-cancel-field-label">
+            <label className="om-cancel-field-label" id="om-cancel-reason-label">
               Cancellation Reason <span style={{ color: '#EF4444' }}>*</span>
             </label>
-            <select
-              className="om-cancel-select"
-              value={reason}
-              onChange={(e) => {
-                setReason(e.target.value)
-                setError('')
-              }}
-              required
-            >
-              <option value="">Select a reason...</option>
-              <option value="Bad weather">Bad weather</option>
-              <option value="Out of stock">Out of stock</option>
-              <option value="Customer unreachable">Customer unreachable</option>
-              <option value="Customer request">Customer request</option>
-              <option value="Other">Other</option>
-            </select>
+            <div className="om-cancel-select-wrap" ref={reasonRef}>
+              <button
+                type="button"
+                className={`om-cancel-select-btn${reasonOpen ? ' open' : ''}${!reason ? ' placeholder' : ''}`}
+                aria-labelledby="om-cancel-reason-label"
+                aria-haspopup="listbox"
+                aria-expanded={reasonOpen}
+                onClick={() => setReasonOpen((v) => !v)}
+              >
+                <span>{reason || 'Select a reason...'}</span>
+                <LuChevronDown
+                  className={`om-cancel-select-chevron${reasonOpen ? ' open' : ''}`}
+                  size={16}
+                />
+              </button>
+              {reasonOpen && (
+                <div className="om-cancel-select-menu" role="listbox" aria-labelledby="om-cancel-reason-label">
+                  {reasonOptions.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="option"
+                      aria-selected={reason === opt}
+                      className={`om-cancel-select-option${reason === opt ? ' selected' : ''}`}
+                      onClick={() => {
+                        setReason(opt)
+                        setError('')
+                        setReasonOpen(false)
+                      }}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {reason === 'Other' && (
             <div className="om-cancel-field-group">
-              <label className="om-cancel-field-label">
-                Specify Reason <span style={{ color: '#EF4444' }}>*</span>
+              <label className="om-cancel-field-label" htmlFor="om-cancel-other-textarea">
+                Describe the situation <span style={{ color: '#EF4444' }}>*</span>
               </label>
-              <input
-                type="text"
-                className="om-cancel-input"
-                placeholder="Please enter reason details..."
+              <textarea
+                id="om-cancel-other-textarea"
+                className="om-cancel-textarea"
+                placeholder="Describe the situation in your own words..."
+                rows={3}
                 value={otherReason}
                 onChange={(e) => {
                   setOtherReason(e.target.value)
                   setError('')
                 }}
-                maxLength={255}
+                maxLength={240}
+                autoFocus
                 required
               />
             </div>
@@ -956,7 +1162,7 @@ function CancelOrderModal({ order, onClose, onConfirm, saving }) {
   )
 }
 
-export default function OrderManagement() {
+export default function OrderManagement({ onDispatchOrder } = {}) {
   const [orders, setOrders] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [menuCatalog, setMenuCatalog] = useState([])
@@ -972,11 +1178,18 @@ export default function OrderManagement() {
   const [viewOrder, setViewOrder] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelling, setCancelling] = useState(false)
+  const [updatingOrderId, setUpdatingOrderId] = useState(null)
   const [orderError, setOrderError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [loading, setLoading] = useState(true)
 
   const statusRef = useRef(null)
   const typeRef = useRef(null)
   const dateRef = useRef(null)
+  const loadingOrdersRef = useRef(false)
+  const updatingOrderIdRef = useRef(null)
+  const ordersMutationVersionRef = useRef(0)
+  const ordersFetchIdRef = useRef(0)
 
   async function refreshMenuCatalog() {
     try {
@@ -987,21 +1200,41 @@ export default function OrderManagement() {
     }
   }
 
-  async function loadOrders() {
+  async function loadOrders({ force = false } = {}) {
+    if (!force && (loadingOrdersRef.current || updatingOrderIdRef.current !== null)) {
+      return
+    }
+    const startMutationVersion = ordersMutationVersionRef.current
+    const fetchId = ++ordersFetchIdRef.current
+    loadingOrdersRef.current = true
     try {
-      const [o, m] = await Promise.all([ordersApi.list(), ordersApi.menuOptions()])
+      const o = await ordersApi.list()
+      if (
+        ordersMutationVersionRef.current !== startMutationVersion ||
+        fetchId !== ordersFetchIdRef.current
+      ) {
+        return
+      }
       setOrders(o.data?.data || o.data || [])
       if (o.data?.meta?.stats) {
         setServerStats(o.data.meta.stats)
       }
-      setMenuCatalog(m.data?.data || m.data || [])
     } catch (err) {
       console.error(err)
+    } finally {
+      if (fetchId === ordersFetchIdRef.current) {
+        loadingOrdersRef.current = false
+      }
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadOrders().catch(console.error)
+    loadOrders({ force: true }).catch(console.error)
+    const interval = setInterval(() => {
+      loadOrders().catch(console.error)
+    }, 3000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -1025,7 +1258,8 @@ export default function OrderManagement() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const now = new Date()
-    const todayStr = now.toDateString()
+    const todayYmd = getManilaDateYmd(now)
+    const thisYm = getManilaYearMonth(now)
 
     return orders.filter((o) => {
       // Status filter
@@ -1040,15 +1274,12 @@ export default function OrderManagement() {
       if (date !== 'All Time' && o.created_at) {
         const orderDate = new Date(o.created_at)
         if (date === 'Today') {
-          if (orderDate.toDateString() !== todayStr) return false
+          if (getManilaDateYmd(orderDate) !== todayYmd) return false
         } else if (date === 'This Week') {
           const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24)
           if (diffDays > 7 || diffDays < 0) return false
         } else if (date === 'This Month') {
-          if (
-            orderDate.getMonth() !== now.getMonth() ||
-            orderDate.getFullYear() !== now.getFullYear()
-          ) {
+          if (getManilaYearMonth(orderDate) !== thisYm) {
             return false
           }
         }
@@ -1076,7 +1307,7 @@ export default function OrderManagement() {
       serverStats?.total ??
       (orders.filter((o) => {
         if (!o.created_at) return true
-        return new Date(o.created_at).toDateString() === new Date().toDateString()
+        return isSameManilaDay(o.created_at)
       }).length || orders.length),
     completed:
       serverStats?.completed ?? orders.filter((o) => o.status === 'Completed').length,
@@ -1099,7 +1330,9 @@ export default function OrderManagement() {
     setOrderError('')
     try {
       const res = await ordersApi.create(payload)
-      await loadOrders()
+      ordersMutationVersionRef.current += 1
+      await loadOrders({ force: true })
+      window.dispatchEvent(new Event('mb:order-updated'))
       setCreateOpen(false)
       setPage(1)
       return res
@@ -1126,13 +1359,20 @@ export default function OrderManagement() {
   async function handleConfirmCancel(reason) {
     if (!cancelTarget?.db_id) return
     setCancelling(true)
+    setActionError('')
+    ordersMutationVersionRef.current += 1
     try {
-      await ordersApi.updateStatus(cancelTarget.db_id, {
+      const { data } = await ordersApi.updateStatus(cancelTarget.db_id, {
         status: 'Cancelled',
         cancellation_reason: reason,
       })
+      const updated = data?.data || data
+      if (updated?.db_id) {
+        setOrders((prev) => prev.map((o) => (o.db_id === cancelTarget.db_id ? updated : o)))
+      }
       setCancelTarget(null)
-      await loadOrders()
+      window.dispatchEvent(new Event('mb:order-updated'))
+      loadOrders({ force: true }).catch(console.error)
     } catch (err) {
       console.error(err)
       alert(err?.response?.data?.message || 'Failed to cancel order.')
@@ -1141,27 +1381,54 @@ export default function OrderManagement() {
     }
   }
 
-  async function handleAction(order) {
-    if (order.action === 'View' || order.action === 'Track') {
+  async function handleAction(order, actionOverride = null) {
+    const action = actionOverride || order.action
+    if (action === 'Dispatch') {
+      if (typeof onDispatchOrder === 'function') {
+        onDispatchOrder(order)
+      } else {
+        setActionError('This order is ready for dispatch. Open the Dispatch page to assign a rider.')
+      }
+      return
+    }
+    if (action === 'View' || action === 'Track') {
       setViewOrder(order)
       return
     }
     const next =
-      order.action === 'Confirm'
+      action === 'Confirm'
         ? 'Preparing'
-        : order.action === 'Mark Ready'
+        : action === 'Mark Ready'
           ? 'Ready'
-          : order.action === 'Complete'
+          : action === 'Complete'
             ? 'Completed'
             : null
-    if (!next || !order.db_id) return
+    if (!next || !order.db_id || updatingOrderIdRef.current === order.db_id) return
+    updatingOrderIdRef.current = order.db_id
+    setUpdatingOrderId(order.db_id)
+    setActionError('')
+    ordersMutationVersionRef.current += 1
     try {
       const { data } = await ordersApi.updateStatus(order.db_id, next)
       const updated = data?.data || data
-      setOrders((prev) => prev.map((o) => (o.db_id === order.db_id ? updated : o)))
-      await loadOrders()
+      if (updated?.db_id) {
+        setOrders((prev) => prev.map((o) => (o.db_id === order.db_id ? updated : o)))
+        setViewOrder((prev) => (prev && prev.db_id === order.db_id ? updated : prev))
+      }
+      window.dispatchEvent(new Event('mb:order-updated'))
+      // Refresh stats & orders list in background so the button never stays stuck on "Updating..."
+      loadOrders({ force: true }).catch(console.error)
     } catch (err) {
       console.error(err)
+      const message =
+        err?.response?.data?.message ||
+        (err?.code === 'ECONNABORTED'
+          ? 'Request timed out while updating order status. Please try again.'
+          : 'Failed to update order status. Please try again.')
+      setActionError(message)
+    } finally {
+      updatingOrderIdRef.current = null
+      setUpdatingOrderId(null)
     }
   }
 
@@ -1172,6 +1439,13 @@ export default function OrderManagement() {
       </header>
 
       {/* 4 Stat Cards */}
+      {loading ? (
+        <StatCardsSkeleton
+          count={4}
+          gridClassName="om-stats-grid"
+          cardClassName="om-stat-card"
+        />
+      ) : (
       <section className="om-stats-grid">
         <article className="om-stat-card">
           <div className="om-stat-icon-wrap orange">
@@ -1213,6 +1487,7 @@ export default function OrderManagement() {
           </div>
         </article>
       </section>
+      )}
 
       {/* Filter Row */}
       <section className="om-toolbar">
@@ -1280,9 +1555,28 @@ export default function OrderManagement() {
         </button>
       </section>
 
+      {/* Action Error Banner */}
+      {actionError && (
+        <div
+          className="om-order-error-banner"
+          role="alert"
+          style={{ marginBottom: '12px' }}
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            className="om-order-error-close"
+            onClick={() => setActionError('')}
+            aria-label="Dismiss error"
+          >
+            <LuX size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Main Table / Empty State Card */}
       <section className="om-main-card">
-        {pageRows.length === 0 ? (
+        {!loading && pageRows.length === 0 ? (
           <div className="om-empty-state">
             <EmptyState
               icon="receipt"
@@ -1329,7 +1623,20 @@ export default function OrderManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((o) => (
+                  {loading ? (
+                    <TableRowsSkeleton
+                      rows={5}
+                      shapes={['id', 'text', 'short', 'text', 'money', 'badge', 'action']}
+                    />
+                  ) : (
+                  pageRows.map((o) => {
+                    const effectiveAction =
+                      o.action === 'Dispatch' ||
+                      (o.status === 'Ready' && o.type === 'Online Order' && o.action === 'Track')
+                        ? 'Dispatch'
+                        : o.action
+                    const isDispatch = effectiveAction === 'Dispatch'
+                    return (
                     <tr key={o.id}>
                       <td className="om-id-cell">{o.id}</td>
                       <td className="om-customer-cell">{o.customer}</td>
@@ -1343,13 +1650,24 @@ export default function OrderManagement() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="om-actions-cell">
-                          {['Confirm', 'Mark Ready', 'Complete'].includes(o.action) && (
+                          {['Confirm', 'Mark Ready', 'Complete', 'Dispatch'].includes(effectiveAction) && (
                             <button
                               type="button"
-                              className="om-primary-action-btn"
-                              onClick={() => handleAction(o)}
+                              className={`om-primary-action-btn${isDispatch ? ' dispatch' : ''}`}
+                              disabled={!isDispatch && updatingOrderId === o.db_id}
+                              onClick={() => handleAction(o, effectiveAction)}
+                              title={isDispatch ? 'Go to Dispatch to assign a rider' : undefined}
                             >
-                              {o.action}
+                              {isDispatch ? (
+                                <>
+                                  <LuBike size={14} />
+                                  <span>Dispatch</span>
+                                </>
+                              ) : updatingOrderId === o.db_id ? (
+                                'Updating...'
+                              ) : (
+                                effectiveAction
+                              )}
                             </button>
                           )}
                           <button
@@ -1365,7 +1683,9 @@ export default function OrderManagement() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1402,37 +1722,11 @@ export default function OrderManagement() {
             Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
             {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} orders
           </span>
-          <div className="om-pagination-controls">
-            <button
-              type="button"
-              className="om-page-btn arrow"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-            >
-              <LuChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`om-page-btn${n === currentPage ? ' active' : ''}`}
-                disabled={totalPages <= 1}
-                onClick={() => setPage(n)}
-              >
-                {n}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="om-page-btn arrow"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-            >
-              <LuChevronRight size={16} />
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
       </section>
 
@@ -1490,7 +1784,6 @@ export default function OrderManagement() {
       {viewOrder && (
         <div
           className="om-modal-backdrop"
-          onClick={() => setViewOrder(null)}
           role="presentation"
         >
           <div
@@ -1538,7 +1831,55 @@ export default function OrderManagement() {
               </div>
               <div className="full">
                 <dt>Items</dt>
-                <dd>{viewOrder.items || '—'}</dd>
+                <dd>
+                  {Array.isArray(viewOrder.items_list) && viewOrder.items_list.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {viewOrder.items_list.map((it, idx) => (
+                        <div
+                          key={it.id || idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            padding: '6px 10px',
+                            background: '#F9FAFB',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '8px',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px' }}>
+                              {it.qty}x {it.name}
+                            </div>
+                            {Array.isArray(it.removed_ingredients) && it.removed_ingredients.length > 0 && (
+                              <div style={{ fontSize: '11.5px', color: '#D97706', fontWeight: 500, marginTop: '2px' }}>
+                                Without:{' '}
+                                {it.removed_ingredients
+                                  .map((r) =>
+                                    typeof r === 'string'
+                                      ? r
+                                      : `${r.name}${Number(r.price) > 0 ? ` (-₱${r.price})` : ''}`
+                                  )
+                                  .join(', ')}
+                              </div>
+                            )}
+                            {it.special_instructions && (
+                              <div style={{ fontSize: '11.5px', color: '#6B7280', fontStyle: 'italic', marginTop: '2px' }}>
+                                Note: {it.special_instructions}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontWeight: 600, color: '#111827', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                            {peso(it.line_total ?? it.unit_price * it.qty)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    viewOrder.items || '—'
+                  )}
+                </dd>
               </div>
               <div className="full">
                 <dt>Delivery Address</dt>
@@ -1552,28 +1893,32 @@ export default function OrderManagement() {
                 <dt>Created</dt>
                 <dd>
                   {viewOrder.created_at
-                    ? new Date(viewOrder.created_at).toLocaleString()
+                    ? formatManilaDateTime(viewOrder.created_at)
                     : '—'}
                 </dd>
               </div>
-            </dl>            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
+            </dl>
+            {viewOrder.reported_issues && viewOrder.reported_issues.length > 0 && (
               <div className="om-issue-section">
-                <h4 className="om-issue-heading">
-                  <LuTriangleAlert size={15} /> Reported Issues Log ({viewOrder.reported_issues.length})
-                </h4>
-                <div>
+                <div className="om-issue-heading">
+                  <LuTriangleAlert size={14} /> Reported Issues ({viewOrder.reported_issues.length})
+                </div>
+                <div className="om-issue-list">
                   {viewOrder.reported_issues.map((iss) => (
                     <div key={iss.id} className="om-issue-card">
                       <div className="om-issue-card-head">
-                        <span className="om-issue-title">{iss.issue}</span>
+                        <div className="om-issue-title-group">
+                          <span className="om-issue-title">{iss.issue}</span>
+                          <span className="om-issue-dot">•</span>
+                          <span className="om-issue-reporter">
+                            Reported by: {iss.driver_name || 'Rider'}
+                          </span>
+                        </div>
                         <span className="om-issue-time">{iss.time_label || iss.created_at}</span>
                       </div>
                       {iss.notes ? (
                         <p className="om-issue-notes">{iss.notes}</p>
                       ) : null}
-                      <div className="om-issue-reporter">
-                        Reported by: {iss.driver_name || 'Rider'}
-                      </div>
                     </div>
                   ))}
                 </div>

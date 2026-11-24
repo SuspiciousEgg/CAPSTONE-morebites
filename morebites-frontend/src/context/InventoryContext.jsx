@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react'
+import { getManilaDaysUntil } from '../utils/manilaTime'
 
 const InventoryContext = createContext(null)
 
@@ -8,12 +9,9 @@ function computeStatus(stock, reorderPoint, expiryDate) {
   let daysLeft = null
 
   if (expiryDate) {
-    const exp = new Date(`${expiryDate}T00:00:00`)
-    if (!Number.isNaN(exp.getTime())) {
-      const now = new Date()
-      const expStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime()
-      const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-      daysLeft = Math.round((expStart - nowStart) / (1000 * 60 * 60 * 24))
+    const computed = getManilaDaysUntil(expiryDate)
+    if (computed !== null) {
+      daysLeft = computed
       if (daysLeft < 0) return { status: 'Expired', daysLeft }
       if (daysLeft === 0) return { status: 'Expires Today', daysLeft }
       if (daysLeft <= 7) return { status: 'Expiring Soon', daysLeft }

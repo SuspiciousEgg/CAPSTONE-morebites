@@ -55,7 +55,7 @@ class AccountController extends Controller
             'username' => ['nullable', 'string'],
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
-            'photo' => ['nullable', 'string'],
+            'photo' => ['nullable'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
             'allowed_pages' => ['nullable', 'array'],
@@ -112,7 +112,7 @@ class AccountController extends Controller
             'license_expiry' => ['nullable', 'date'],
             'vehicle_type' => ['nullable', 'string'],
             'plate_no' => ['nullable', 'string'],
-            'photo' => ['nullable', 'string'],
+            'photo' => ['nullable'],
             'license_document' => ['nullable', 'string'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
@@ -171,7 +171,7 @@ class AccountController extends Controller
             'username' => ['nullable', 'string'],
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => ['required', 'string', 'min:6'],
-            'photo' => ['nullable', 'string'],
+            'photo' => ['nullable'],
             'role_access' => ['nullable', 'array'],
             'role_access.*' => [Rule::in(User::ASSIGNABLE_ROLES)],
             'allowed_pages' => ['nullable', 'array'],
@@ -227,7 +227,7 @@ class AccountController extends Controller
             'birthday' => ['nullable', 'date'],
             'license_number' => ['nullable', 'string'],
             'license_expiry' => ['nullable', 'date'],
-            'photo' => ['nullable', 'string'],
+            'photo' => ['nullable'],
             'license_document' => ['nullable', 'string'],
             'allowed_pages' => ['nullable', 'array'],
             'allowed_pages.*' => ['string'],
@@ -426,7 +426,7 @@ class AccountController extends Controller
             'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
-            'joinDate' => $u->created_at?->format('M d, Y'),
+            'joinDate' => \App\Support\ManilaTime::format($u->created_at, 'M d, Y'),
             'status' => $u->status,
             ...$this->roleAccessMeta($u),
         ];
@@ -445,7 +445,7 @@ class AccountController extends Controller
             'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
-            'joinDate' => $u->created_at?->format('M d, Y'),
+            'joinDate' => \App\Support\ManilaTime::format($u->created_at, 'M d, Y'),
             'license' => $u->license_number,
             'expiry' => $u->license_expiry?->format('Y-m-d'),
             'license_document' => $u->license_document ? Media::url($u->license_document) : null,
@@ -467,7 +467,7 @@ class AccountController extends Controller
             'photo' => $u->photo ? Media::url($u->photo) : null,
             'birthday' => $u->birthday?->format('Y-m-d'),
             'gender' => $u->gender,
-            'joinDate' => $u->created_at?->format('M d, Y'),
+            'joinDate' => \App\Support\ManilaTime::format($u->created_at, 'M d, Y'),
             'status' => $u->status,
             ...$this->roleAccessMeta($u),
         ];
@@ -492,8 +492,12 @@ class AccountController extends Controller
                     $user->update(['photo' => '/storage/'.$filename]);
                 }
             } elseif (is_string($raw) && (str_starts_with($raw, 'http') || str_starts_with($raw, '/storage'))) {
-                $user->update(['photo' => $raw]);
+                $storagePos = strpos($raw, '/storage/');
+                $storedPath = $storagePos !== false ? substr($raw, $storagePos) : $raw;
+                $user->update(['photo' => $storedPath]);
             }
+        } elseif ($request->has('photo') && ($request->input('photo') === null || $request->input('photo') === '')) {
+            $user->update(['photo' => null]);
         }
     }
 

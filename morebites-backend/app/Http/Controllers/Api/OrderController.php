@@ -150,6 +150,8 @@ class OrderController extends Controller
             'items.*.name' => ['required', 'string'],
             'items.*.menu_item_id' => ['nullable', 'integer'],
             'items.*.size' => ['nullable', 'string'],
+            'items.*.removed_ingredients' => ['nullable', 'array'],
+            'items.*.special_instructions' => ['nullable', 'string', 'max:500'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'delivery_address' => ['nullable', 'string'],
@@ -189,7 +191,18 @@ class OrderController extends Controller
                     }
                 }
 
-                $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['unit_price']);
+                $deductionService = app(InventoryDeductionService::class);
+                $resolvedItems = collect($data['items'])->map(function ($item) use ($deductionService) {
+                    $snapshottedRemoved = $deductionService->snapshotRemovedIngredientsForLine($item);
+                    $effectiveUnitPrice = $deductionService->resolveEffectiveUnitPriceForLine($item, $snapshottedRemoved);
+
+                    return array_merge($item, [
+                        '_snapshotted_removed' => $snapshottedRemoved,
+                        'unit_price' => $effectiveUnitPrice,
+                    ]);
+                })->all();
+
+                $total = collect($resolvedItems)->sum(fn ($i) => $i['qty'] * $i['unit_price']);
 
                 $order = Order::query()->create([
                     'order_code' => Order::generateOrderCode(),
@@ -205,7 +218,7 @@ class OrderController extends Controller
                     'delivery_address' => $data['delivery_address'] ?? null,
                 ]);
 
-                foreach ($data['items'] as $item) {
+                foreach ($resolvedItems as $item) {
                     $hasSizeInName = ! empty($item['size']) && str_contains($item['name'], '('.$item['size'].')');
                     $name = ! empty($item['size']) && ! $hasSizeInName
                         ? $item['name'].' ('.$item['size'].')'
@@ -216,6 +229,8 @@ class OrderController extends Controller
                         'menu_item_id' => $item['menu_item_id'] ?? null,
                         'name' => $name,
                         'size' => $item['size'] ?? null,
+                        'removed_ingredients' => $item['_snapshotted_removed'] ?? null,
+                        'special_instructions' => ! empty($item['special_instructions']) ? trim((string) $item['special_instructions']) : null,
                         'qty' => $item['qty'],
                         'unit_price' => $item['unit_price'],
                         'line_total' => $item['qty'] * $item['unit_price'],
@@ -272,6 +287,18 @@ class OrderController extends Controller
             if ($order->status === 'Cancelled') {
                 return response()->json(['data' => $this->transform($order->load('items'))]);
             }
+
+            if (in_array($order->status, ['Completed', 'Delivered'], true)) {
+                return response()->json([
+                    'message' => 'Completed orders cannot be cancelled.',
+                    'errors' => ['status' => ['Completed orders cannot be cancelled.']],
+                ], 422);
+            }
+        } elseif ($order->status === 'Cancelled') {
+            return response()->json([
+                'message' => 'Cancelled orders cannot be reopened or updated.',
+                'errors' => ['status' => ['Cancelled orders cannot be reopened or updated.']],
+            ], 422);
         }
 
         $previous = $order->status;
@@ -281,8 +308,10 @@ class OrderController extends Controller
         }
 
         if (in_array($data['status'], ['Completed', 'Delivered'], true)) {
+            $deliveredAt = $order->delivered_at ?? now();
+            $updatePayload['delivered_at'] = $deliveredAt;
             if ($order->order_type === 'Online Order') {
-                $updatePayload['delivered_at'] = $order->delivered_at ?? now();
+                $updatePayload = array_merge($updatePayload, $order->calculateLateDeliveryPayload($deliveredAt));
             }
             $updatePayload['payment_status'] = 'Paid';
         }
@@ -300,9 +329,12 @@ class OrderController extends Controller
         if ($data['status'] !== $previous) {
             Notification::createOrderNotification($order);
             $actor = $user?->name ?: 'Staff';
+            $reasonSuffix = ($data['status'] === 'Cancelled' && $order->cancellation_reason)
+                ? " ({$order->cancellation_reason})"
+                : '';
             ActivityLog::query()->create([
                 'actor' => $actor,
-                'action' => "Order {$order->order_code} status updated to {$data['status']}",
+                'action' => "Order {$order->order_code} status updated to {$data['status']}{$reasonSuffix}",
             ]);
         }
 
@@ -312,53 +344,116 @@ class OrderController extends Controller
     public function menuOptions()
     {
         $service = app(InventoryDeductionService::class);
-        $service->syncMenuAvailability();
+        $service->clearExpiredBatchPromos();
 
-        $items = MenuItem::query()
-            ->with(['sizes', 'ingredients.inventoryItem'])
+        $formatNum = fn (float $v) => floor($v) == $v ? number_format($v, 0) : number_format($v, 2);
+
+        $menuItems = MenuItem::query()
+            ->with([
+                'sizes.ingredients.inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                'ingredients' => fn ($q) => $q->with([
+                    'inventoryItem' => fn ($q) => $q->withTrashed()->with('batches'),
+                ]),
+            ])
             ->where('archived', false)
             ->orderBy('name')
-            ->get()
-            ->map(function (MenuItem $m) use ($service) {
+            ->get();
+
+        $service->syncMenuAvailability($menuItems);
+
+        $items = $menuItems
+            ->map(function (MenuItem $m) use ($service, $formatNum) {
                 $stockReason = $service->unserviceableReason($m);
                 $stockOk = $stockReason === null;
+                $promoActive = (bool) $m->promo_active && (float) ($m->promo_discount_percent ?? 0) > 0;
 
-                $sizes = $m->sizes->map(function ($s) use ($m, $service) {
+                $isBeverage = strcasecmp(trim((string) $m->category), 'Beverages') === 0;
+
+                $sizes = $m->sizes->map(function ($s) use ($m, $service, $isBeverage) {
                     $sizeReason = $service->unserviceableReason($m, 1, $s->name);
+                    $orig = (float) $s->price;
+                    $eff = $m->applyPromoPrice($orig);
 
                     return [
                         'name' => $s->name,
-                        'price' => (float) $s->price,
+                        'original_price' => $orig,
+                        'price' => $eff,
                         'available' => (bool) $m->available && $sizeReason === null,
                         'stockReason' => $sizeReason,
+                        'ingredients' => $isBeverage
+                            ? collect()
+                            : $s->ingredients
+                                ->filter(fn ($ing) => $ing->is_removable !== false)
+                                ->map(fn ($ing) => [
+                                    'id' => $ing->id,
+                                    'inventory_item_id' => $ing->inventory_item_id,
+                                    'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                                    'qty_per_serving' => (float) $ing->qty_per_serving,
+                                    'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                                    'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                                    'price' => $ing->computedPrice(),
+                                    'is_removable' => true,
+                                ])->values(),
                     ];
                 })->values();
+
+                $ingredients = $isBeverage
+                    ? collect()
+                    : $m->ingredients
+                        ->filter(fn ($ing) => $ing->is_removable !== false)
+                        ->map(fn ($ing) => [
+                            'id' => $ing->id,
+                            'menu_item_size_id' => $ing->menu_item_size_id,
+                            'inventory_item_id' => $ing->inventory_item_id,
+                            'name' => $ing->inventoryItem?->name ?? 'Ingredient',
+                            'qty_per_serving' => (float) $ing->qty_per_serving,
+                            'unit' => $ing->unit ?: $ing->inventoryItem?->unit,
+                            'inventory_price' => (float) ($ing->inventoryItem?->price ?? 0),
+                            'price' => $ing->computedPrice(),
+                            'is_removable' => true,
+                        ])->values();
 
                 $hasAvailableSize = ! $m->has_sizes || $sizes->isEmpty() || $sizes->contains(fn ($s) => $s['available']);
                 $itemAvailable = (bool) $m->available && $stockOk && $hasAvailableSize;
 
+                $origMin = $sizes->min('original_price');
+                $origMax = $sizes->max('original_price');
                 $minPrice = $sizes->min('price');
                 $maxPrice = $sizes->max('price');
-                $effectivePrice = $m->has_sizes && $minPrice !== null ? (float) $minPrice : (float) $m->price;
+
+                $originalEffective = $m->has_sizes && $origMin !== null ? (float) $origMin : (float) $m->price;
+                $effectivePrice = $m->has_sizes && $minPrice !== null ? (float) $minPrice : $m->applyPromoPrice((float) $m->price);
+
+                $originalPriceFormatted = $m->has_sizes && $origMin !== null
+                    ? ($origMin == $origMax
+                        ? '₱'.$formatNum((float) $origMin)
+                        : '₱'.$formatNum((float) $origMin).' - ₱'.$formatNum((float) $origMax))
+                    : '₱'.$formatNum((float) $m->price);
 
                 $priceFormatted = $m->has_sizes && $minPrice !== null
                     ? ($minPrice == $maxPrice
-                        ? '₱'.number_format($minPrice, 0)
-                        : '₱'.number_format($minPrice, 0).' - ₱'.number_format($maxPrice, 0))
-                    : '₱'.number_format((float) $m->price, 0);
+                        ? '₱'.$formatNum((float) $minPrice)
+                        : '₱'.$formatNum((float) $minPrice).' - ₱'.$formatNum((float) $maxPrice))
+                    : '₱'.$formatNum($effectivePrice);
 
                 return [
                     'id' => $m->id,
                     'name' => $m->name,
                     'category' => $m->category,
                     'subcategory' => $m->subcategory,
+                    'original_price' => $originalEffective,
+                    'original_price_formatted' => $originalPriceFormatted,
                     'price' => $effectivePrice,
                     'price_formatted' => $priceFormatted,
+                    'promo_active' => $promoActive,
+                    'promo_discount_percent' => $promoActive ? (float) $m->promo_discount_percent : null,
+                    'promo_label' => $promoActive ? ($m->promo_label ?: "Today's Special") : null,
                     'available' => $itemAvailable,
                     'stockOk' => $stockOk,
                     'stockReason' => $stockReason,
                     'has_sizes' => (bool) $m->has_sizes,
                     'sizes' => $sizes,
+                    'ingredients' => $ingredients,
                 ];
             })
             ->values();
@@ -368,13 +463,26 @@ class OrderController extends Controller
 
     private function transform(Order $o): array
     {
-        $itemsLabel = $o->items->map(fn ($i) => $i->qty.'x '.$i->name)->implode(', ');
+        $itemsLabel = $o->items->map(function ($i) {
+            $removedNames = collect($i->removed_ingredients ?? [])
+                ->map(fn ($r) => is_array($r) ? ($r['name'] ?? null) : (is_string($r) ? $r : null))
+                ->filter()
+                ->values();
+            $removedSuffix = $removedNames->isNotEmpty()
+                ? ' (Without: '.$removedNames->implode(', ').')'
+                : '';
+            $noteSuffix = ! empty($i->special_instructions)
+                ? ' [Note: '.$i->special_instructions.']'
+                : '';
+
+            return $i->qty.'x '.$i->name.$removedSuffix.$noteSuffix;
+        })->implode(', ');
         $isOnline = $o->order_type === 'Online Order';
 
         $action = match ($o->status) {
             'Pending' => 'Confirm',
             'Preparing' => 'Mark Ready',
-            'Ready' => $isOnline ? 'Track' : 'Complete',
+            'Ready' => $isOnline ? ($o->driver_id ? 'Track' : 'Dispatch') : 'Complete',
             'Out for Delivery' => $isOnline ? 'Track' : 'View',
             'Completed' => 'View',
             default => 'View',
@@ -386,6 +494,16 @@ class OrderController extends Controller
             'customer' => $o->customer_name,
             'type' => $o->order_type,
             'items' => $itemsLabel,
+            'items_list' => $o->items->map(fn ($i) => [
+                'id' => $i->id,
+                'name' => $i->name,
+                'size' => $i->size,
+                'qty' => (int) $i->qty,
+                'unit_price' => (float) $i->unit_price,
+                'line_total' => (float) $i->line_total,
+                'removed_ingredients' => $i->removed_ingredients ?? [],
+                'special_instructions' => $i->special_instructions ?? null,
+            ])->values(),
             'price' => (float) $o->total,
             'status' => $o->status,
             'cancellation_reason' => $o->cancellation_reason,
@@ -393,7 +511,14 @@ class OrderController extends Controller
             'action' => $action,
             'address' => $o->delivery_address,
             'loyalty_customer_id' => $o->loyalty_customer_id,
+            'points_used' => (int) ($o->points_used ?? 0),
+            'points_discount' => (float) ($o->points_discount ?? 0),
+            'estimated_delivery_minutes' => (int) ($o->estimated_delivery_minutes ?: $o->delivery_minutes ?: 0),
+            'late_minutes' => (int) ($o->late_minutes ?? 0),
+            'late_discount_percent' => (int) ($o->late_discount_percent ?? 0),
+            'late_discount' => (float) ($o->late_discount ?? 0),
             'created_at' => $o->created_at?->toIso8601String(),
+            'delivered_at' => $o->delivered_at?->toIso8601String(),
             'reported_issues' => $o->reportedIssues(),
         ];
     }

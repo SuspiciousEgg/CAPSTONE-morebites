@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   Alert,
+  Animated,
   Image,
   ScrollView,
   StyleSheet,
@@ -26,6 +27,9 @@ export default function PickupChecklistScreen() {
   const currentStep = statusStep(order?.status || "Picked Up");
   const [checklist, setChecklist] = useState([false, false, false]);
   const [photo, setPhoto] = useState("");
+  const [showUploadBadge, setShowUploadBadge] = useState(false);
+  const badgeOpacity = useRef(new Animated.Value(0)).current;
+  const badgeTimerRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const allChecked = checklist.every(Boolean);
 
@@ -50,6 +54,27 @@ export default function PickupChecklistScreen() {
     );
   };
 
+  useEffect(() => {
+    return () => {
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
+  }, []);
+
+  const triggerUploadBadge = () => {
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    badgeOpacity.setValue(1);
+    setShowUploadBadge(true);
+    badgeTimerRef.current = setTimeout(() => {
+      Animated.timing(badgeOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setShowUploadBadge(false);
+      });
+    }, 2000);
+  };
+
   const addPhoto = async () => {
     const selected = await pickImage({
       aspect: [4, 3],
@@ -58,6 +83,7 @@ export default function PickupChecklistScreen() {
     });
     if (selected?.uri) {
       setPhoto(selected.uri);
+      triggerUploadBadge();
     }
   };
 
@@ -182,10 +208,15 @@ export default function PickupChecklistScreen() {
           {photo ? (
             <>
               <Image source={{ uri: photo }} style={styles.photoPreview} />
-              <View style={styles.photoUploadedBadge}>
-                <Text style={styles.photoUploadedText}>Photo uploaded</Text>
-                <Ionicons name="checkmark" size={21} color="#22C55E" />
-              </View>
+              {showUploadBadge ? (
+                <Animated.View
+                  style={[styles.photoUploadedBadge, { opacity: badgeOpacity }]}
+                  pointerEvents="none"
+                >
+                  <Text style={styles.photoUploadedText}>Photo uploaded</Text>
+                  <Ionicons name="checkmark" size={21} color="#22C55E" />
+                </Animated.View>
+              ) : null}
             </>
           ) : (
             <View style={styles.photoPlaceholder}>
@@ -194,6 +225,11 @@ export default function PickupChecklistScreen() {
             </View>
           )}
         </TouchableOpacity>
+        {photo ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={addPhoto}>
+            <Text style={styles.tapToChangeText}>Tap to change</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -418,6 +454,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  tapToChangeText: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 8,
+    textAlign: "right",
+  },
   footer: {
     backgroundColor: "#FFFFFF",
     borderTopColor: "#F3F4F6",
@@ -427,7 +471,7 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     alignItems: "center",
-    backgroundColor: "#8B5E3C",
+    backgroundColor: "#D1D5DB",
     borderRadius: 9,
     height: 54,
     justifyContent: "center",

@@ -47,7 +47,17 @@ function CartItemCard({ item, onRemove, onDecrease, onIncrease }) {
       <View style={styles.itemInfo}>
         <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
         {item.size ? <Text style={styles.itemSize}>Size: {item.size}</Text> : null}
-        <Text style={styles.itemPrice}>₱{item.price}</Text>
+        {Array.isArray(item.removed_ingredients) && item.removed_ingredients.length > 0 ? (
+          <Text style={styles.itemRemoved}>
+            Without: {item.removed_ingredients.map((r) => `${r.name}${r.price > 0 ? ` (-₱${r.price})` : ''}`).join(', ')}
+          </Text>
+        ) : null}
+        {item.special_instructions ? (
+          <Text style={styles.itemNote}>
+            Note: {item.special_instructions}
+          </Text>
+        ) : null}
+        <Text style={styles.itemPrice}>₱{Number(item.price).toFixed(2)}</Text>
       </View>
 
       <View style={styles.quantityRow}>
@@ -81,15 +91,15 @@ export default function CartScreen() {
     });
   }, []);
 
-  const removeItem = (item) => removeFromCart(item.id, item.size);
+  const removeItem = (item) => removeFromCart(item);
   const decreaseItem = (item) => {
     if (Number(item.quantity) > 1) {
-      updateQuantity(item.id, item.size, item.quantity - 1);
+      updateQuantity(item, null, item.quantity - 1);
     } else {
-      removeFromCart(item.id, item.size);
+      removeFromCart(item);
     }
   };
-  const increaseItem = (item) => updateQuantity(item.id, item.size, item.quantity + 1);
+  const increaseItem = (item) => updateQuantity(item, null, item.quantity + 1);
   const total = cartTotal + deliveryFee + serviceFee;
 
   return (
@@ -228,6 +238,20 @@ const styles = StyleSheet.create({
     color: "#8A8A8A",
     fontFamily: FONT,
     fontSize: 13,
+    marginTop: 2,
+  },
+  itemRemoved: {
+    color: "#D97706",
+    fontFamily: FONT,
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  itemNote: {
+    color: "#6B7280",
+    fontFamily: FONT,
+    fontSize: 12,
+    fontStyle: "italic",
     marginTop: 2,
   },
   itemPrice: {

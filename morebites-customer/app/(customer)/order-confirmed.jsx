@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef } from "react";
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCart } from "../../src/context/CartContext";
 import { feesFromOrder } from "../../src/api/fees";
@@ -58,8 +58,29 @@ export default function OrderConfirmedScreen() {
     clearCartOnMount.current();
   }, []);
 
+  const backToMenu = useCallback(() => {
+    clearCart();
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace("/(customer)/(tabs)/home");
+  }, [clearCart]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        backToMenu();
+        return true;
+      });
+      return () => sub.remove();
+    }, [backToMenu])
+  );
+
   const trackOrder = () => {
-    router.push({
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace({
       pathname: "/(customer)/order-tracking",
       params: {
         orderId,
@@ -67,11 +88,6 @@ export default function OrderConfirmedScreen() {
         order: JSON.stringify(order),
       },
     });
-  };
-
-  const backToMenu = () => {
-    clearCart();
-    router.replace("/(customer)/(tabs)/home");
   };
 
   return (

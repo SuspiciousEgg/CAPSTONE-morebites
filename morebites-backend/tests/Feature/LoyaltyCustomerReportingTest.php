@@ -63,7 +63,7 @@ class LoyaltyCustomerReportingTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.loyalty_points', 250)
             ->assertJsonPath('data.points_expired', false)
-            ->assertJsonPath('data.points_expire_at', now()->addDays(20)->format('M d, Y'));
+            ->assertJsonPath('data.points_expire_at', \App\Support\ManilaTime::format(now()->addDays(20), 'M d, Y'));
     }
 
     public function test_customer_details_returns_zero_points_for_expired_customer_without_writing_to_db(): void

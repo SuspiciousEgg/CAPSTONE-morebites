@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuChevronLeft, LuChevronRight, LuTrash2, LuTriangleAlert } from 'react-icons/lu'
+import { LuCheck, LuChevronLeft, LuChevronRight, LuShieldCheck, LuTag, LuTrash2, LuTrendingUp, LuTriangleAlert } from 'react-icons/lu'
 import {
   IconCalendar,
   IconCheck,
@@ -9,6 +9,8 @@ import {
 } from './Icons'
 import { expiringStockApi } from '../api/client'
 import EmptyState from './EmptyState'
+import CustomSelect from './CustomSelect'
+import { StatCardsSkeleton, TableRowsSkeleton } from './Skeleton'
 import './ExpiringStock.css'
 
 /* ============================================================================
@@ -76,7 +78,7 @@ function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
   const qtyLabel = `${row?.stock ?? 0} ${row?.unit || ''}`.trim()
 
   return (
-    <div className="menu-modal-overlay" onClick={onClose} role="presentation">
+    <div className="menu-modal-overlay" role="presentation">
       <div
         className="menu-modal-confirm-card"
         role="dialog"
@@ -123,6 +125,23 @@ function WasteConfirmModal({ row, saving, onClose, onConfirm }) {
   )
 }
 
+const DISCOUNT_PRESETS = [10, 15, 20, 25, 30]
+const PROMO_LABEL_PRESETS = ["Today's Special", 'Flash Deal', "Chef's Pick", 'Limited Deal']
+
+function formatPeso(n) {
+  const num = Number(n || 0)
+  return `₱${num.toLocaleString('en-PH', {
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function applyDiscount(price, pct) {
+  const p = Number(price || 0)
+  const d = Math.min(90, Math.max(0, Number(pct || 0)))
+  return Math.round(Math.max(0, p * (1 - d / 100)) * 100) / 100
+}
+
 export default function ExpiringStock() {
   const [rows, setRows] = useState([])
   const [page, setPage] = useState(1)
@@ -136,8 +155,9 @@ export default function ExpiringStock() {
   const [saving, setSaving] = useState(false)
   const [wasteRow, setWasteRow] = useState(null)
   const [promoRow, setPromoRow] = useState(null)
-  const [promoMenuId, setPromoMenuId] = useState('')
+  const [promoMenuIds, setPromoMenuIds] = useState([])
   const [promoDiscount, setPromoDiscount] = useState('15')
+  const [promoLabel, setPromoLabel] = useState("Today's Special")
 
   const reload = useCallback(async () => {
     const res = await expiringStockApi.list()
@@ -211,9 +231,31 @@ export default function ExpiringStock() {
       alert('This item is expired and can only be marked as Waste.')
       return
     }
+    const menus = row.linked_menus || []
+    const alreadyActiveIds = menus.filter((m) => m.promo_active).map((m) => Number(m.id))
+    const recommendedMenu = menus.find((m) => m.recommended) || menus[0]
+    const initialIds = alreadyActiveIds.length
+      ? alreadyActiveIds
+      : recommendedMenu
+      ? [Number(recommendedMenu.id)]
+      : []
+
+    const activeLabel = menus.find((m) => m.promo_active && m.promo_label)?.promo_label
+    const defaultDiscount =
+      row.promo_discount_percent || row.suggested_discount_percent || 15
+    const defaultLabel = activeLabel || row.suggested_promo_label || "Today's Special"
+
     setPromoRow(row)
-    setPromoMenuId(row.linked_menus?.[0]?.id ? String(row.linked_menus[0].id) : '')
-    setPromoDiscount(String(row.promo_discount_percent || 15))
+    setPromoMenuIds(initialIds)
+    setPromoDiscount(String(defaultDiscount))
+    setPromoLabel(defaultLabel)
+  }
+
+  function togglePromoMenu(menuId) {
+    const numId = Number(menuId)
+    setPromoMenuIds((prev) =>
+      prev.includes(numId) ? prev.filter((id) => id !== numId) : [...prev, numId],
+    )
   }
 
   async function savePromo() {
@@ -223,15 +265,22 @@ export default function ExpiringStock() {
       setPromoRow(null)
       return
     }
-    if (!promoMenuId) {
-      alert('Select a menu item for this promo.')
+    if (!promoMenuIds.length) {
+      alert('Select at least one menu item for this promo.')
+      return
+    }
+    const discountNum = Number(promoDiscount)
+    if (!Number.isFinite(discountNum) || discountNum < 1 || discountNum > 90) {
+      alert('Enter a valid discount between 1% and 90%.')
       return
     }
     setSaving(true)
     try {
       await expiringStockApi.setPromo(promoRow.id, {
-        menu_item_id: Number(promoMenuId),
-        discount_percent: Number(promoDiscount),
+        menu_item_id: promoMenuIds[0],
+        menu_item_ids: promoMenuIds,
+        discount_percent: discountNum,
+        promo_label: promoLabel.trim() || "Today's Special",
       })
       setPromoRow(null)
       await afterAction()
@@ -255,11 +304,27 @@ export default function ExpiringStock() {
             Review perishables before they spoil. Flag promos, prioritize kitchen use, or mark waste.
           </p>
         </div>
-        <button type="button" className="exp-btn-ghost" onClick={() => reload()} disabled={loading}>
+        <button
+          type="button"
+          className="exp-btn-ghost"
+          onClick={() => {
+            setLoading(true)
+            reload().catch(console.error).finally(() => setLoading(false))
+          }}
+          disabled={loading}
+        >
           <IconRefresh /> Refresh
         </button>
       </header>
 
+      {loading ? (
+        <StatCardsSkeleton
+          count={4}
+          gridClassName="exp-stats"
+          cardClassName="exp-stat sa-card"
+          labelFirst
+        />
+      ) : (
       <section className="exp-stats">
         <article className="exp-stat sa-card">
           <div className="exp-stat-icon orange">
@@ -298,6 +363,7 @@ export default function ExpiringStock() {
           </div>
         </article>
       </section>
+      )}
 
       <section className="exp-table-card sa-card">
         <div className="exp-table-wrap">
@@ -316,11 +382,10 @@ export default function ExpiringStock() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={8} className="exp-empty">
-                    Loading…
-                  </td>
-                </tr>
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['two-line', 'text', 'short', 'short', 'badge', 'text', 'badge', 'icon-actions']}
+                />
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="exp-empty">
@@ -353,8 +418,17 @@ export default function ExpiringStock() {
                           <ul className="exp-menu-list">
                             {row.linked_menus.map((m) => (
                               <li key={m.id}>
-                                {m.name}
-                                {m.promo_active ? <span className="exp-promo-tag">Promo</span> : null}
+                                <span>{m.name}</span>
+                                {m.recommended ? (
+                                  <span className="exp-best-tag" title="Highest usage of this ingredient per serving">
+                                    Best match
+                                  </span>
+                                ) : null}
+                                {m.promo_active ? (
+                                  <span className="exp-promo-tag">
+                                    {m.promo_discount_percent ? `${m.promo_discount_percent}% OFF` : 'Promo'}
+                                  </span>
+                                ) : null}
                               </li>
                             ))}
                           </ul>
@@ -378,7 +452,7 @@ export default function ExpiringStock() {
                               isOverdue
                                 ? 'This item is expired and can only be marked as Waste.'
                                 : row.linked_menus?.length
-                                ? 'Create promo'
+                                ? 'Flag for promo review'
                                 : 'No linked menu items'
                             }
                           >
@@ -476,50 +550,219 @@ export default function ExpiringStock() {
         />
       )}
 
-      {promoRow && (
-        <div className="exp-backdrop" onClick={() => setPromoRow(null)} role="presentation">
-          <div className="exp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="exp-modal-head">
-              <h2>Create Use-It-Up Promo</h2>
-            </div>
-            <div className="exp-modal-body">
-              <p className="exp-modal-lead">
-                Feature a menu item that uses <strong>{promoRow.name}</strong> on the customer app with a limited-time
-                discount.
-              </p>
-              <label>
-                Menu item
-                <select value={promoMenuId} onChange={(e) => setPromoMenuId(e.target.value)}>
-                  <option value="">Select menu item…</option>
-                  {(promoRow.linked_menus || []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Discount (%)
-                <input
-                  type="number"
-                  min="1"
-                  max="90"
-                  value={promoDiscount}
-                  onChange={(e) => setPromoDiscount(e.target.value)}
-                />
-              </label>
-            </div>
-            <div className="exp-modal-foot">
-              <button type="button" className="exp-btn-cancel" onClick={() => setPromoRow(null)}>
-                Cancel
-              </button>
-              <button type="button" className="exp-btn-primary" onClick={savePromo} disabled={saving}>
-                {saving ? 'Saving…' : 'Activate Promo'}
-              </button>
+      {promoRow && (() => {
+        const menus = promoRow.linked_menus || []
+        const selectedMenus = menus.filter((m) => promoMenuIds.includes(Number(m.id)))
+        const discountVal = Number(promoDiscount) || 0
+
+        return (
+          <div className="exp-backdrop" role="presentation">
+            <div className="exp-modal exp-promo-modal" role="dialog" aria-modal="true">
+              <div className="exp-modal-head">
+                <div>
+                  <h2>Smart Expiring-Stock Promo</h2>
+                  <div className="exp-modal-meta-strip">
+                    <span className="exp-batch-tag">{promoRow.batch_no}</span>
+                    <span>
+                      <strong>{promoRow.stock} {promoRow.unit}</strong> {promoRow.name}
+                    </span>
+                    <span className="exp-meta-dot" aria-hidden="true">·</span>
+                    <span className="exp-meta-expiry">{formatDaysUntil(promoRow.days_until_expiry)}</span>
+                  </div>
+                </div>
+                <button type="button" className="exp-icon-btn exp-close-btn" onClick={() => setPromoRow(null)} aria-label="Close">
+                  <IconClose />
+                </button>
+              </div>
+
+              <div className="exp-modal-body exp-promo-body">
+                {/* 1. Dish Picker Ranked by Highest Ingredient Usage */}
+                <div className="exp-promo-section">
+                  <div className="exp-promo-section-head">
+                    <span className="exp-section-label">1. Select Dish(es) to Promote</span>
+                    <span className="exp-section-hint">Sorted by highest {promoRow.name} usage</span>
+                  </div>
+
+                  <div className="exp-dish-list">
+                    {menus.map((m) => {
+                      const checked = promoMenuIds.includes(Number(m.id))
+                      const hasRange = m.min_price !== m.max_price
+                      const origPriceStr = hasRange
+                        ? `${formatPeso(m.min_price)}–${formatPeso(m.max_price)}`
+                        : formatPeso(m.min_price)
+                      const promoPriceStr = hasRange
+                        ? `${formatPeso(applyDiscount(m.min_price, discountVal))}–${formatPeso(applyDiscount(m.max_price, discountVal))}`
+                        : formatPeso(applyDiscount(m.min_price, discountVal))
+
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className={`exp-dish-option${checked ? ' selected' : ''}`}
+                          onClick={() => togglePromoMenu(m.id)}
+                        >
+                          <span className={`exp-custom-check${checked ? ' checked' : ''}`} aria-hidden="true">
+                            {checked && <LuCheck size={12} strokeWidth={3} />}
+                          </span>
+                          <div className="exp-dish-main">
+                            <div className="exp-dish-top">
+                              <span className="exp-dish-name">{m.name}</span>
+                              {m.recommended && (
+                                <span className="exp-rec-pill">
+                                  <LuTrendingUp size={11} /> Fastest clearance
+                                </span>
+                              )}
+                            </div>
+                            <div className="exp-dish-meta">
+                              <span>Uses <strong>{m.usage_summary}</strong></span>
+                              {m.orders_to_clear_label && (
+                                <>
+                                  <span className="exp-meta-dot" aria-hidden="true">·</span>
+                                  <span className="exp-clear-text">
+                                    {m.orders_to_clear_label} to clear
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {discountVal > 0 && (
+                            <div className="exp-dish-price-preview">
+                              <span className="exp-price-orig">{origPriceStr}</span>
+                              <span className="exp-price-promo">{promoPriceStr}</span>
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Per-Size Batch Clearance Breakdown */}
+                {selectedMenus.length > 0 && (
+                  <div className="exp-clearance-box">
+                    <div className="exp-clearance-head">
+                      <span className="exp-clearance-title">
+                        Clearance Estimate · {promoRow.stock} {promoRow.unit} Batch
+                      </span>
+                      <span className="exp-autostop-pill">
+                        <LuShieldCheck size={12} /> Auto-shutoff on depletion
+                      </span>
+                    </div>
+                    {selectedMenus.map((m) => (
+                      <div key={m.id} className="exp-clearance-dish">
+                        <span className="exp-clearance-dish-name">{m.name}</span>
+                        <div className="exp-size-pills">
+                          {(m.size_estimates || []).map((sz, idx) => (
+                            <span key={`${m.id}-${sz.size_id || idx}`} className="exp-size-pill">
+                              {sz.size_name ? `${sz.size_name} (${sz.usage_label})` : sz.usage_label}
+                              {' · '}
+                              <strong>
+                                {sz.orders_to_clear != null
+                                  ? `~${sz.orders_to_clear} ${sz.orders_to_clear === 1 ? 'order' : 'orders'}`
+                                  : '—'}
+                              </strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <p className="exp-autostop-note">
+                      Automatically ends when Batch {promoRow.batch_no} reaches 0 stock or expires, protecting full price on fresh stock.
+                    </p>
+                  </div>
+                )}
+
+                {/* 2. Discount % + 3. Customer-Facing Label */}
+                <div className="exp-promo-row-2">
+                  <div className="exp-field-block">
+                    <div className="exp-field-top">
+                      <span className="exp-section-label">
+                        2. Discount (%)
+                        {promoRow.suggested_discount_percent ? (
+                          <em className="exp-suggest-inline"> · Suggested {promoRow.suggested_discount_percent}%</em>
+                        ) : null}
+                      </span>
+                      <div className="exp-chip-row">
+                        {DISCOUNT_PRESETS.map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            className={`exp-preset-chip${Number(promoDiscount) === pct ? ' active' : ''}`}
+                            onClick={() => setPromoDiscount(String(pct))}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={promoDiscount}
+                      onChange={(e) => setPromoDiscount(e.target.value)}
+                      placeholder="Custom %"
+                      aria-label="Discount percentage"
+                    />
+                  </div>
+
+                  <div className="exp-field-block">
+                    <div className="exp-field-top">
+                      <span className="exp-section-label">3. Customer-Facing Label</span>
+                      <div className="exp-chip-row">
+                        {PROMO_LABEL_PRESETS.map((lbl) => (
+                          <button
+                            key={lbl}
+                            type="button"
+                            className={`exp-preset-chip${promoLabel === lbl ? ' active' : ''}`}
+                            onClick={() => setPromoLabel(lbl)}
+                          >
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={60}
+                      value={promoLabel}
+                      onChange={(e) => setPromoLabel(e.target.value)}
+                      placeholder="e.g. Today's Special"
+                      aria-label="Customer-facing promo label"
+                    />
+                  </div>
+                </div>
+
+                <div className="exp-label-preview">
+                  <span className="exp-preview-badge">
+                    <LuTag size={12} />
+                    {promoLabel.trim() || "Today's Special"} · {discountVal || 0}% OFF
+                  </span>
+                  <span className="exp-preview-note">
+                    Shown to customers. Expiry &amp; batch details stay internal to staff.
+                  </span>
+                </div>
+              </div>
+
+              <div className="exp-modal-foot">
+                <button type="button" className="exp-btn-cancel" onClick={() => setPromoRow(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="exp-btn-primary"
+                  onClick={savePromo}
+                  disabled={saving || promoMenuIds.length === 0}
+                >
+                  {saving
+                    ? 'Activating…'
+                    : `Activate Promo${promoMenuIds.length > 1 ? ` (${promoMenuIds.length} items)` : ''}`}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

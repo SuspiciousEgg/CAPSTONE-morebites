@@ -22,22 +22,26 @@ import {
 } from './Icons'
 import { blacklistApi } from '../api/client'
 import EmptyState from './EmptyState'
+import { TableRowsSkeleton } from './Skeleton'
 import './BlacklistDrivers.css'
 
 export default function BlacklistDrivers({ embedded = false }) {
   const [blacklist, setBlacklist] = useState([])
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     blacklistApi
       .list()
       .then((r) => setBlacklist(r.data?.data || r.data || []))
       .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [downloadingAttachment, setDownloadingAttachment] = useState(false)
   const [unblacklistTarget, setUnblacklistTarget] = useState(null)
   const [unblacklisting, setUnblacklisting] = useState(false)
   const pageSize = 5
@@ -61,6 +65,51 @@ export default function BlacklistDrivers({ embedded = false }) {
   function openDetails(driver) {
     setSelected(driver)
     setNotes(driver.notes || '')
+  }
+
+  function handleDownloadAttachment(driver) {
+    if (!driver?.attachment?.name || driver.attachment.name === 'No attachment' || downloadingAttachment) {
+      return
+    }
+    setDownloadingAttachment(true)
+    try {
+      if (driver.attachment.url) {
+        const link = document.createElement('a')
+        link.href = driver.attachment.url
+        link.download = driver.attachment.name
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        return
+      }
+      const reportLines = [
+        'MoreBites Blocklisted Driver Attachment Record',
+        '==============================================',
+        `Driver ID: ${driver.id || '—'}`,
+        `Driver Name: ${driver.name || '—'}`,
+        `Phone Number: ${driver.phone || '—'}`,
+        `License Number: ${driver.license || '—'}`,
+        `Reason for Blocklist: ${driver.reason || '—'}`,
+        `Date Blocklisted: ${driver.date || '—'}`,
+        `Attachment File: ${driver.attachment.name}`,
+        `Attachment Details: ${driver.attachment.meta || '—'}`,
+        `Notes: ${notes || driver.notes || '—'}`,
+      ]
+      const blob = new Blob([reportLines.join('\n')], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const baseName = String(driver.attachment.name).replace(/\.[^/.]+$/, '')
+      link.href = url
+      link.download = `${baseName}_record.txt`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } finally {
+      setTimeout(() => setDownloadingAttachment(false), 300)
+    }
   }
 
   async function saveNotes() {
@@ -139,7 +188,12 @@ export default function BlacklistDrivers({ embedded = false }) {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {loading ? (
+                <TableRowsSkeleton
+                  rows={5}
+                  shapes={['id', 'text', 'short', 'text', 'short', 'badge', 'action']}
+                />
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="bl-empty">
                     <EmptyState
@@ -223,7 +277,7 @@ export default function BlacklistDrivers({ embedded = false }) {
 
       {selected && (
         <>
-          <div className="bl-backdrop" onClick={() => setSelected(null)} role="presentation" />
+          <div className="bl-backdrop" role="presentation" />
           <aside className="bl-drawer" role="dialog" aria-modal="true" aria-label="Driver Details">
             <div className="bl-drawer-head">
               <h2>Driver Details</h2>
@@ -296,7 +350,8 @@ export default function BlacklistDrivers({ embedded = false }) {
                   className="bl-icon-btn"
                   aria-label="Download Attachment"
                   title="Download Attachment"
-                  onClick={() => alert(`Downloading ${selected.attachment.name}...`)}
+                  disabled={downloadingAttachment}
+                  onClick={() => handleDownloadAttachment(selected)}
                 >
                   <IconDownload />
                 </button>
@@ -360,7 +415,7 @@ export default function BlacklistDrivers({ embedded = false }) {
       )}
 
       {unblacklistTarget && (
-        <div className="bl-modal-overlay" onClick={() => !unblacklisting && setUnblacklistTarget(null)}>
+        <div className="bl-modal-overlay" role="presentation">
           <div className="bl-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="bl-modal-header">
               <div className="bl-modal-icon-badge restore">
