@@ -512,7 +512,9 @@ const styles = StyleSheet.create({
   priceDisplayRow: {
     flexDirection: "row",
     alignItems: "baseline",
+    flexWrap: "wrap",
     gap: 10,
+    marginTop: 18,
   },
   originalDetailPrice: {
     color: "#9CA3AF",

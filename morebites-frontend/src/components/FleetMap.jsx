@@ -63,21 +63,25 @@ function markerIcon(kind) {
 }
 
 async function fetchRoadRoute(from, to) {
-  try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
-    const res = await fetch(url)
-    if (!res.ok) {
-      throw new Error(`Routing API HTTP error: ${res.status}`)
+  const endpoints = [
+    `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`,
+    `https://routing.openstreetmap.de/routed-car/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`,
+  ]
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
+        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
+      }
+    } catch (err) {
+      console.warn('Routing API attempt failed:', url, err)
     }
-    const data = await res.json()
-    if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
-      return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
-    }
-    throw new Error(`Routing API response code: ${data.code || 'No route found'}`)
-  } catch (err) {
-    console.error('Failed to fetch road route via routing API:', err)
-    return [from, to] // Fallback gracefully to straight line
   }
+
+  return [from, to] // Fallback gracefully to straight line only if all routing servers fail
 }
 
 function FleetMap({
@@ -239,8 +243,8 @@ function FleetMap({
           }).addTo(layer)
         }
 
-        // Fetch road route asynchronously if backend only provided endpoints
-        if (parsedBackendRoute.length < 2 && rider && dest) {
+        // Fetch road route asynchronously if backend only provided endpoints (<= 2 points)
+        if (parsedBackendRoute.length <= 2 && rider && dest) {
           const cacheKey = `${active.db_id}_${rider[0].toFixed(5)},${rider[1].toFixed(5)}_${dest[0].toFixed(5)},${dest[1].toFixed(5)}`
           if (fetchedRoutesRef.current.has(cacheKey)) {
             const cached = fetchedRoutesRef.current.get(cacheKey)
@@ -250,7 +254,7 @@ function FleetMap({
           } else {
             fetchRoadRoute(rider, dest)
               .then((roadPts) => {
-                if (roadPts && roadPts.length >= 2) {
+                if (roadPts && roadPts.length > 2) {
                   fetchedRoutesRef.current.set(cacheKey, roadPts)
                   if (routePolylineRef.current) {
                     routePolylineRef.current.setLatLngs(roadPts)
