@@ -221,7 +221,9 @@ export default function DeliveryMap({
 }) {
   const mapRef = useRef(null);
   const lastStepKeyRef = useRef("");
+  const lastRoadKeyRef = useRef("");
   const [osrmStep, setOsrmStep] = useState(null);
+  const [clientRoadRoute, setClientRoadRoute] = useState([]);
 
   const originPoint =
     storeCoord ||
@@ -229,10 +231,75 @@ export default function DeliveryMap({
       ? routeCoordinates[0]
       : null);
 
+  // Client-side road-route fallback whenever backend only provided <= 2 endpoint coordinates
+  useEffect(() => {
+    if (Array.isArray(routeCoordinates) && routeCoordinates.length > 2) {
+      return undefined;
+    }
+    const fromPt = isValidCoord(riderCoord) ? riderCoord : originPoint;
+    if (!isValidCoord(fromPt) || !isValidCoord(destinationCoord)) {
+      return undefined;
+    }
+
+    const roadKey = `${Number(fromPt.latitude).toFixed(4)},${Number(fromPt.longitude).toFixed(4)}->${Number(destinationCoord.latitude).toFixed(4)},${Number(destinationCoord.longitude).toFixed(4)}`;
+    if (roadKey === lastRoadKeyRef.current) return undefined;
+    lastRoadKeyRef.current = roadKey;
+
+    let cancelled = false;
+    const path = `${Number(fromPt.longitude)},${Number(fromPt.latitude)};${Number(destinationCoord.longitude)},${Number(destinationCoord.latitude)}`;
+    const endpoints = [
+      `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`,
+      `https://routing.openstreetmap.de/routed-car/route/v1/driving/${path}?overview=full&geometries=geojson`,
+    ];
+
+    (async () => {
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const coords = data?.routes?.[0]?.geometry?.coordinates;
+          if (!cancelled && data?.code === "Ok" && Array.isArray(coords) && coords.length > 2) {
+            setClientRoadRoute(
+              coords.map(([lng, lat]) => ({
+                latitude: Number(lat),
+                longitude: Number(lng),
+              })),
+            );
+            return;
+          }
+        } catch {
+          // Try next routing server
+        }
+      }
+      if (!cancelled) {
+        lastRoadKeyRef.current = "";
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeCoordinates, riderCoord, originPoint, destinationCoord]);
+
+  const effectiveRouteCoordinates = useMemo(() => {
+    if (Array.isArray(routeCoordinates) && routeCoordinates.length > 2) {
+      return routeCoordinates;
+    }
+    if (Array.isArray(clientRoadRoute) && clientRoadRoute.length > 2) {
+      return clientRoadRoute;
+    }
+    return Array.isArray(routeCoordinates) ? routeCoordinates : [];
+  }, [routeCoordinates, clientRoadRoute]);
+
   const telemetry = useMemo(
     () =>
-      deriveNavigationTelemetry(riderCoord, routeCoordinates, destinationCoord),
-    [riderCoord, routeCoordinates, destinationCoord],
+      deriveNavigationTelemetry(
+        riderCoord,
+        effectiveRouteCoordinates,
+        destinationCoord,
+      ),
+    [riderCoord, effectiveRouteCoordinates, destinationCoord],
   );
 
   // Fetch turn-by-turn road name & step instruction from OSRM when in navigation mode
@@ -371,23 +438,23 @@ export default function DeliveryMap({
         scrollEnabled
         zoomEnabled
       >
-        {Array.isArray(routeCoordinates) && routeCoordinates.length >= 2 ? (
+        {Array.isArray(effectiveRouteCoordinates) && effectiveRouteCoordinates.length >= 2 ? (
           navigationMode ? (
             <>
               <Polyline
-                coordinates={routeCoordinates}
+                coordinates={effectiveRouteCoordinates}
                 strokeColor="#C2410C"
                 strokeWidth={10}
               />
               <Polyline
-                coordinates={routeCoordinates}
+                coordinates={effectiveRouteCoordinates}
                 strokeColor="#F97000"
                 strokeWidth={6}
               />
             </>
           ) : (
             <Polyline
-              coordinates={routeCoordinates}
+              coordinates={effectiveRouteCoordinates}
               strokeColor="#F97000"
               strokeWidth={4}
             />

@@ -263,6 +263,7 @@ export default function OrderTrackingScreen() {
   };
 
   const timeline = Array.isArray(tracking?.timeline) ? tracking.timeline : null;
+  const isDelivered = currentStatus === "Delivered" || currentStatus === "Completed";
   const isOrderCancelled = currentStatus === "Cancelled" || rawStatus === "Cancelled";
 
   const handleBackNavigation = useCallback(() => {
@@ -371,7 +372,7 @@ export default function OrderTrackingScreen() {
         )}
 
         <View style={styles.content}>
-          {isPreparing ? (
+          {isDelivered || isOrderCancelled ? null : isPreparing ? (
             <View style={[styles.arrivalCard, styles.prepCard]}>
               <View style={styles.prepHeaderRow}>
                 <View style={styles.prepBadge}>

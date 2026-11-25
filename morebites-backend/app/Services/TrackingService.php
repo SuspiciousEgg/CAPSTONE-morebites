@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Support\Media;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -64,7 +65,7 @@ class TrackingService
         $distanceKm = $this->haversineKm($storeOrigin, $dest);
         $etaMins = max(8, (int) round($distanceKm * 4));
 
-        $hasExistingRoute = is_array($order->route_coordinates) && count($order->route_coordinates) >= 2;
+        $hasRealRoute = is_array($order->route_coordinates) && count($order->route_coordinates) > 2;
 
         $updates = [
             'current_lat' => $lat,
@@ -74,9 +75,15 @@ class TrackingService
             'estimated_delivery_minutes' => $order->estimated_delivery_minutes ?: $etaMins,
         ];
 
-        if (! $hasExistingRoute) {
+        if (! $hasRealRoute && (
+            ! is_array($order->route_coordinates)
+            || count($order->route_coordinates) < 2
+            || Cache::add('tracking_route_retry:'.$order->id, true, 20)
+        )) {
             $route = $this->directions($storeOrigin, $dest);
-            $updates['route_coordinates'] = $route['coordinates'];
+            if (count($route['coordinates']) > 2 || ! is_array($order->route_coordinates) || count($order->route_coordinates) < 2) {
+                $updates['route_coordinates'] = $route['coordinates'];
+            }
         }
 
         $order->update($updates);
@@ -185,6 +192,29 @@ class TrackingService
         return null;
     }
 
+    private function resilientGet(string $url, array $query = [], int $timeout = 8, array $headers = [])
+    {
+        $defaultHeaders = array_merge([
+            'User-Agent' => 'MoreBitesCapstone/1.0 (delivery tracking)',
+            'Accept' => 'application/json',
+        ], $headers);
+
+        try {
+            return Http::timeout($timeout)->withHeaders($defaultHeaders)->get($url, $query);
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            if (
+                stripos($msg, 'cURL error 60') !== false
+                || stripos($msg, 'SSL certificate') !== false
+                || stripos($msg, 'unable to get local issuer certificate') !== false
+            ) {
+                return Http::withoutVerifying()->timeout($timeout)->withHeaders($defaultHeaders)->get($url, $query);
+            }
+
+            throw $e;
+        }
+    }
+
     public function nominatimLookup(string $query): ?array
     {
         $clean = trim($query);
@@ -197,17 +227,12 @@ class TrackingService
             : $clean.', Philippines';
 
         try {
-            $response = Http::timeout(6)
-                ->withHeaders([
-                    'User-Agent' => 'MoreBitesCapstone/1.0 (delivery tracking)',
-                    'Accept' => 'application/json',
-                ])
-                ->get('https://nominatim.openstreetmap.org/search', [
-                    'q' => $searchQuery,
-                    'format' => 'json',
-                    'limit' => 1,
-                    'countrycodes' => 'ph',
-                ]);
+            $response = $this->resilientGet('https://nominatim.openstreetmap.org/search', [
+                'q' => $searchQuery,
+                'format' => 'json',
+                'limit' => 1,
+                'countrycodes' => 'ph',
+            ], 6);
 
             if ($response->successful()) {
                 $hit = $response->json('0');
@@ -231,41 +256,45 @@ class TrackingService
         $fallbackCoords = [$from, $to];
         $haversine = $this->haversineKm($from, $to);
 
-        try {
-            $path = sprintf(
-                '%s,%s;%s,%s',
-                $from['longitude'],
-                $from['latitude'],
-                $to['longitude'],
-                $to['latitude']
-            );
+        $path = sprintf(
+            '%s,%s;%s,%s',
+            $from['longitude'],
+            $from['latitude'],
+            $to['longitude'],
+            $to['latitude']
+        );
 
-            $response = Http::timeout(10)->get(
-                'https://router.project-osrm.org/route/v1/driving/'.$path,
-                [
+        $endpoints = [
+            'https://router.project-osrm.org/route/v1/driving/'.$path,
+            'https://routing.openstreetmap.de/routed-car/route/v1/driving/'.$path,
+        ];
+
+        foreach ($endpoints as $endpoint) {
+            try {
+                $response = $this->resilientGet($endpoint, [
                     'overview' => 'full',
                     'geometries' => 'geojson',
-                ]
-            );
+                ], 8);
 
-            if ($response->successful() && ($response->json('code') === 'Ok')) {
-                $route = $response->json('routes.0');
-                $line = $route['geometry']['coordinates'] ?? [];
-                if ($line) {
-                    $coordinates = array_map(
-                        fn ($c) => ['longitude' => (float) $c[0], 'latitude' => (float) $c[1]],
-                        $line
-                    );
+                if ($response->successful() && ($response->json('code') === 'Ok')) {
+                    $route = $response->json('routes.0');
+                    $line = $route['geometry']['coordinates'] ?? [];
+                    if (is_array($line) && count($line) >= 2) {
+                        $coordinates = array_map(
+                            fn ($c) => ['longitude' => (float) $c[0], 'latitude' => (float) $c[1]],
+                            $line
+                        );
 
-                    return [
-                        'coordinates' => $coordinates,
-                        'distance_km' => round(((float) ($route['distance'] ?? 0)) / 1000, 2),
-                        'eta_mins' => max(1, (int) round(((float) ($route['duration'] ?? 0)) / 60)),
-                    ];
+                        return [
+                            'coordinates' => $coordinates,
+                            'distance_km' => round(((float) ($route['distance'] ?? 0)) / 1000, 2),
+                            'eta_mins' => max(1, (int) round(((float) ($route['duration'] ?? 0)) / 60)),
+                        ];
+                    }
                 }
+            } catch (\Throwable $e) {
+                Log::warning('OSRM directions failed ('.$endpoint.'): '.$e->getMessage());
             }
-        } catch (\Throwable $e) {
-            Log::warning('OSRM directions failed: '.$e->getMessage());
         }
 
         return [
@@ -336,7 +365,12 @@ class TrackingService
 
         if ($riderAccepted && $rider) {
             $coords = $order->route_coordinates;
-            if (! is_array($coords) || count($coords) < 2) {
+            $needsRoute = ! is_array($coords) || count($coords) < 2;
+            $needsRoadUpgrade = is_array($coords)
+                && count($coords) === 2
+                && Cache::add('tracking_route_retry:'.$order->id, true, 20);
+
+            if ($needsRoute || $needsRoadUpgrade) {
                 $order = $this->ensureRoute($order, $rider);
                 $coords = $order->route_coordinates;
             }
@@ -508,7 +542,7 @@ class TrackingService
             ['key' => 'Confirmed', 'title' => 'Order Confirmed', 'description' => 'Your order has been received', 'icon' => 'checkmark'],
             ['key' => 'Preparing', 'title' => 'Preparing', 'description' => "Your food is being prepared · ready in {$prepLabel} (est.)", 'icon' => 'checkmark'],
             ['key' => 'Out for Delivery', 'title' => 'Out For Delivery', 'description' => 'Your order is on the way', 'icon' => 'bicycle'],
-            ['key' => 'Delivered', 'title' => 'Delivered', 'description' => 'Order will be delivered soon', 'icon' => 'home-outline'],
+            ['key' => 'Delivered', 'title' => 'Delivered', 'description' => $status === 'Delivered' ? 'Your order has been delivered' : 'Order will be delivered soon', 'icon' => 'home-outline'],
         ];
 
         $stepStates = match ($status) {
