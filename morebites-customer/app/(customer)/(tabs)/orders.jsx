@@ -250,10 +250,10 @@ function OrderDetailsModal({ visible, order, onClose }) {
                 <Ionicons name="flame" size={18} color="#EA580C" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: FONT, fontSize: 13, fontWeight: "700", color: "#C2410C" }}>
-                    Preparing — ready in {order.prep_time_label || "about 15–20 mins"}
+                    Preparing, ready in {order.prep_time_label || "about 15–20 mins"}
                   </Text>
                   <Text style={{ fontFamily: FONT, fontSize: 11, color: "#9A3412" }}>
-                    Kitchen estimate · GPS route tracking begins upon rider dispatch.
+                    Kitchen prep estimate · Live map tracking starts once a rider picks up your order.
                   </Text>
                 </View>
               </View>

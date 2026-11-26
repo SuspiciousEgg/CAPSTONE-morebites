@@ -135,9 +135,9 @@ export default function PickupConfirmedScreen() {
         <View style={styles.successBanner}>
           <Ionicons name="checkmark-circle" size={32} color="#22C55E" />
           <View style={styles.successTextContainer}>
-            <Text style={styles.successTitle}>Picked confirmed</Text>
+            <Text style={styles.successTitle}>Pickup confirmed</Text>
             <Text style={styles.successSubtitle}>
-              Order verified — head to customer
+              Items checked. Ready to deliver to customer.
             </Text>
           </View>
         </View>

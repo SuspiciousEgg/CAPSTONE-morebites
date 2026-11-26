@@ -560,7 +560,7 @@ export default function ExpiringStock() {
             <div className="exp-modal exp-promo-modal" role="dialog" aria-modal="true">
               <div className="exp-modal-head">
                 <div>
-                  <h2>Smart Expiring-Stock Promo</h2>
+                  <h2>Expiring Stock Promo</h2>
                   <div className="exp-modal-meta-strip">
                     <span className="exp-batch-tag">{promoRow.batch_no}</span>
                     <span>
@@ -667,7 +667,7 @@ export default function ExpiringStock() {
                       </div>
                     ))}
                     <p className="exp-autostop-note">
-                      Automatically ends when Batch {promoRow.batch_no} reaches 0 stock or expires, protecting full price on fresh stock.
+                      Promo ends automatically once Batch {promoRow.batch_no} reaches 0 stock or expires, so fresh batches sell at regular price.
                     </p>
                   </div>
                 )}

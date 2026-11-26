@@ -213,7 +213,7 @@ function openDeliveryTransactionPrintWindow(reportData, preparedBy) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Delivery Transaction Report — Lynloves Morebites</title>
+  <title>Delivery Transaction Report | Lynloves Morebites</title>
   <style>
     @page {
       size: A4 landscape;
@@ -525,7 +525,7 @@ function openDeliveryTransactionPrintWindow(reportData, preparedBy) {
 <body>
   <div class="top-action-bar no-print">
     <div class="top-action-left">
-      <span>Lynloves Morebites — Delivery Transaction Report Preview</span>
+      <span>Lynloves Morebites | Delivery Transaction Report Preview</span>
     </div>
     <div class="top-action-right">
       <button class="btn-print" onclick="window.print()">
@@ -694,10 +694,10 @@ async function exportPdf(filename, title, headers, rows, preparedBy, options = {
   const enc = new TextEncoder()
 
   // Type 3 vector glyph for Philippine Peso (₱):
-  // Cap-height 700, dual horizontal crossbars at y=560 and y=450, stroke width 40
+  // Cap-height 700, dual horizontal crossbars at y=560 and y=450, stroke width 44
   const charProc = [
     '600 0 0 -100 600 800 d1',
-    '40 w 1 J 1 j',
+    '44 w 1 J 1 j',
     '120 0 m 120 700 l S',
     '120 700 m 340 700 440 630 440 510 c 440 390 340 320 120 320 c S',
     '40 560 m 380 560 l S',
@@ -724,102 +724,442 @@ async function exportPdf(filename, title, headers, rows, preparedBy, options = {
     'end',
   ].join('\n')
 
-  function encodeLineToOps(line) {
-    const sanitized = String(line ?? '')
-      .replace(/[\u2014\u2015]/g, '--')
+  const PAGE_W = 612
+  const PAGE_H = 792
+  const MARGIN_X = 36
+  const CONTENT_W = PAGE_W - MARGIN_X * 2 // 540 pt
+  const FOOTER_Y = 28
+
+  const COLORS = {
+    ink: [0.11, 0.106, 0.094],        // #1C1B18
+    body: [0.18, 0.21, 0.25],         // #2E3540
+    muted: [0.42, 0.45, 0.5],         // #6B7280
+    white: [1, 1, 1],
+    orange: [1, 0.647, 0],            // #FFA500
+    surface: [0.973, 0.976, 0.98],    // #F8F9FA
+    zebra: [0.98, 0.984, 0.988],      // #FAFBFC
+    warmTint: [1, 0.984, 0.949],      // #FFFBF2
+    border: [0.898, 0.906, 0.922],    // #E5E7EB
+    rowRule: [0.929, 0.929, 0.929],   // #EDEDED
+    green: [0.082, 0.502, 0.239],     // #15803D
+    red: [0.863, 0.149, 0.149],       // #DC2626
+    amber: [0.706, 0.325, 0.035],     // #B45309
+  }
+
+  function sanitizePdfText(val) {
+    return String(val ?? '')
+      .replace(/[\u2014\u2015]/g, '-')
       .replace(/[\u2012\u2013]/g, '-')
-    const parts = sanitized.split('₱')
-    const ops = []
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/\u2191/g, '+')
+      .replace(/\u2193/g, '-')
+      .replace(/\u00B7/g, '|')
+      .replace(/[^\x20-\x7E₱]/g, '')
+  }
+
+  function formatCellDisplay(val, isMoneyCol) {
+    const raw = String(val ?? '').trim()
+    if (!raw) return '-'
+    if (isMoneyCol || raw.startsWith('₱')) {
+      const cleaned = raw.replace(/[₱,\s]/g, '')
+      const num = Number(cleaned)
+      if (Number.isFinite(num) && cleaned !== '') {
+        return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      }
+    }
+    return raw
+  }
+
+  function parsePesoValue(val) {
+    const raw = String(val ?? '').trim()
+    if (!raw.includes('₱')) return null
+    const num = Number(raw.replace(/[₱,\s]/g, ''))
+    return Number.isFinite(num) ? num : null
+  }
+
+  function estimateCharWidth(ch, fontSize, isBold) {
+    if (ch === '₱') return fontSize * 0.6
+    const scale = isBold ? 1.06 : 1.0
+    if ('ilI1.,|:;!\' '.includes(ch)) return fontSize * 0.28 * scale
+    if ('fjrt()-/'.includes(ch)) return fontSize * 0.36 * scale
+    if ('MW@#%&'.includes(ch)) return fontSize * 0.82 * scale
+    if (ch >= 'A' && ch <= 'Z') return fontSize * 0.65 * scale
+    if (ch >= '0' && ch <= '9') return fontSize * 0.56 * scale
+    return fontSize * 0.52 * scale
+  }
+
+  function measureText(str, fontSize, isBold = false) {
+    const clean = sanitizePdfText(str)
+    let w = 0
+    for (let i = 0; i < clean.length; i++) {
+      w += estimateCharWidth(clean[i], fontSize, isBold)
+    }
+    return w
+  }
+
+  function fitText(str, maxWidth, fontSize, isBold = false) {
+    const clean = sanitizePdfText(str)
+    if (measureText(clean, fontSize, isBold) <= maxWidth) return clean
+    const ellipsis = '...'
+    const ellW = measureText(ellipsis, fontSize, isBold)
+    let out = ''
+    let w = 0
+    for (let i = 0; i < clean.length; i++) {
+      const cw = estimateCharWidth(clean[i], fontSize, isBold)
+      if (w + cw + ellW > maxWidth) break
+      out += clean[i]
+      w += cw
+    }
+    return `${out.trimEnd()}${ellipsis}`
+  }
+
+  function rgbFill(c) {
+    return `${c[0].toFixed(3)} ${c[1].toFixed(3)} ${c[2].toFixed(3)} rg`
+  }
+
+  function rgbStroke(c) {
+    return `${c[0].toFixed(3)} ${c[1].toFixed(3)} ${c[2].toFixed(3)} RG`
+  }
+
+  function rectFill(x, y, w, h, color) {
+    return `${rgbFill(color)} ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`
+  }
+
+  function rectStroke(x, y, w, h, color, lineWidth = 0.75) {
+    return `${lineWidth} w ${rgbStroke(color)} ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re S`
+  }
+
+  function drawLine(x1, y1, x2, y2, color, lineWidth = 0.75) {
+    return `${lineWidth} w ${rgbStroke(color)} ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`
+  }
+
+  function drawText(text, x, y, fontSize, { bold = false, color = COLORS.body, align = 'left' } = {}) {
+    const clean = sanitizePdfText(text)
+    if (!clean) return ''
+    let drawX = x
+    if (align === 'right') {
+      drawX = x - measureText(clean, fontSize, bold)
+    } else if (align === 'center') {
+      drawX = x - measureText(clean, fontSize, bold) / 2
+    }
+
+    const fontRef = bold ? '/F3' : '/F1'
+    const parts = clean.split('₱')
+    const ops = [
+      'BT',
+      rgbFill(color),
+      rgbStroke(color),
+      `1 0 0 1 ${drawX.toFixed(2)} ${y.toFixed(2)} Tm`,
+    ]
     for (let i = 0; i < parts.length; i++) {
       if (parts[i].length > 0) {
         const safe = parts[i].replace(/[()\\]/g, '\\$&')
-        ops.push(`/F1 9 Tf (${safe}) Tj`)
+        ops.push(`${fontRef} ${fontSize} Tf (${safe}) Tj`)
       }
       if (i < parts.length - 1) {
-        ops.push('/F2 9 Tf (\\200) Tj')
+        ops.push(`/F2 ${fontSize} Tf (\\200) Tj`)
       }
     }
-    ops.push('T*')
+    ops.push('ET')
     return ops.join('\n')
   }
 
-  const headerSep = '-'.repeat(Math.min(95, headers.join(' | ').length))
-  const ROWS_PER_PAGE_FIRST = 38
-  const ROWS_PER_PAGE_SUB = 45
+  // Determine smart column widths & alignments based on headers
+  const colCount = Math.max(1, headers.length)
+  const moneyColIndices = new Set()
+  const rightAlignCols = new Set()
+  const statusColIndices = new Set()
 
-  const pagesData = []
+  headers.forEach((h, idx) => {
+    const lower = String(h || '').toLowerCase()
+    if (/amount|total|spend|fee|revenue|price|sales/.test(lower)) {
+      moneyColIndices.add(idx)
+      rightAlignCols.add(idx)
+    } else if (/units|orders|rank/.test(lower)) {
+      rightAlignCols.add(idx)
+    }
+    if (/status/.test(lower)) {
+      statusColIndices.add(idx)
+    }
+  })
 
-  if (options?.isGrouped && Array.isArray(options.groups)) {
-    const groupedLines = []
-    if (options.groups.length === 0) {
-      groupedLines.push('No delivery transactions found for the selected period.')
+  // Also detect money columns from actual values if header didn't match
+  const sampleRows = options?.isGrouped && Array.isArray(options.groups)
+    ? options.groups.flatMap((g) => g.rows || []).slice(0, 5)
+    : (rows || []).slice(0, 5)
+  sampleRows.forEach((r) => {
+    if (!Array.isArray(r)) return
+    r.forEach((cell, idx) => {
+      if (String(cell ?? '').includes('₱')) {
+        moneyColIndices.add(idx)
+        rightAlignCols.add(idx)
+      }
+    })
+  })
+
+  function computeColWidths(hdrs) {
+    const weights = hdrs.map((h) => {
+      const l = String(h || '').toLowerCase()
+      if (/^rank$|^#$/.test(l)) return 0.55
+      if (/order id|^id$/.test(l)) return 0.9
+      if (/payment/.test(l)) return 0.8
+      if (/status/.test(l)) return 0.85
+      if (/order type|^type$|category|trend/.test(l)) return 0.95
+      if (/amount|total|spend|fee|price|units/.test(l)) return 0.95
+      if (/date|time/.test(l)) return 1.05
+      if (/address|remarks|incident/.test(l)) return 1.65
+      if (/customer|item name|name|driver|rider/.test(l)) return 1.35
+      return 1.0
+    })
+    const sum = weights.reduce((a, b) => a + b, 0) || 1
+    return weights.map((w) => (w / sum) * CONTENT_W)
+  }
+
+  const colWidths = computeColWidths(headers)
+  const colXs = []
+  let cx = MARGIN_X
+  for (let i = 0; i < colCount; i++) {
+    colXs.push(cx)
+    cx += colWidths[i]
+  }
+
+  // Compute summary metrics across all rows
+  const allFlatRows = options?.isGrouped && Array.isArray(options.groups)
+    ? options.groups.flatMap((g) => g.rows || [])
+    : (rows || [])
+
+  const primaryMoneyCol = [...moneyColIndices][0] ?? -1
+  let grandTotal = 0
+  let hasMoneySum = false
+  if (primaryMoneyCol >= 0) {
+    allFlatRows.forEach((r) => {
+      const val = parsePesoValue(r?.[primaryMoneyCol])
+      if (val !== null) {
+        grandTotal += val
+        hasMoneySum = true
+      }
+    })
+  }
+
+  const generatedStamp = formatManilaDateTime(new Date())
+  const generatedDateOnly = formatManilaDate(new Date())
+
+  // Build pages as arrays of PDF drawing ops
+  const pageStreams = []
+  let currentOps = []
+  let cursorY = PAGE_H - 36
+
+  function drawBrandHeader(isFirstPage) {
+    // Clean top brand accent rule
+    currentOps.push(rectFill(MARGIN_X, PAGE_H - 28, CONTENT_W, 3.5, COLORS.orange))
+
+    if (isFirstPage) {
+      currentOps.push(drawText('LYNLOVES MOREBITES FOOD CORNER', MARGIN_X, PAGE_H - 50, 13.5, { bold: true, color: COLORS.ink }))
+      currentOps.push(drawText('Purok 5, Poblacion, Dangcagan, Bukidnon', MARGIN_X, PAGE_H - 63, 8, { color: COLORS.muted }))
+
+      // Right-aligned report title & metadata
+      const fittedTitle = fitText(title, 250, 10, true)
+      currentOps.push(drawText(fittedTitle, MARGIN_X + CONTENT_W, PAGE_H - 49, 10, { bold: true, color: COLORS.ink, align: 'right' }))
+      currentOps.push(drawText(`Generated: ${generatedStamp}`, MARGIN_X + CONTENT_W, PAGE_H - 61, 7.8, { color: COLORS.muted, align: 'right' }))
+      currentOps.push(drawText(preparedByText, MARGIN_X + CONTENT_W, PAGE_H - 72, 7.8, { color: COLORS.muted, align: 'right' }))
+
+      currentOps.push(drawLine(MARGIN_X, PAGE_H - 82, MARGIN_X + CONTENT_W, PAGE_H - 82, COLORS.border, 0.75))
+
+      // Clean uniform-border KPI summary strip
+      const boxY = PAGE_H - 132
+      const boxH = 40
+      currentOps.push(rectFill(MARGIN_X, boxY, CONTENT_W, boxH, COLORS.surface))
+      currentOps.push(rectStroke(MARGIN_X, boxY, CONTENT_W, boxH, COLORS.border, 0.75))
+
+      const third = CONTENT_W / 3
+      // Vertical dividers between KPI slots
+      currentOps.push(drawLine(MARGIN_X + third, boxY + 8, MARGIN_X + third, boxY + boxH - 8, COLORS.border, 0.6))
+      currentOps.push(drawLine(MARGIN_X + third * 2, boxY + 8, MARGIN_X + third * 2, boxY + boxH - 8, COLORS.border, 0.6))
+
+      // KPI 1: Total Records
+      currentOps.push(drawText('TOTAL RECORDS', MARGIN_X + 12, boxY + 26, 7, { bold: true, color: COLORS.muted }))
+      currentOps.push(drawText(`${allFlatRows.length} ${allFlatRows.length === 1 ? 'record' : 'records'}`, MARGIN_X + 12, boxY + 11, 11, { bold: true, color: COLORS.ink }))
+
+      // KPI 2: Grand Total (or Report Category)
+      if (hasMoneySum) {
+        const formattedGrand = `₱${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        currentOps.push(drawText('TOTAL AMOUNT', MARGIN_X + third + 12, boxY + 26, 7, { bold: true, color: COLORS.muted }))
+        currentOps.push(drawText(formattedGrand, MARGIN_X + third + 12, boxY + 11, 11, { bold: true, color: COLORS.ink }))
+      } else {
+        currentOps.push(drawText('REPORT PERIOD', MARGIN_X + third + 12, boxY + 26, 7, { bold: true, color: COLORS.muted }))
+        const periodMatch = String(title).match(/\(([^)]+)\)/)
+        const periodLabel = fitText(periodMatch ? periodMatch[1] : generatedDateOnly, third - 24, 9.5, true)
+        currentOps.push(drawText(periodLabel, MARGIN_X + third + 12, boxY + 11, 9.5, { bold: true, color: COLORS.ink }))
+      }
+
+      // KPI 3: Timezone / Date
+      currentOps.push(drawText('REPORT DATE (PHT)', MARGIN_X + third * 2 + 12, boxY + 26, 7, { bold: true, color: COLORS.muted }))
+      currentOps.push(drawText(generatedDateOnly, MARGIN_X + third * 2 + 12, boxY + 11, 10.5, { bold: true, color: COLORS.ink }))
+
+      cursorY = boxY - 14
     } else {
-      options.groups.forEach((g, idx) => {
-        groupedLines.push('')
-        groupedLines.push(`Transaction Group #${idx + 1}`)
-        groupedLines.push('=================================================================================')
-        groupedLines.push('DELIVERY INFORMATION')
-        groupedLines.push(`Vehicle Type: ${g.truckName || 'Motorcycle'}      Driver Name: ${g.rider || 'Unassigned'}`)
-        groupedLines.push(`Plate Number: ${g.plateNumber || 'N/A'}          Delivery Date: ${g.formattedDate || g.date || ''}`)
-        groupedLines.push('=================================================================================')
-        groupedLines.push('DELIVERY TRANSACTIONS')
-        groupedLines.push(headers.join(' | '))
-        groupedLines.push(headerSep)
-        g.rows.forEach((r) => groupedLines.push(r.join(' | ')))
-      })
-    }
-
-    const remaining = [...groupedLines]
-    const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
-    pagesData.push([
-      'Lynloves Morebites',
-      'Delivery Tracking & Incident Reporting',
-      title,
-      `Generated: ${formatManilaDateTime(new Date())}`,
-      preparedByText,
-      ...page1Rows,
-    ])
-
-    while (remaining.length > 0) {
-      const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
-      pagesData.push([
-        'Lynloves Morebites - Delivery Transaction Report (Continued)',
-        '',
-        ...subRows,
-      ])
-    }
-  } else {
-    const dataLines = rows.map((r) => r.join(' | '))
-    const remaining = [...dataLines]
-
-    // Page 1 with Title, Timestamp, Prepared By, and Headers
-    const page1Rows = remaining.splice(0, ROWS_PER_PAGE_FIRST)
-    pagesData.push([
-      title,
-      `Generated: ${formatManilaDateTime(new Date())}`,
-      preparedByText,
-      '',
-      headers.join(' | '),
-      headerSep,
-      ...page1Rows,
-    ])
-
-    // Subsequent pages with Continued title and Headers
-    while (remaining.length > 0) {
-      const subRows = remaining.splice(0, ROWS_PER_PAGE_SUB)
-      pagesData.push([
-        `${title} (Continued)`,
-        headers.join(' | '),
-        headerSep,
-        ...subRows,
-      ])
+      const contTitle = fitText(`${title} (Continued)`, 360, 10, true)
+      currentOps.push(drawText('LYNLOVES MOREBITES', MARGIN_X, PAGE_H - 46, 9, { bold: true, color: COLORS.muted }))
+      currentOps.push(drawText(contTitle, MARGIN_X + CONTENT_W, PAGE_H - 46, 9.5, { bold: true, color: COLORS.ink, align: 'right' }))
+      currentOps.push(drawLine(MARGIN_X, PAGE_H - 54, MARGIN_X + CONTENT_W, PAGE_H - 54, COLORS.border, 0.75))
+      cursorY = PAGE_H - 68
     }
   }
 
-  const numPages = pagesData.length
+  function startNewPage(isFirstPage = false) {
+    if (!isFirstPage) {
+      pageStreams.push(currentOps)
+      currentOps = []
+    }
+    drawBrandHeader(isFirstPage)
+  }
+
+  function drawTableHeader() {
+    const headerH = 22
+    const topY = cursorY
+    const bottomY = topY - headerH
+    currentOps.push(rectFill(MARGIN_X, bottomY, CONTENT_W, headerH, COLORS.ink))
+
+    headers.forEach((h, idx) => {
+      const colW = colWidths[idx]
+      const isRight = rightAlignCols.has(idx)
+      const label = fitText(String(h || '').toUpperCase(), colW - 12, 7.2, true)
+      const tx = isRight ? colXs[idx] + colW - 6 : colXs[idx] + 6
+      currentOps.push(drawText(label, tx, bottomY + 7.5, 7.2, {
+        bold: true,
+        color: COLORS.white,
+        align: isRight ? 'right' : 'left',
+      }))
+    })
+    cursorY = bottomY
+  }
+
+  function drawDataRow(rowCells, rowIdx) {
+    const rowH = 19
+    if (cursorY - rowH < 56) {
+      startNewPage(false)
+      drawTableHeader()
+    }
+    const bottomY = cursorY - rowH
+    if (rowIdx % 2 === 1) {
+      currentOps.push(rectFill(MARGIN_X, bottomY, CONTENT_W, rowH, COLORS.zebra))
+    }
+    currentOps.push(drawLine(MARGIN_X, bottomY, MARGIN_X + CONTENT_W, bottomY, COLORS.rowRule, 0.5))
+    currentOps.push(drawLine(MARGIN_X, bottomY, MARGIN_X, cursorY, COLORS.border, 0.6))
+    currentOps.push(drawLine(MARGIN_X + CONTENT_W, bottomY, MARGIN_X + CONTENT_W, cursorY, COLORS.border, 0.6))
+
+    headers.forEach((_, idx) => {
+      const isMoney = moneyColIndices.has(idx)
+      const isRight = rightAlignCols.has(idx)
+      const isStatus = statusColIndices.has(idx)
+      const displayVal = formatCellDisplay(rowCells?.[idx], isMoney)
+      const colW = colWidths[idx]
+      const isBoldCell = idx === 0 || isMoney || isStatus
+      const fitted = fitText(displayVal, colW - 12, 8, isBoldCell)
+      const tx = isRight ? colXs[idx] + colW - 6 : colXs[idx] + 6
+
+      let cellColor = COLORS.body
+      if (idx === 0 || isMoney) {
+        cellColor = COLORS.ink
+      } else if (isStatus) {
+        const lower = displayVal.toLowerCase()
+        if (lower.includes('completed') || lower.includes('delivered') || lower.includes('paid') || lower.includes('frequent')) {
+          cellColor = COLORS.green
+        } else if (lower.includes('cancel') || lower.includes('expired')) {
+          cellColor = COLORS.red
+        } else if (lower.includes('pending') || lower.includes('prepar') || lower.includes('out for')) {
+          cellColor = COLORS.amber
+        }
+      }
+
+      currentOps.push(drawText(fitted, tx, bottomY + 6, 8, {
+        bold: isBoldCell,
+        color: cellColor,
+        align: isRight ? 'right' : 'left',
+      }))
+    })
+    cursorY = bottomY
+  }
+
+  function drawTotalRow() {
+    if (!hasMoneySum || primaryMoneyCol < 0) return
+    const totalH = 23
+    if (cursorY - totalH < 56) {
+      startNewPage(false)
+    }
+    const bottomY = cursorY - totalH
+    currentOps.push(rectFill(MARGIN_X, bottomY, CONTENT_W, totalH, COLORS.warmTint))
+    currentOps.push(drawLine(MARGIN_X, cursorY, MARGIN_X + CONTENT_W, cursorY, COLORS.orange, 1.0))
+    currentOps.push(drawLine(MARGIN_X, bottomY, MARGIN_X + CONTENT_W, bottomY, COLORS.border, 0.75))
+    currentOps.push(drawLine(MARGIN_X, bottomY, MARGIN_X, cursorY, COLORS.border, 0.75))
+    currentOps.push(drawLine(MARGIN_X + CONTENT_W, bottomY, MARGIN_X + CONTENT_W, cursorY, COLORS.border, 0.75))
+
+    const totalCountLabel = `GRAND TOTAL (${allFlatRows.length} ${allFlatRows.length === 1 ? 'record' : 'records'})`
+    currentOps.push(drawText(totalCountLabel, MARGIN_X + 8, bottomY + 7.5, 8.5, { bold: true, color: COLORS.ink }))
+
+    const formattedGrand = `₱${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const totalX = colXs[primaryMoneyCol] + colWidths[primaryMoneyCol] - 6
+    currentOps.push(drawText(formattedGrand, totalX, bottomY + 7.5, 9, { bold: true, color: COLORS.ink, align: 'right' }))
+    cursorY = bottomY
+  }
+
+  // Render content
+  startNewPage(true)
+
+  if (options?.isGrouped && Array.isArray(options.groups)) {
+    if (options.groups.length === 0) {
+      currentOps.push(drawText('No delivery transactions found for the selected period.', MARGIN_X, cursorY - 16, 9, { color: COLORS.muted }))
+    } else {
+      options.groups.forEach((g, idx) => {
+        const groupBoxH = 34
+        if (cursorY - groupBoxH - 44 < 56) {
+          startNewPage(false)
+        }
+        const gBottom = cursorY - groupBoxH
+        currentOps.push(rectFill(MARGIN_X, gBottom, CONTENT_W, groupBoxH, COLORS.surface))
+        currentOps.push(rectStroke(MARGIN_X, gBottom, CONTENT_W, groupBoxH, COLORS.border, 0.75))
+        currentOps.push(drawText(
+          `Delivery Group #${idx + 1} | Driver: ${g.rider || 'Unassigned'}`,
+          MARGIN_X + 10,
+          gBottom + 20,
+          8.5,
+          { bold: true, color: COLORS.ink },
+        ))
+        currentOps.push(drawText(
+          `Vehicle: ${g.truckName || 'Motorcycle'}  |  Plate: ${g.plateNumber || 'N/A'}  |  Date: ${g.formattedDate || g.date || ''}`,
+          MARGIN_X + 10,
+          gBottom + 7,
+          7.8,
+          { color: COLORS.muted },
+        ))
+        cursorY = gBottom - 4
+        drawTableHeader()
+        ;(g.rows || []).forEach((r, rIdx) => drawDataRow(r, rIdx))
+        cursorY -= 12
+      })
+      drawTotalRow()
+    }
+  } else {
+    drawTableHeader()
+    if (rows.length === 0) {
+      const emptyH = 30
+      const bottomY = cursorY - emptyH
+      currentOps.push(rectStroke(MARGIN_X, bottomY, CONTENT_W, emptyH, COLORS.border, 0.6))
+      currentOps.push(drawText('No records found for the selected period.', MARGIN_X + CONTENT_W / 2, bottomY + 11, 8.5, { color: COLORS.muted, align: 'center' }))
+      cursorY = bottomY
+    } else {
+      rows.forEach((r, rIdx) => drawDataRow(r, rIdx))
+      drawTotalRow()
+    }
+  }
+
+  pageStreams.push(currentOps)
+
+  const numPages = pageStreams.length
   const pageObjNums = []
   for (let i = 0; i < numPages; i++) {
-    pageObjNums.push(7 + 2 * i)
+    pageObjNums.push(8 + 2 * i)
   }
 
   let body = '%PDF-1.4\n'
@@ -836,20 +1176,28 @@ async function exportPdf(filename, title, headers, rows, preparedBy, options = {
   addObj(4, '<< /Type /Font /Subtype /Type3 /FontBBox [0 -100 600 800] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /peso 5 0 R >> /Encoding << /Type /Encoding /Differences [128 /peso] >> /FirstChar 128 /LastChar 128 /Widths [600] /ToUnicode 6 0 R >>')
   addObj(5, `<< /Length ${enc.encode(charProc).length} >> stream\n${charProc}\nendstream`)
   addObj(6, `<< /Length ${enc.encode(toUnicodeCMap).length} >> stream\n${toUnicodeCMap}\nendstream`)
+  addObj(7, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>')
 
   for (let i = 0; i < numPages; i++) {
-    const pageNum = 7 + 2 * i
-    const streamNum = 8 + 2 * i
+    const pageNum = 8 + 2 * i
+    const streamNum = 9 + 2 * i
 
-    addObj(pageNum, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${streamNum} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`)
+    // Append page footer with Page X of Y
+    const ops = [
+      ...pageStreams[i],
+      drawLine(MARGIN_X, FOOTER_Y + 12, MARGIN_X + CONTENT_W, FOOTER_Y + 12, COLORS.border, 0.5),
+      drawText('LynLoves Morebites Food Corner | System Generated Report', MARGIN_X, FOOTER_Y, 7.5, { color: COLORS.muted }),
+      drawText(`Page ${i + 1} of ${numPages}`, MARGIN_X + CONTENT_W, FOOTER_Y, 7.5, { color: COLORS.muted, align: 'right' }),
+    ]
 
-    const lines = pagesData[i]
-    const streamOps = ['BT', '40 750 Td', '14 TL', ...lines.map(encodeLineToOps), 'ET'].join('\n')
+    addObj(pageNum, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${streamNum} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 7 0 R >> >> >>`)
+
+    const streamOps = ops.filter(Boolean).join('\n')
     const streamByteLen = enc.encode(streamOps).length
     addObj(streamNum, `<< /Length ${streamByteLen} >> stream\n${streamOps}\nendstream`)
   }
 
-  const totalObjs = 6 + 2 * numPages
+  const totalObjs = 7 + 2 * numPages
   const startXref = enc.encode(body).length
   const pad = (n) => String(n).padStart(10, '0')
   let xref = `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`
@@ -2538,7 +2886,7 @@ export default function RecordsReports({ user: propUser }) {
           >
             <div className="reports-modal-header">
               <div>
-                <h2 className="reports-modal-title">Top 10 Selling Items — Full List</h2>
+                <h2 className="reports-modal-title">Top 10 Selling Items</h2>
                 <p className="reports-modal-subtitle">Ranked by all units ordered</p>
               </div>
             </div>

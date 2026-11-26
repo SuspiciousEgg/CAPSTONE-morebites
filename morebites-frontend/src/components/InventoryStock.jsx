@@ -1066,7 +1066,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                     </label>
                   </div>
                   <p className="inv-field-hint">
-                    Priced per 1 {formatPriceUnitLabel(form.unit)} ({form.unit || 'pcs'}) — used to calculate recipe and removable ingredient costs.
+                    Unit cost per 1 {formatPriceUnitLabel(form.unit)} ({form.unit || 'pcs'}), used for recipe costing and removable ingredient deductions.
                   </p>
                 </section>
 
@@ -1608,7 +1608,7 @@ export default function InventoryStock({ onOpenExpiring, currentTab = 'stock' })
                 />
               </label>
               <label style={{ marginTop: '10px' }}>
-                Batch Number (Optional — auto-generated if blank)
+                Batch Number (Optional, auto-generated if left blank)
                 <input
                   type="text"
                   value={restockBatchNo}

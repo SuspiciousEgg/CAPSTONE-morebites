@@ -144,13 +144,13 @@ export default function PrepTimeSettingsSection() {
         <div className="prep-preview-card">
           <div className="prep-preview-header">
             <span className="prep-preview-title">Customer Order Tracking Preview</span>
-            <span className="prep-preview-pill">Estimate (Non-GPS)</span>
+            <span className="prep-preview-pill">Kitchen Prep Estimate</span>
           </div>
           <div className="prep-preview-main">
-            Preparing — ready in <strong>{previewLabel}</strong>
+            Preparing, ready in <strong>{previewLabel}</strong>
           </div>
           <p className="prep-preview-sub">
-            Shown on the customer app during kitchen preparation. The moment rider pickup is confirmed, this estimate disappears and live GPS route ETA takes over.
+            Shown to customers while food is cooking. Switches automatically to live GPS route tracking once the rider confirms pickup.
           </p>
         </div>
 
