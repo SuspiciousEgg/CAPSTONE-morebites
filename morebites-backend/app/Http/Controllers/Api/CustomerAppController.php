@@ -49,7 +49,6 @@ class CustomerAppController extends Controller
         $phone = $data['phone'];
 
         $exists = User::query()
-            ->where('role', 'customer')
             ->where(function ($q) use ($phone, $data) {
                 $q->where('phone', $data['phone'])
                     ->orWhere('phone', $phone)
@@ -648,7 +647,23 @@ class CustomerAppController extends Controller
         }
 
         if (isset($data['phone'])) {
-            $data['phone'] = $this->normalizePhone($data['phone']);
+            $normalizedPhone = $this->normalizePhone($data['phone']);
+            $phoneTaken = User::query()
+                ->where('id', '!=', $user->id)
+                ->where(function ($q) use ($normalizedPhone, $data) {
+                    $q->where('phone', $data['phone'])
+                        ->orWhere('phone', $normalizedPhone)
+                        ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$normalizedPhone]);
+                })
+                ->exists();
+
+            if ($phoneTaken) {
+                throw ValidationException::withMessages([
+                    'phone' => ['Phone number is already registered to another account.'],
+                ]);
+            }
+
+            $data['phone'] = $normalizedPhone;
         }
 
         if ($request->hasFile('photo')) {

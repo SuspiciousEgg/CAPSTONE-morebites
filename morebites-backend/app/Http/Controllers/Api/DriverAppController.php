@@ -195,6 +195,26 @@ class DriverAppController extends Controller
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
+        if (isset($data['phone'])) {
+            $normalizedPhone = $this->normalizePhone($data['phone']);
+            $phoneTaken = User::query()
+                ->where('id', '!=', $user->id)
+                ->where(function ($q) use ($normalizedPhone, $data) {
+                    $q->where('phone', $data['phone'])
+                        ->orWhere('phone', $normalizedPhone)
+                        ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$normalizedPhone]);
+                })
+                ->exists();
+
+            if ($phoneTaken) {
+                throw ValidationException::withMessages([
+                    'phone' => ['Phone number is already registered to another account.'],
+                ]);
+            }
+
+            $data['phone'] = $normalizedPhone;
+        }
+
         if (isset($data['first_name']) || isset($data['last_name'])) {
             $first = $data['first_name'] ?? $user->first_name;
             $last = $data['last_name'] ?? $user->last_name;

@@ -10,6 +10,7 @@ use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AccountController extends Controller
 {
@@ -63,6 +64,8 @@ class AccountController extends Controller
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
+
+        $this->assertUniquePhone($data['phone'] ?? null);
 
         $user = User::query()->create([
             'name' => trim($data['first_name'].' '.$data['last_name']),
@@ -122,6 +125,8 @@ class AccountController extends Controller
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
+        $this->assertUniquePhone($data['phone'] ?? null);
+
         $user = User::query()->create([
             'name' => trim($data['first_name'].' '.$data['last_name']),
             'first_name' => $data['first_name'],
@@ -180,6 +185,8 @@ class AccountController extends Controller
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
 
+        $this->assertUniquePhone($data['phone'] ?? null);
+
         $user = User::query()->create([
             'name' => trim($data['first_name'].' '.$data['last_name']),
             'first_name' => $data['first_name'],
@@ -234,6 +241,10 @@ class AccountController extends Controller
         ], [
             'phone.regex' => 'Enter a valid 11-digit Philippine mobile number starting with 09.',
         ]);
+
+        if (array_key_exists('phone', $data)) {
+            $this->assertUniquePhone($data['phone'], $user->id);
+        }
 
         if (isset($data['first_name']) || isset($data['last_name'])) {
             $first = $data['first_name'] ?? $user->first_name;
@@ -522,6 +533,29 @@ class AccountController extends Controller
             } elseif (is_string($raw) && (str_starts_with($raw, 'http') || str_starts_with($raw, '/storage'))) {
                 $user->update(['license_document' => $raw]);
             }
+        }
+    }
+
+    private function assertUniquePhone(?string $phone, ?int $ignoreUserId = null): void
+    {
+        $clean = str_replace([' ', '-'], '', trim((string) $phone));
+        if ($clean === '') {
+            return;
+        }
+
+        $exists = User::query()
+            ->when($ignoreUserId !== null, fn ($q) => $q->where('id', '!=', $ignoreUserId))
+            ->where(function ($q) use ($clean, $phone) {
+                $q->where('phone', $phone)
+                    ->orWhere('phone', $clean)
+                    ->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '-', '') = ?", [$clean]);
+            })
+            ->exists();
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'phone' => ['Phone number is already registered to another account.'],
+            ]);
         }
     }
 }
