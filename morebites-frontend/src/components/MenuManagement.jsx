@@ -1821,7 +1821,7 @@ export default function MenuManagement() {
                                 fontWeight: 500,
                               }}
                             >
-                              Disabled — {item.stockReason === 'expired' ? 'expired ingredient' : 'insufficient ingredients'}
+                              Unavailable: {item.stockReason === 'expired' ? 'expired ingredient' : 'insufficient ingredients'}
                             </span>
                           )}
                         </div>

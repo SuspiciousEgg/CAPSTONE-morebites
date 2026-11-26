@@ -456,7 +456,7 @@ export default function ReceiptScreen() {
     orderData?.payment_confirmed_at_label || orderData?.delivered_at_label
   );
 
-  const paymentMethodLabel = "Cash on Delivery (COD) — Paid";
+  const paymentMethodLabel = "Cash on Delivery (Paid)";
   const riderName =
     orderData?.driver ||
     orderData?.rider_name ||
@@ -507,7 +507,7 @@ export default function ReceiptScreen() {
       ...items.map((item) => {
         const removedSummary = formatRemovedIngredientsSummary(item);
         const removedSuffix = removedSummary ? ` (${removedSummary})` : "";
-        return `${item.quantity}x ${formatReceiptItemName(item)}${removedSuffix} — ₱${(
+        return `${item.quantity}x ${formatReceiptItemName(item)}${removedSuffix}: ₱${(
           Number(item.price || 0) * Number(item.quantity || 1)
         ).toLocaleString()}`;
       }),

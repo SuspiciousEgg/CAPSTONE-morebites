@@ -383,7 +383,7 @@ export default function OrderTrackingScreen() {
               </View>
 
               <Text style={styles.prepMainText}>
-                Preparing — ready in {tracking?.prep_time_label || "about 15–20 mins"}
+                Preparing, ready in {tracking?.prep_time_label || "about 15–20 mins"}
               </Text>
               <Text style={styles.prepSubText}>
                 Your food is being prepared fresh in the kitchen.
@@ -392,7 +392,7 @@ export default function OrderTrackingScreen() {
               <View style={styles.distanceRow}>
                 <Ionicons name="information-circle-outline" size={14} color="#9CA3AF" />
                 <Text style={styles.distanceText}>
-                  Non-GPS estimate · Live route ETA begins when rider is on the way
+                  Live route tracking begins once your rider picks up the order
                 </Text>
               </View>
             </View>

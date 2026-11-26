@@ -81,7 +81,7 @@ export default function DeliveryRatesSettings() {
         <div>
           <h1>Settings</h1>
           <p className="dr-sub">
-            Store configuration — delivery distance tiers and customer loyalty program
+            Configure delivery distance tiers, kitchen prep time, and loyalty point rules
           </p>
         </div>
       </header>
