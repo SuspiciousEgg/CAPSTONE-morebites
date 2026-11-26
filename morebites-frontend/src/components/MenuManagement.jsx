@@ -464,18 +464,57 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
 
     if (form.hasSizes) {
       setForm((prev) => {
-        const nextSizes = prev.sizes.map((size, sIdx) => {
-          if (sIdx !== safeActiveSizeIndex) return size
-          const nextIngs = (size.ingredients || []).map((row, i) => {
-            if (i !== index) return row
-            const nextRow = { ...row, [key]: value }
-            if (key === 'inventory_item_id') {
-              const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
-              applyPickedInventory(nextRow, inv)
+        const currentRow = prev.sizes[safeActiveSizeIndex]?.ingredients?.[index]
+        const targetInvId =
+          key === 'is_removable' && currentRow?.inventory_item_id != null
+            ? String(currentRow.inventory_item_id).trim()
+            : ''
+
+        // When picking an inventory item on a size tab, inherit Main/Opt status if already set on another size
+        let existingRemovableForPicked = null
+        if (key === 'inventory_item_id' && String(value || '').trim() !== '') {
+          const pickedId = String(value).trim()
+          for (let s = 0; s < prev.sizes.length; s++) {
+            const match = (prev.sizes[s]?.ingredients || []).find(
+              (r, rIdx) =>
+                !(s === safeActiveSizeIndex && rIdx === index) &&
+                String(r.inventory_item_id || '').trim() === pickedId,
+            )
+            if (match) {
+              existingRemovableForPicked = match.is_removable !== false
+              break
             }
-            return syncRowComputedPrice(nextRow)
-          })
-          return { ...size, ingredients: nextIngs }
+          }
+        }
+
+        const nextSizes = prev.sizes.map((size, sIdx) => {
+          if (sIdx === safeActiveSizeIndex) {
+            const nextIngs = (size.ingredients || []).map((row, i) => {
+              if (i !== index) return row
+              const nextRow = { ...row, [key]: value }
+              if (key === 'inventory_item_id') {
+                const inv = inventoryOptions.find((opt) => String(opt.id) === String(value))
+                applyPickedInventory(nextRow, inv)
+                if (existingRemovableForPicked !== null) {
+                  nextRow.is_removable = existingRemovableForPicked
+                }
+              }
+              return syncRowComputedPrice(nextRow)
+            })
+            return { ...size, ingredients: nextIngs }
+          }
+
+          // Sync Main / Opt. (is_removable) across all other sizes sharing this same ingredient
+          if (key === 'is_removable' && targetInvId !== '') {
+            const nextIngs = (size.ingredients || []).map((row) =>
+              String(row.inventory_item_id || '').trim() === targetInvId
+                ? { ...row, is_removable: value }
+                : row,
+            )
+            return { ...size, ingredients: nextIngs }
+          }
+
+          return size
         })
         return { ...prev, sizes: nextSizes }
       })
@@ -1325,8 +1364,12 @@ function ItemFormModal({ mode, initial, inventoryOptions, onClose, onSave }) {
                           String(form.category || '').trim().toLowerCase() === 'beverages'
                             ? 'Beverages do not allow removing ingredients'
                             : row.is_removable === false
-                              ? 'Main ingredient (hidden from customer/POS removal). Click to allow removal.'
-                              : 'Removable topping (shown to customer/POS). Click to lock as main ingredient.'
+                              ? form.hasSizes
+                                ? 'Main ingredient across all sizes (hidden from customer/POS removal). Click to allow removal.'
+                                : 'Main ingredient (hidden from customer/POS removal). Click to allow removal.'
+                              : form.hasSizes
+                                ? 'Removable topping across all sizes (shown to customer/POS). Click to lock as main ingredient.'
+                                : 'Removable topping (shown to customer/POS). Click to lock as main ingredient.'
                         }
                       >
                         {String(form.category || '').trim().toLowerCase() === 'beverages' || row.is_removable === false
